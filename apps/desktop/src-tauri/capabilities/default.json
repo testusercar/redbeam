@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimum surface REDBEAM needs today: window control, the event bus, and path resolution. Filesystem, shell, dialog and http are deliberately NOT granted to the frontend \u2014 the folder and drawing pickers run in Rust, where the ACL does not apply, and adding them here would open the whole plugin to the webview. The updater and a single process:allow-restart are granted because an installed copy has no other route to a fix; `process:default` is NOT, since that would also hand the webview the ability to exit the app.",
+  "windows": [
+    "*"
+  ],
+  "permissions": [
+    "core:window:default",
+    "core:event:default",
+    "core:path:default",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "updater:default",
+    "process:allow-restart",
+    "core:window:allow-set-title"
+  ]
+}

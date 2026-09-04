@@ -1,0 +1,411 @@
+/**
+ * REDBEAM component styles, on aaron-design-system v0.11.0.
+ *
+ * Everything below the token block is the pre-system component CSS for the
+ * overlays the shell rewrite has not reached yet — the scope editor, the BOM
+ * panel, settings, search, the document browser, the calibration form. Rather
+ * than leave them in the old cool-grey palette inside a Warm Graphite shell,
+ * the legacy token names are REDEFINED here in terms of `--ads-*`. One edit,
+ * and every one of those surfaces inherits the system.
+ *
+ * This is a migration shim, and it is temporary in a way that should be
+ * visible: as each overlay is rebuilt on the primitives layer, the legacy name
+ * it used dies with it, and when the list below is empty this block goes.
+ * Nothing new should reference a legacy name.
+ *
+ * Two mappings are lossy on purpose and worth stating:
+ *   - The old scale had TEN surface steps. The system has three, by decree
+ *     (standards/02: "Three levels per mode, nothing else"), so several of the
+ *     old names collapse onto the same plane. That is the point — six
+ *     near-identical dark surfaces is what the original comment in this file
+ *     complained about, and the system just settles it.
+ *   - `--accent` was a blue. `--ads-accent` is ink, and standards/02 is
+ *     explicit that no other accent exists. The blue survives ONLY as
+ *     `--link`, which is what it always really was.
+ */
+@import url('./ads/fonts.css');
+@import url('./ads/primitives.css');
+/* REDBEAM's own colour layer, over the system's spacing/type/radius scales. */
+@import url('./theme/redbeam.css');
+
+/*
+ * Scoped to `.ads`, NOT `:root`.
+ *
+ * tokens.css defines every `--ads-*` on `.ads` (the surface root), so a
+ * `:root` block referencing them resolves against an element that does not
+ * have them. The result is not a fallback — a custom property whose var()
+ * cannot resolve is invalid at computed-value time and inherits as nothing, so
+ * every legacy name silently became empty and every consumer lost its colour.
+ * Same scope as the tokens, or the aliases do not exist.
+ */
+.ads {
+  /* surfaces — ten legacy names onto the system's three planes */
+  --deep:        var(--ads-inset);
+  --bg:          var(--ads-bg);
+  --surface:     var(--ads-surface);
+  --surface-bar: var(--ads-bg);
+  --raised:      var(--ads-inset);
+  --hover:       var(--ads-inset);
+  --hover-2:     var(--ads-line);
+  --stage:       var(--rb-oled);
+  --input:       var(--ads-inset);
+  --input-deep:  var(--ads-inset);
+
+  /* rules — three legacy steps onto the system's two */
+  --rule-soft:   var(--ads-line);
+  --rule:        var(--ads-line);
+  --rule-strong: var(--ads-line-2);
+
+  /* text — four legacy steps onto the system's three. ink-4 was below the
+     WCAG floor the system holds, so it resolves to ink-3, the lightest tone
+     the system allows to carry words. */
+  --ink:         var(--ads-ink);
+  --ink-2:       var(--ads-ink-2);
+  --ink-3:       var(--ads-ink-3);
+  --ink-4:       var(--ads-ink-3);
+
+  /* accent is ink; the old blue lives on only as the link/focus colour */
+  --accent:      var(--ads-accent);
+  --accent-ink:  var(--ads-accent-ink);
+  --accent-dim:  var(--ads-inset);
+  --link:        var(--ads-link);
+
+  /* semantic — the system has exactly four functional colours */
+  --warn:        var(--ads-warn);
+  --warn-bright: var(--ads-warn);
+  --warn-soft:   var(--ads-warn);
+  --warn-bg:     color-mix(in srgb, var(--ads-warn) 12%, transparent);
+  --warn-rule:   color-mix(in srgb, var(--ads-warn) 30%, transparent);
+  --warn-surface:color-mix(in srgb, var(--ads-warn) 8%, var(--ads-surface));
+  --warn-hover:  color-mix(in srgb, var(--ads-warn) 16%, var(--ads-surface));
+  --warn-divide: color-mix(in srgb, var(--ads-warn) 24%, transparent);
+  --mark-bg:     color-mix(in srgb, var(--ads-warn) 28%, transparent);
+  --danger:      var(--ads-bad);
+  --ok:          var(--ads-good);
+
+  /* primary action — ink fill, per standards/02 */
+  --primary:      var(--ads-accent);
+  --primary-rule: var(--ads-accent);
+
+  /* Paper — the rendered sheet. Warm off-white, sampled from the comps. */
+  --paper: var(--rb-paper);
+
+  /* radii — the system has three, and the old 3/4/6 scale had neighbours
+     nobody could tell apart at any viewing distance (standards/04). */
+  --r-sm: var(--ads-radius-s);
+  --r-md: var(--ads-radius-s);
+  --r-lg: var(--ads-radius-l);
+}
+
+* { box-sizing: border-box }
+body {
+  margin: 0;
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  background: var(--ads-bg);
+  color: var(--ads-ink);
+  overflow: hidden;
+}
+/*
+ * The pre-shell layout — `.app`, `.panel`, `.main`, `.toolbar`, the legacy
+ * sidebar and status bar — is gone with the components that drew it. What
+ * stays below are the row, swatch and heading primitives the dialogs still
+ * share.
+ */
+
+/*
+ * `.stage` and `.link` used to be defined here too.
+ *
+ * They are the shell's now (shell/shell.css) and the duplicates were not
+ * harmless: both files declared a BARE `.stage`, so identical specificity left
+ * source order to decide, and this file's version — `position: relative` with
+ * `flex: 1` — collapsed the stage to zero height inside the shell's grid,
+ * because its only children are absolutely-positioned canvases. The renderer
+ * was fine the whole time; it was painting into a 240px-tall box.
+ *
+ * `styles.css.test.ts` now fails on any bare-selector collision between the
+ * two sheets, because finding this one cost an afternoon.
+ */
+
+/*
+ * The legacy list row, brought onto the Fluent metric.
+ *
+ * It was `display: flex; white-space: nowrap` with a hairline under every row —
+ * which made a list a stack of ruled bands, and made PROSE unreadable: a
+ * sentence with an inline <span> in it became three flex items spread across
+ * the card, which is exactly how the start screen's "REDBEAM writes one
+ * redbeam.db inside it" line was rendering. Rows are rows; prose wraps.
+ */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: var(--rb-row);
+  padding: 0 var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  white-space: nowrap;
+}
+.row.muted, .row.err {
+  display: block;
+  white-space: normal;
+  min-height: 0;
+  padding-block: var(--ads-sp-2);
+  line-height: var(--ads-leading-sm);
+}
+.grow { flex: 1; overflow: hidden; text-overflow: ellipsis }
+.muted { color: var(--ink-3); white-space: normal }
+.mono { font-family: ui-monospace, monospace; font-size: 11px }
+.swatch { width: 9px; height: 9px; border-radius: 2px; flex: none }
+.scrolllist { overflow: auto; flex: 1; min-height: 80px }
+/* A section caption: Fluent's Caption size in ink-3, not a mono all-caps
+   label. The letterspaced monospace heading was the Qt build's idiom. */
+h4 {
+  margin: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-1);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  font-weight: 600;
+  color: var(--ads-ink-3);
+}
+
+/* Inline severity marks. NOT a block — see .warnblock, which used to share
+   this name and leaked its padding and background onto every inline "!". */
+.warn { color: var(--warn-soft) }
+.err { color: var(--danger) }
+
+/* The calibration entry lives in the dock's scale control now — shell.css,
+   "the scale control, holding a half-finished gesture". */
+
+/* ---- page strip ---- */
+.pagestrip { background: var(--surface-bar); border-bottom: 1px solid var(--rule); flex: none }
+.pagenav { display: flex; gap: 6px; align-items: center; padding: 5px 10px; font-size: 12px }
+.pagenav button {
+  background: var(--raised); color: var(--ink-2); border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md); padding: 1px 9px; font: inherit; font-size: 14px; line-height: 1.4; cursor: pointer;
+}
+.pagenav button:hover:not(:disabled) { background: var(--hover-2) }
+.pagenav button:disabled { opacity: .35; cursor: default }
+.pagenav input {
+  background: var(--input); color: var(--ink); border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md); padding: 2px 5px; font: inherit; font-size: 12px; text-align: center;
+}
+.thumbs { display: flex; gap: 6px; overflow-x: auto; padding: 0 10px 8px; scrollbar-width: thin }
+.thumb {
+  flex: none; background: none; border: 1px solid var(--rule-strong); border-radius: var(--r-sm);
+  padding: 3px; cursor: pointer; display: grid; gap: 2px; justify-items: center;
+  color: var(--ink-3); font: inherit; font-size: 10px;
+}
+.thumb:hover { border-color: var(--ink-4) }
+/* The current sheet, in the same red the sheet index and the rail use for it. */
+.thumb.active { border-color: var(--rb-accent); box-shadow: 0 0 0 1px var(--rb-accent) }
+/* the sheet is paper, not chrome — see --paper */
+.thumb canvas { display: block; background: var(--paper); transition: opacity .15s; border-radius: 2px }
+
+.banner { background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--warn-rule);
+  padding: 5px 10px; font-size: 12px; flex: none }
+
+/* ---- search ---- */
+/*
+ * The find drawer is one of the shell's PANES. Its head, its search field, its
+ * empty state and its rows all come from shell.css, so what is left here is
+ * only where it sits and the two things a pane has no idiom for: the result
+ * meta line and a hit's snippet.
+ *
+ * It used to bring its own everything — a bare input, a text "Find" button, an
+ * "x" for close, its own row shape — none of which appear anywhere else in the
+ * product. A drawer that invents its own header reads as a different
+ * application bolted to the side of this one.
+ */
+.pad { padding: 10px }
+
+.shelf { display: flex; flex-direction: column }
+.shelfitem { background: none; border: none; border-bottom: 1px solid var(--rule-soft); color: var(--ink-2);
+  font: inherit; font-size: 12px; text-align: left; cursor: pointer; padding: 5px 10px;
+  display: flex; gap: 7px; align-items: center }
+.shelfitem:hover { background: var(--hover) }
+.shelfitem.editing { background: var(--hover) }
+/* the ACTIVE scope is where new markups land — it needs to be unmistakable,
+   and it says so in the grammar every other selected thing in the shell uses:
+   the selected fill and the red bar. A white bar here was the one selection
+   in the product drawn differently. */
+.shelfitem.active { background: var(--rb-selected); box-shadow: inset 2px 0 0 var(--rb-accent) }
+.newscope { color: var(--ink-3); font-style: italic }
+
+.archivedblock { border-top: 1px solid var(--rule); padding: 4px 10px }
+
+.scopeform { border-top: 1px solid var(--rule); padding: 6px 0 12px }
+.field { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px }
+.field > span:first-child { width: 66px; flex: 0 0 66px; color: var(--ink-3) }
+.field input, .field select { flex: 1; min-width: 0; background: var(--input-deep); color: var(--ink);
+  border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px; font: inherit; font-size: 12px }
+.palette { display: flex; flex-wrap: wrap; gap: 4px }
+/* A colour chip is a target as well as a swatch: 16px square is smaller than
+   the pointer that has to hit it. The swatch keeps its size, drawn inside a
+   20px button via the content box, so the row's rhythm does not change. */
+.chip { width: 20px; height: 20px; padding: 2px; background-clip: content-box;
+  border-radius: var(--r-sm); border: 2px solid transparent; cursor: pointer }
+.chip.on { border-color: var(--ink) }
+
+.measure { display: grid; grid-template-columns: 66px 1fr 52px; gap: 6px; align-items: center;
+  padding: 3px 10px; font-size: 12px }
+.measure .mlabel { color: var(--ink-3) }
+.measure .req { color: var(--warn); font-style: normal; margin-left: 2px }
+.measure input, .measure select { background: var(--input-deep); color: var(--ink);
+  border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px;
+  font: inherit; font-size: 12px; min-width: 0 }
+/* the echo is the whole point of a fraction-aware field: "7 1/2" in and
+   "7.5" ft both look plausible and differ by a factor of twelve */
+.measure .echo { grid-column: 2 / 4; font-size: 10px; color: var(--ok); margin-top: -2px }
+.measure.bad input { border-color: var(--danger) }
+.measure.bad .echo { color: var(--danger) }
+
+.checkrow { display: flex; gap: 7px; align-items: center; padding: 4px 10px; font-size: 12px }
+/**
+ * A block-level warning panel.
+ *
+ * This used to be called `.warn`, colliding with the INLINE `.warn` severity
+ * mark used by document tabs and browser rows. Being later in the sheet it
+ * won, so every inline "!" silently picked up 8px of margin, a padded amber
+ * background and a left border inside a 12px-tall tab.
+ */
+.warnblock { margin: 8px 10px; padding: 6px 8px; background: var(--warn-bg);
+  border-left: 3px solid var(--warn); color: var(--warn); font-size: 11px }
+.formactions { display: flex; gap: 6px; padding: 10px 10px 0 }
+.formactions button { background: var(--surface); border: 1px solid var(--rule-strong); color: var(--ink-2);
+  border-radius: var(--r-sm); padding: 4px 9px; font: inherit; font-size: 12px; cursor: pointer }
+.formactions button:hover:not(:disabled) { background: var(--hover-2) }
+/* Action ink on the action fill. This was `--paper` on `--primary`, and both
+   resolve near-white on this ground — "Save" was invisible, and its disabled
+   "Saved" state an empty grey box. */
+.formactions .primary { background: var(--rb-action); border-color: var(--rb-action); color: var(--rb-action-ink) }
+.formactions button:disabled { opacity: .45; cursor: default }
+
+/* The perf readout moved to shell/PerfReadout.tsx and shell.css, with the
+   setting that shows it. */
+
+/* ---- settings (TH.4) ---- */
+/*
+ * The settings panel is styled in shell/shell.css, beside the modal layer it
+ * lives in. It used to be styled here as an absolutely-positioned popover
+ * pinned 34px below the old toolbar, which put it inside the drawing cell and
+ * under the dock once the shell landed. Those rules are gone rather than
+ * overridden: two stylesheets defining `.settings` let bundler order decide
+ * which one wins, which is what styles.test.ts exists to prevent.
+ */
+
+/* ---- the primary action in a dialog ---- */
+/* "save report" and "Apply to 12 sheets" wore this class, and it had no rule:
+   both drew as the webview's own grey button beside text links styled by
+   this sheet. The product's primary action is white on this ground — the
+   same fill as the dock's Take off and the sidebar's + New. */
+.act { display: inline-flex; align-items: center; gap: 6px; height: var(--rb-control);
+  padding: 0 10px; border: 0; border-radius: var(--r-sm);
+  background: var(--rb-action); color: var(--rb-action-ink); font: inherit; font-weight: 600;
+  white-space: nowrap; cursor: pointer }
+.act:hover:not(:disabled) { background: #fff }
+.act:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); cursor: default }
+
+/* The bill of materials is a level of the estimates panel now — shell.css,
+   "the bill, in the sidebar's row grammar". */
+
+/* ------------------------------------------------------------ start screen -- */
+
+/*
+ * Archetype C proportions — 600px, one column, one job. This screen answers a
+ * single question ("which drawings?") and everything on it is either that
+ * question or a shortcut past it.
+ */
+/*
+ * The first thing anyone sees, and it was the one surface still painting an
+ * opaque wall.
+ *
+ * `background: var(--ads-bg)` filled the window edge to edge, so the backdrop
+ * stopped at the title bar and the app announced itself as something other
+ * than a Windows window before a project was even open. It paints nothing now;
+ * the 40px strip at the top is a drag region so the window still moves, since
+ * there is no title bar on this screen to grab.
+ */
+.startscreen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: var(--rb-topbar-h) 1fr;
+  padding: 0 var(--ads-sp-6) var(--ads-sp-6);
+  overflow-y: auto;
+  /* Opaque unless a backdrop was confirmed — see shell.css. Transparent here
+     unconditionally would be a hole onto the desktop on any machine without
+     Mica, which is the one failure the gate exists to prevent. */
+  background: var(--ads-bg);
+}
+.startdrag { grid-row: 1; }
+.startcard {
+  grid-row: 2;
+  align-self: center;
+  justify-self: center;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-5);
+  padding: var(--ads-sp-6);
+  /* Fluent's Layer fill and card radius — the same treatment the estimate
+     cards carry, so a card is a card wherever it appears. */
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+}
+.starthead { display: flex; align-items: center; gap: var(--ads-sp-3); }
+.starthead h1 {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--ads-text-xl);
+  line-height: var(--ads-leading-xl);
+  letter-spacing: -0.015em;
+}
+.starthead p { margin: 0; }
+.startnotice { margin: 0; }
+
+.startactions { display: flex; gap: var(--ads-sp-2); flex-wrap: wrap; }
+/* The one action that is right nine times out of ten gets the room to say so. */
+.startprimary { flex: 1 1 auto; justify-content: center; padding-block: var(--ads-sp-3); }
+
+.startrecents { gap: var(--ads-sp-1); }
+.startdisclose { align-self: flex-start; font-size: var(--ads-text-xs); }
+.startpath { border-top: 1px solid var(--ads-line); padding-top: var(--ads-sp-4); }
+.startpath h4 { margin: 0 0 var(--ads-sp-2); }
+
+/* The scale picker and the list of a sheet's regions are the Contents pane's
+   and the dock's now — shell.css, "the scale picker, as a column of its
+   host" and "scales on this sheet". */
+/* The dock's "+2" note: the page scale is not the whole sheet. */
+.dockscaleregions { color: var(--ink-3) }
+
+/* ---- focus on full-width rows ---- */
+/* Inset for the same reason the shell's rows are (shell.css, "focus on
+   full-width rows"): a ring outside a row that already fills its column is
+   clipped to two loose lines by the scrolling container around it. */
+.shelfitem:focus-visible { outline-offset: -2px }
+
+/* ---- updates (TH.7) ----
+   `attention` covers "no update channel" as well as "an update is waiting":
+   a build that cannot receive fixes is a fact about the copy someone is
+   bidding from, even though it is nothing they did and nothing they can fix. */
+.updaterow { display: flex; gap: 12px; align-items: center; padding: 8px 10px;
+  border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised) }
+.updaterow.attention { border-color: var(--warn) }
+.updateversion { font-size: 13px; font-weight: 600 }
+.updatemsg { font-size: 12px; color: var(--ink-3); margin-top: 2px }
+/* Where the crash report went (TH.8). Selectable, because the next thing
+   somebody does with a path is copy it. */
+.crashsaved { font-size: 12px; color: var(--ink-3); margin-top: 8px }
+/* Problem reports (TH.8). A prompt to send one, not a log viewer. */
+.diagrow { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
+  border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised) }
+.diaglist { list-style: none; margin: 2px 0 0; padding: 0; display: flex;
+  flex-direction: column; gap: 4px }
+.diaglist li { display: grid; grid-template-columns: auto auto 1fr; gap: 8px;
+  align-items: baseline; font-size: 12px }
+.diagkind { font-weight: 600 }
+.diagwhen { color: var(--ink-3); white-space: nowrap }
+.diagmsg { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

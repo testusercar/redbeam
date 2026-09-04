@@ -1,0 +1,1085 @@
+/* aaron-design-system v0.11.0 */
+/* ============================================================
+   aaron-design-system · primitives.css · v0.11.0
+   ------------------------------------------------------------
+   The executable component layer. tokens.css carries values;
+   this file carries the recipes from standards/05 as classes.
+
+   DELIVERY: the public host's CDN force-caches *.css for 4h
+   regardless of origin headers, so consumers reference VERSION-
+   PINNED URLS (new version = new URL = edge miss by construction):
+
+     Zo Space / web:  <link rel="stylesheet" href="https://aaronm.zo.space/primitives.css?v=0.8.0">
+     Same-origin:     @import url('/primitives.css?v=0.8.0');
+
+   Importing this file also loads tokens.css — one import is
+   enough. Root element still gets class "ads".
+
+   RULES
+   - Every value here is a token reference (--ads-sp-*, --ads-text-*,
+     --ads-leading-*, --ads-radius-*, color tokens) or a structural
+     exception from the ONE canonical exception list in standards/04
+     (each such value is commented inline). No new colors, ever.
+   - Hover micro-transitions are .15s (standards/09); theme change
+     fades at .25s on the .ads root (tokens.css).
+   - A surface that needs a component this file lacks must ADD
+     the primitive here (generalized), log it in
+     primitives/LEDGER.md, bump the version, push — then
+     consume it. Never inline a private copy. See AGENTS.md
+     "The feedback loop".
+   ============================================================ */
+
+/* RELATIVE + VERSION-PINNED (since v0.7.0, duel round-3 B1). The old
+   absolute unpinned URL pushed every same-origin consumer through
+   the CDN's 4-hour *.css cache — surfaces that consumed the system
+   correctly rendered up-to-4h-stale tokens after every push. A CSS
+   @import resolves against THIS stylesheet's URL, so the relative
+   form works for cross-origin <link> consumers too. The ?v= pin is
+   bumped with package.json on every release — cache-busting by
+   construction. */
+@import url('./tokens.css'); /* vendored: see ads/README.md */
+
+/* v0.11.0 (additive — no existing primitive's look changed):
+   - .ads-wayfinder: the estate nameplate (standards/14) — the
+     masthead kicker as the ONE cross-surface navigation
+     affordance. Kicker voice + a 12px disclosure chevron;
+     hover is a color receipt. The popover it opens is the
+     existing .ads-popover; estate.js (the version-pinned
+     estate layer) provides the behaviour. In print the chevron
+     hides and the nameplate prints as the kicker it is.
+   - .ads-popover-item / .ads-palette-row lose the UA underline
+     when rendered as <a> (estate destinations are links);
+     additive — button consumers render identically.
+   - @media print: .ads-scrim / .ads-popover never print —
+     overlays are interaction, not document.
+
+   v0.10.1 (patch — no primitive changed; version surfaces only):
+   standards/12 colophon resolution law corrected (race-free read +
+   "version unresolved" fallback; silence banned) and standards/11
+   moment 6 marked untested design. See those files.
+
+   v0.10.0 (all additive — no existing primitive's look changed):
+   - .ads-asof (+--stale) and the .ads-stale container rule: the
+     data-honesty register (standards/13) — a surface declares its
+     data's age from REAL fetch state, never decoration.
+   - .ads-empty--fail / .ads-empty-meta / .ads-empty-action: the
+     failure and first-run registers, one family with .ads-empty
+     by construction (standards/13). No new geometry — the family
+     tell is the point.
+
+   v0.9.0 (all additive — no existing primitive's look changed):
+   - .ads-callout (+--caution/--method): the argued-aside family,
+     three registers exactly (05). Two live fakes retired
+     (wheelchair-van bottom line, ui-standards Callout).
+   - Overlay grammar: .ads-scrim, .ads-dialog(-foot), .ads-popover
+     (-item/-sep), .ads-palette(-search/-list/-group/-row/-none).
+     Zero new shadows: dialogs/palettes wear the 02 window-frame
+     recipe (the scrim does the separating), popovers wear the
+     tooltip/popover recipe. One @keyframes exists system-wide
+     (ads-overlay-in, opacity only — standards/11).
+   - .ads-ledger(-row/-node/-text/-when/-break): the ledger rail —
+     things that happened, in order (05).
+   - .ads-entry(-icon/-main/-meta/-title/-dek/-when/-foot): the
+     index registry unit behind archetype F (10).
+   - .ads-colophon + the @media print block at the bottom: print
+     BEHAVIOUR (chrome hiding, break discipline, colophon) per
+     standards/12; print VALUES live in tokens.css.
+   - Motion: standards/11 governs every transition in this file —
+     durations are .15s/.25s only, color/border/background/opacity
+     only, never transform. */
+
+/* ---- Type utilities ------------------------------------- */
+
+.ads-kicker {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ads-ink-3);
+}
+
+.ads-num {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ads-serif { font-family: var(--ads-serif); }
+
+/* Display-scale numeral. Geist sans + tabular-nums — large mono
+   numerals read as typewriter output; display figures are sans
+   per standards/03. Data at body scale stays .ads-num (mono).
+   line-height 1: display numerals set solid (structural, 03). */
+.ads-figure {
+  font-family: var(--ads-sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--ads-ink);
+}
+.ads-figure--xl { font-size: var(--ads-text-3xl); }
+.ads-figure--l  { font-size: var(--ads-text-2xl); }
+
+/* Signed delta: pair with a figure or inline value. Direction is
+   a modifier, not a hand-picked color. 0.8em: scales with the
+   figure it annotates (typographic unit, structural). */
+.ads-delta {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8em;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ads-ink-2);
+}
+.ads-delta.is-up   { color: var(--ads-good); }
+.ads-delta.is-down { color: var(--ads-bad); }
+
+.ads-kbd {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  color: var(--ads-ink-3);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-s);
+  padding: 0 var(--ads-sp-1);
+  background: var(--ads-inset);
+}
+/* On a primary (accent-filled) control: inset/line planes don't exist
+   there, so the key hint re-cuts from the accent-ink pair. */
+.ads-kbd--onprimary {
+  color: var(--ads-accent-ink);
+  background: color-mix(in srgb, var(--ads-accent-ink) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ads-accent-ink) 32%, transparent);
+}
+
+/* ---- Wayfinder — the estate nameplate (standards/14 · v0.11.0) */
+/* The identity line every converted surface opens with: the
+   estate kicker ("Aaron · Zo") as a disclosure. Wears the exact
+   kicker voice — from across the room it IS the kicker — plus a
+   12px Lucide chevron and a .15s color receipt on hover. The
+   menu is the shipped .ads-popover; behaviour ships in the
+   version-pinned estate layer (/estate.js), not here. On public
+   documents the layer may leave this as dead text (audience law,
+   standards/14) — the resting form must therefore read correctly
+   with no affordance at all. */
+.ads-wayfinder {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ads-ink-3);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: color .15s ease;
+}
+.ads-wayfinder:hover { color: var(--ads-ink); }
+.ads-wayfinder svg { width: var(--ads-sp-3); height: var(--ads-sp-3); flex: none; }
+
+/* ---- Panel ----------------------------------------------- */
+
+.ads-panel {
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-l);
+  min-width: 0;
+}
+
+.ads-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border-bottom: 1px solid var(--ads-line);
+}
+
+.ads-panel-body { padding: var(--ads-sp-4); }
+.ads-panel-body--flush { padding: 0; }
+
+/* ---- Topbar (in-page app bar; PWA titlebar is tokens.css) - */
+
+.ads-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ads-sp-4);
+  height: var(--ads-sp-9);
+  border-bottom: 1px solid var(--ads-line-2);
+}
+
+/* ---- Buttons (standards/05 · three variants) -------------- */
+
+.ads-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ads-sp-2);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  line-height: 1;
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease,
+              border-color .15s ease, filter .15s ease;
+}
+.ads-btn svg { width: var(--ads-sp-4); height: var(--ads-sp-4); }
+
+.ads-btn--primary {
+  background: var(--ads-accent);
+  color: var(--ads-accent-ink);
+}
+/* Hover rides --ads-hover-bright (1.07 light / 0.92 dark): the dark
+   accent is near-white, so it must darken to be seen (05, 09). */
+.ads-btn--primary:hover:not(:disabled) { filter: brightness(var(--ads-hover-bright, 1.07)); }
+
+.ads-btn--secondary {
+  background: var(--ads-surface);
+  color: var(--ads-ink-2);
+  border-color: var(--ads-line-2);
+}
+.ads-btn--secondary:hover:not(:disabled) { color: var(--ads-ink); border-color: var(--ads-ink-3); }
+
+.ads-btn--ghost {
+  background: transparent;
+  color: var(--ads-ink-3);
+}
+.ads-btn--ghost:hover:not(:disabled) { color: var(--ads-ink); background: var(--ads-inset); }
+
+/* Danger keeps its danger signal in every state. Declared AFTER the
+   variant hovers so `--danger` composed with ghost/secondary keeps
+   --ads-bad text at the moment of intent (the ghost/secondary hover
+   surface treatment still applies). */
+.ads-btn--danger { color: var(--ads-bad); }
+.ads-btn--danger:hover:not(:disabled) { color: var(--ads-bad); }
+
+/* Disabled (standards/09): ink-3 text, no border change, default
+   cursor — never whole-element opacity, never pointer-events tricks
+   (the cursor must be seeable). */
+.ads-btn:disabled { color: var(--ads-ink-3); cursor: default; }
+.ads-btn--primary:disabled { background: var(--ads-inset); }
+
+/* Standalone icon button: 32px hit target (07), ghost treatment,
+   surface border optional via --outline modifier. aria-label required. */
+.ads-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ads-sp-7);
+  height: var(--ads-sp-7);
+  border-radius: var(--ads-radius-s);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ads-ink-3);
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.ads-iconbtn:hover:not(:disabled) { color: var(--ads-ink); background: var(--ads-inset); }
+.ads-iconbtn:disabled { color: var(--ads-ink-3); cursor: default; }
+.ads-iconbtn--outline { background: var(--ads-surface); border-color: var(--ads-line); }
+.ads-iconbtn--outline:hover:not(:disabled) { border-color: var(--ads-line-2); background: var(--ads-surface); }
+
+/* ---- Inputs ----------------------------------------------- */
+
+.ads-input {
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  color: var(--ads-ink);
+  background: var(--ads-bg);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+}
+.ads-input::placeholder { color: var(--ads-ink-3); }
+.ads-input:disabled { color: var(--ads-ink-3); cursor: default; }
+
+/* ---- Segmented control ------------------------------------ */
+
+.ads-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--ads-inset);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  padding: 2px; /* structural: micro-nudge track inset */
+  gap: 2px;     /* structural: thumb separation */
+}
+
+.ads-seg-btn {
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ads-ink-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-1) var(--ads-sp-3);
+  cursor: pointer;
+  transition: color .15s ease, background-color .15s ease;
+}
+.ads-seg-btn:hover:not(:disabled) { color: var(--ads-ink-2); }
+.ads-seg-btn:disabled { color: var(--ads-ink-3); cursor: default; }
+.ads-seg-btn.is-active,
+.ads-seg-btn[aria-pressed="true"],
+.ads-seg-btn[aria-selected="true"] {
+  color: var(--ads-ink);
+  background: var(--ads-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .07);
+}
+
+/* ---- Tabs ------------------------------------------------- */
+
+.ads-tabs {
+  display: flex;
+  gap: var(--ads-sp-4);
+  border-bottom: 1px solid var(--ads-line);
+}
+.ads-tab {
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  color: var(--ads-ink-3);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent; /* structural: active underline */
+  padding: var(--ads-sp-2) 0;
+  margin-bottom: -1px; /* structural: underline sits on the rule */
+  cursor: pointer;
+}
+.ads-tab:hover:not(:disabled) { color: var(--ads-ink-2); }
+.ads-tab:disabled { color: var(--ads-ink-3); cursor: default; }
+.ads-tab.is-active,
+.ads-tab[aria-selected="true"] {
+  color: var(--ads-ink);
+  border-bottom-color: var(--ads-accent);
+}
+
+/* ---- Table ------------------------------------------------ */
+
+.ads-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ads-text-sm);
+}
+.ads-table th {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ads-ink-3);
+  text-align: left;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-bottom: 1px solid var(--ads-line-2);
+}
+.ads-table td {
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-bottom: 1px solid var(--ads-line);
+  color: var(--ads-ink);
+}
+.ads-table tr:last-child td { border-bottom: 0; }
+.ads-table tbody tr:hover td { background: var(--ads-inset); }
+.ads-table .is-numeric,
+.ads-table th.is-numeric {
+  text-align: right;
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Pills / status chips --------------------------------- */
+
+.ads-pill {
+  --pill: var(--ads-ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-xs);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--pill);
+  background: color-mix(in srgb, var(--pill) 12%, transparent);
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  white-space: nowrap;
+}
+.ads-pill--good { --pill: var(--ads-good); }
+.ads-pill--warn { --pill: var(--ads-warn); }
+.ads-pill--bad  { --pill: var(--ads-bad); }
+/* No --link pill (v0.6.0): link is never a mark — a link-colored dot
+   is dE ~5 from --ads-s1 and would impersonate a series swatch.
+   "New" states wear the neutral pill (default --ads-ink-2). */
+
+.ads-dot {
+  width: var(--ads-sp-2);
+  height: var(--ads-sp-2);
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+/* ---- Metric (text-first; border-left, never a tile) ------- */
+
+.ads-metric {
+  min-width: 0;
+  border-left: 1px solid var(--ads-line-2);
+  padding-left: var(--ads-sp-3);
+}
+.ads-metric-label {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--ads-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ads-metric-value {
+  margin-top: var(--ads-sp-1);
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-sm);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ads-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ads-metric-value small {
+  font-size: var(--ads-text-xs);
+  font-weight: 500;
+  color: var(--ads-ink-2);
+  margin-left: var(--ads-sp-1);
+}
+
+/* ---- Key-value rows (definition list pattern) ------------- */
+
+.ads-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ads-sp-4);
+  padding: var(--ads-sp-2) 0;
+  border-bottom: 1px solid var(--ads-line);
+  font-size: var(--ads-text-sm);
+}
+.ads-kv:last-child { border-bottom: 0; }
+.ads-kv dt { color: var(--ads-ink-2); }
+.ads-kv dd {
+  margin: 0;
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ads-ink);
+}
+
+/* ---- Verdict (decision statement) -------------------------- */
+/* A decision surface's answer, stated in words: colored dot +
+   large statement word, reason sentence beneath. Status via
+   --verdict modifiers — same scale as pills. */
+
+.ads-verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  --verdict: var(--ads-ink-2);
+}
+.ads-verdict-dot {
+  width: var(--ads-sp-3);
+  height: var(--ads-sp-3);
+  border-radius: 999px;
+  background: var(--verdict);
+  box-shadow: 0 0 0 var(--ads-sp-1) color-mix(in srgb, var(--verdict) 16%, transparent);
+  flex: none;
+}
+.ads-verdict-word {
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-2xl);
+  line-height: 1; /* structural: display word sets solid (03) */
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ads-ink);
+  text-transform: capitalize;
+}
+.ads-verdict--good { --verdict: var(--ads-good); }
+.ads-verdict--warn { --verdict: var(--ads-warn); }
+.ads-verdict--bad  { --verdict: var(--ads-bad); }
+/* No --link verdict (v0.6.0): link never takes a mark role — see pills. */
+
+/* ---- Chart furniture -------------------------------------- */
+
+/* Direct label at a chart line's end — replaces a legend when the
+   plot reserves a right gutter. Works as HTML (overlay div) or
+   SVG <text>. The TEXT wears ink (standards/06: series-colored text
+   fails the 4.5:1 floor for most slots); series identity comes from
+   a colored lead-in swatch/dash beside it, never from the glyphs. */
+.ads-chart-tag {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-xs);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: var(--ads-leading-xs);
+  white-space: nowrap;
+  color: var(--ads-ink);
+  fill: var(--ads-ink);
+}
+.ads-chart-tag--role {
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ads-ink-3);
+  fill: var(--ads-ink-3);
+}
+
+.ads-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ads-sp-2) var(--ads-sp-4);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ads-ink-2);
+}
+.ads-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  white-space: nowrap;
+}
+/* Swatch height 2px = the standard line-mark stroke (structural). */
+.ads-swatch { width: var(--ads-sp-4); height: 2px; flex: none; }
+.ads-swatch--dash {
+  /* 5px dash / 4px gap = the reference-line dash spec `5 4` (standards/06, structural) */
+  background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px);
+}
+
+.ads-tooltip {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  font-weight: 500;
+  color: var(--ads-bg);
+  background: var(--ads-ink);
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
+}
+.ads-tooltip .is-secondary { opacity: .65; }
+
+/* Heat strip: a single-row cell grid for time-series intensity.
+   Cell colors are data-driven inline as color-mix with --ads-inset.
+   Single-signed magnitudes mix --ads-s1. Diverging (signed) strips
+   use TWO SERIES-SAFE POLES: --ads-s1 for one sign, the warm
+   neutral --ads-ink-2 for the other, --ads-inset as the zero
+   midpoint, with a legend naming the poles. Status tokens NEVER
+   color cells — good/bad diverging fills are the red-green CVD
+   failure standards/06 bans. */
+.ads-heatstrip {
+  display: grid;
+  height: var(--ads-sp-7);
+  overflow: hidden;
+  border-radius: var(--ads-radius-s);
+  border: 1px solid var(--ads-line-2);
+}
+.ads-heatstrip > * { min-width: 0; }
+
+/* ---- Statline (footer / status text) ---------------------- */
+
+.ads-statline {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+}
+
+/* ---- As-of line — data age, declared (standards/13 · v0.10.0) */
+/* The statline register a data surface uses to say how old its
+   figures are: data-through date · evaluated/fetched age · the
+   surface's STATED staleness threshold. Driven only by a real
+   timestamp from the same payload that produced the figures —
+   an as-of line rendered from a hardcoded string is banned (13).
+   Stale is a fact, not a warning: the register never wears
+   --ads-warn; it speaks one ink step UP (ink-2) and says the
+   word, because aged decision inputs deserve MORE attention,
+   not an alarm color asserting something broke. */
+.ads-asof {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+}
+.ads-asof b { color: var(--ads-ink-2); font-weight: 500; }
+.ads-asof--stale { color: var(--ads-ink-2); }
+.ads-asof--stale b { color: var(--ads-ink); }
+/* Stale figures de-emphasize the way stale text would: one ramp
+   step, applied to the region the aged payload feeds. MUST pair
+   with a visible .ads-asof--stale naming the age — a dimmed
+   figure with no stated age is decoration (13). */
+.ads-stale .ads-figure,
+.ads-stale .ads-metric-value,
+.ads-stale .ads-verdict-word { color: var(--ads-ink-2); }
+
+/* ---- Drop target ------------------------------------------ */
+
+.ads-drop { transition: box-shadow .15s ease; }
+.ads-drop[data-dragging="true"] {
+  box-shadow: inset 0 0 0 2px var(--ads-link);
+  border-radius: var(--ads-radius-l);
+}
+
+/* ---- Empty state ------------------------------------------ */
+
+.ads-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ads-sp-2);
+  text-align: center;
+  border: 1px dashed var(--ads-line-2);
+  border-radius: var(--ads-radius-l);
+  padding: var(--ads-sp-8) var(--ads-sp-6);
+  color: var(--ads-ink-2);
+}
+.ads-empty svg { width: var(--ads-sp-6); height: var(--ads-sp-6); color: var(--ads-ink-3); }
+.ads-empty-title { font-size: var(--ads-text-base); font-weight: 500; color: var(--ads-ink); }
+.ads-empty p { max-width: 40ch; font-size: var(--ads-text-sm); margin: 0; }
+
+/* Failure + first-run registers (standards/13 · v0.10.0): ONE
+   family with .ads-empty by construction — same dashed frame,
+   glyph, title, ≤40ch body — because a stranger must be able to
+   sort empty / first-run / failed screenshots into "same system"
+   unaided. Failure differs by exactly two tells: the glyph wears
+   --ads-bad (something actually FAILED; an empty inbox is not an
+   error) and the mono meta line is REQUIRED — it names the failed
+   dependency and the last-good time. "Something went wrong" with
+   no dependency and no timestamp is the banned form even with no
+   mascot. First-run is the BASE register pointed forward (13):
+   no modifier class — a fourth visual register would be a smell. */
+.ads-empty--fail svg { color: var(--ads-bad); }
+.ads-empty-meta {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+  max-width: 52ch;
+  overflow-wrap: anywhere;
+}
+.ads-empty-action { margin-top: var(--ads-sp-2); }
+
+/* ---- Progress --------------------------------------------- */
+
+.ads-progress {
+  height: var(--ads-sp-1);
+  border-radius: 2px; /* structural: half of its 4px height */
+  background: var(--ads-inset);
+  overflow: hidden;
+}
+.ads-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--ads-accent);
+  border-radius: 2px; /* structural */
+}
+.ads-microbar {
+  width: var(--ads-sp-8);
+  height: var(--ads-sp-1);
+  border-radius: 2px; /* structural */
+  background: var(--ads-inset);
+  overflow: hidden;
+}
+/* Neutral ink fill: a magnitude bar asserting "healthy" green on an
+   arbitrary value (an 8% confidence bar rendering good-green) is a
+   status fill on data — banned. Status color only via an explicit
+   threshold modifier the surface applies with a stated rule. */
+.ads-microbar > i { display: block; height: 100%; background: var(--ads-accent); }
+
+/* ---- Callout — the argued aside (standards/05 · v0.9.0) ---- */
+/* The paragraph that outranks its neighbors. THREE registers,
+   exactly — verdict (the default), caution, method — told apart
+   with color stripped: box + 2px rule + base type (verdict);
+   the same plus glyph + warn kicker (caution — the ONLY register
+   that wears a status hue, because a caution IS a status);
+   bare 1px indent + sm secondary type (method). A verdict with a
+   stated stance composes .ads-verdict inside — the callout frame
+   itself never takes good/bad. Kickers speak one ink step up
+   (ink-2): an aside that outranks its neighbors does not whisper. */
+.ads-callout {
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line);
+  border-left: 2px solid var(--ads-accent);
+  border-radius: var(--ads-radius-l);
+  padding: var(--ads-sp-4);
+}
+.ads-callout > .ads-kicker { display: block; margin: 0 0 var(--ads-sp-2); color: var(--ads-ink-2); }
+.ads-callout p {
+  margin: 0;
+  font-size: var(--ads-text-base);
+  line-height: var(--ads-leading-base);
+  color: var(--ads-ink);
+}
+.ads-callout p + p { margin-top: var(--ads-sp-3); }
+
+.ads-callout--caution { border-left-color: var(--ads-warn); }
+.ads-callout--caution > .ads-kicker {
+  display: flex; align-items: center; gap: var(--ads-sp-2);
+  color: var(--ads-warn);
+}
+/* 12px inline glyph per 07 (TriangleAlert, strokeWidth 2). */
+.ads-callout--caution > .ads-kicker svg { width: var(--ads-sp-3); height: var(--ads-sp-3); flex: none; }
+
+.ads-callout--method {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--ads-line-2);
+  border-radius: 0;
+  padding: var(--ads-sp-1) 0 var(--ads-sp-1) var(--ads-sp-4);
+}
+.ads-callout--method > .ads-kicker { color: var(--ads-ink-3); margin-bottom: var(--ads-sp-1); }
+.ads-callout--method p {
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-2);
+}
+
+/* ---- Overlay grammar (standards/05 · v0.9.0) --------------- */
+/* One floating vocabulary: scrim → frame → rows. Dialogs and
+   palettes wear the 02 WINDOW-FRAME shadow recipe (they are
+   simulated windows; the scrim, not the shadow, does the
+   separating). Popovers wear the 02 tooltip/POPOVER recipe.
+   No sixth shadow exists. Open is an opacity receipt (.15s,
+   standards/11); close is an instant cut. Behaviour contract
+   (focus trap, Escape, focus restore, aria) is in 05 — the
+   consuming surface implements it; these classes are the look. */
+.ads-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100; /* the single overlay layer — an ordering, not a measurement (04) */
+  background: var(--ads-scrim);
+  display: grid;
+  place-items: center;
+  padding: var(--ads-sp-6);
+  animation: ads-overlay-in .15s ease both;
+}
+/* Palettes sit high, not centered: the eye is already at the top
+   of the page where work happens. 15vh is viewport layout math. */
+.ads-scrim--top { place-items: start center; padding-top: 15vh; }
+
+.ads-dialog {
+  width: 100%;
+  max-width: 440px; /* stated width, 04 table */
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .07); /* window-frame recipe (02) */
+}
+/* Head/body reuse the panel grammar: a dialog IS a floating panel.
+   (.ads-panel-head / .ads-panel-body compose inside.) */
+.ads-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border-top: 1px solid var(--ads-line);
+}
+
+.ads-popover {
+  position: absolute;
+  z-index: 100;
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-l);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .16); /* tooltip/popover recipe (02) */
+  padding: var(--ads-sp-1);
+  animation: ads-overlay-in .15s ease both;
+}
+.ads-popover-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  text-align: left;
+  text-decoration: none; /* v0.11.0: rows may be <a> destinations */
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ads-ink-2);
+  border: 0;
+  background: transparent;
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .15s ease, color .15s ease;
+}
+.ads-popover-item:hover { color: var(--ads-ink); background: var(--ads-inset); }
+.ads-popover-item svg { width: var(--ads-sp-4); height: var(--ads-sp-4); color: var(--ads-ink-3); flex: none; }
+.ads-popover-item:hover svg { color: var(--ads-ink); }
+.ads-popover-sep { border: 0; border-top: 1px solid var(--ads-line); margin: var(--ads-sp-1) 0; }
+
+.ads-palette {
+  width: 100%;
+  max-width: 600px; /* the mini-app width (04): a palette is a transient mini-app */
+  max-height: 60vh; /* viewport layout math */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .07); /* window-frame recipe (02) */
+}
+.ads-palette-search {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border-bottom: 1px solid var(--ads-line);
+  color: var(--ads-ink-3);
+}
+.ads-palette-search svg { width: var(--ads-sp-4); height: var(--ads-sp-4); flex: none; }
+.ads-palette-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0;
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink);
+}
+.ads-palette-search input::placeholder { color: var(--ads-ink-3); }
+.ads-palette-list { overflow-y: auto; padding: var(--ads-sp-2); }
+.ads-palette-group { padding: var(--ads-sp-3) var(--ads-sp-3) var(--ads-sp-1); } /* wears .ads-kicker */
+.ads-palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  width: 100%;
+  text-align: left;
+  text-decoration: none; /* v0.11.0: rows may be <a> destinations */
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ads-ink-2);
+  border: 0;
+  background: transparent;
+  border-radius: var(--ads-radius-s);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  cursor: pointer;
+}
+.ads-palette-row svg { width: var(--ads-sp-4); height: var(--ads-sp-4); color: var(--ads-ink-3); flex: none; }
+.ads-palette-row .ads-kbd { margin-left: auto; }
+.ads-palette-row:hover { color: var(--ads-ink); background: var(--ads-inset); }
+/* Keyboard selection = the house selected-row grammar (02): inset
+   fill + inset 2px ink bar. Never a link-blue wash. */
+.ads-palette-row.is-active,
+.ads-palette-row[aria-selected="true"] {
+  color: var(--ads-ink);
+  background: var(--ads-inset);
+  box-shadow: inset 2px 0 0 var(--ads-accent);
+}
+.ads-palette-row.is-active svg,
+.ads-palette-row[aria-selected="true"] svg { color: var(--ads-ink); }
+.ads-palette-none {
+  padding: var(--ads-sp-6);
+  text-align: center;
+  font-size: var(--ads-text-sm);
+  color: var(--ads-ink-3);
+}
+
+/* THE system's only @keyframes (standards/11): overlay open is a
+   receipt of invocation — opacity only, .15s, no transform, and
+   nothing animates on initial page render. Close is a cut. */
+@keyframes ads-overlay-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ads-scrim, .ads-popover { animation: none; }
+}
+
+/* ---- Ledger rail — things that happened, in order ---------- */
+/* (standards/05 · v0.9.0) Actor · verb phrase · object · mono
+   right-set timestamp, on a hairline spine. Emphasis (actor,
+   object) is <b>/<strong> — ink 500, the same voice the shell
+   improvised. Day/section breaks wear the kicker voice, indented
+   to the text column — no new divider invention. */
+.ads-ledger { position: relative; }
+.ads-ledger::before {
+  content: "";
+  position: absolute;
+  top: var(--ads-sp-2);
+  bottom: var(--ads-sp-2);
+  left: var(--ads-sp-3); /* spine under the 24px node column's center */
+  width: 1px;
+  background: var(--ads-line);
+}
+.ads-ledger-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--ads-sp-6) minmax(0, 1fr) auto;
+  column-gap: var(--ads-sp-3);
+  align-items: start;
+  padding: var(--ads-sp-2) 0;
+}
+.ads-ledger-node {
+  width: var(--ads-sp-6);
+  height: var(--ads-sp-6);
+  border-radius: 999px;
+  background: var(--ads-inset);
+  color: var(--ads-ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 var(--ads-text-2xs)/1 var(--ads-sans);
+  position: relative; /* sits over the spine */
+}
+.ads-ledger-text {
+  font: 400 var(--ads-text-sm)/var(--ads-leading-sm) var(--ads-sans);
+  color: var(--ads-ink-2);
+  margin-top: 2px; /* structural: first line optically centers on the 24px node */
+}
+.ads-ledger-text b,
+.ads-ledger-text strong { color: var(--ads-ink); font-weight: 500; }
+.ads-ledger-when {
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-2xs);
+  /* sm leading, deliberately: the timestamp shares its row's first
+     20px line box so baselines align across columns (structural) */
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-3);
+  white-space: nowrap;
+  margin-top: 2px; /* structural: matches .ads-ledger-text */
+}
+.ads-ledger-break { padding: var(--ads-sp-4) 0 var(--ads-sp-1) calc(var(--ads-sp-6) + var(--ads-sp-3)); } /* wears .ads-kicker, indented to the text column */
+
+/* ---- Entry — the index/registry unit (archetype F, 10) ----- */
+/* A masthead's registry row: icon · (meta row: kicker + pills) ·
+   serif title · dek · foot affordance, mono date right-set.
+   Hover is a border receipt — never a lift (standards/11). */
+.ads-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-4);
+  background: var(--ads-surface);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-l);
+  padding: var(--ads-sp-5);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color .15s ease;
+}
+.ads-entry:hover { border-color: var(--ads-line-2); }
+.ads-entry-icon { flex: none; color: var(--ads-ink-2); margin-top: var(--ads-sp-1); }
+.ads-entry-main { flex: 1; min-width: 0; }
+.ads-entry-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ads-sp-2) var(--ads-sp-3);
+  margin: 0 0 var(--ads-sp-2);
+}
+.ads-entry-title {
+  font-family: var(--ads-serif);
+  font-size: var(--ads-text-lg);
+  line-height: var(--ads-leading-lg);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ads-ink);
+  margin: 0 0 var(--ads-sp-2);
+}
+.ads-entry-dek {
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-2);
+  margin: 0;
+}
+.ads-entry-when {
+  flex: none;
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+  margin-top: var(--ads-sp-1);
+}
+.ads-entry-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  margin-top: var(--ads-sp-3);
+  font-size: var(--ads-text-sm);
+  font-weight: 500;
+  color: var(--ads-ink);
+}
+
+/* ---- Colophon (standards/12 · v0.9.0) ---------------------- */
+/* The document's closing self-description: sources, method, and —
+   printed — title · date · URL · resolved token version. The
+   footer stamp of archetype A, formalized. */
+.ads-colophon {
+  border-top: 1px solid var(--ads-line-2);
+  padding-top: var(--ads-sp-3);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+}
+.ads-colophon b { color: var(--ads-ink-2); font-weight: 500; }
+
+/* ---- Print register — behaviour (standards/12 · v0.9.0) ---- */
+/* Values (paper planes, forced light steps) live in tokens.css.
+   Here: exact color reproduction (the dash/shape grammar carries
+   chart identity even in grayscale, but browsers must not strip
+   the fills borders sit on), chrome hiding, break discipline. */
+@media print {
+  .ads {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    transition: none;
+  }
+  /* Interactive chrome leaves the page. Surfaces mark their own
+     (nav rows, print buttons, toggles) with .ads-no-print. */
+  .ads .ads-no-print { display: none !important; }
+  /* The wayfinder prints as the kicker it is: nameplate text
+     stays, the disclosure chevron leaves (standards/14). Overlays
+     are interaction, never document. */
+  .ads-wayfinder svg { display: none !important; }
+  .ads-scrim, .ads-popover { display: none !important; }
+  /* Break discipline: no split figure cards, no orphaned kickers. */
+  .ads-panel, .ads-callout, .ads-entry, .ads-empty, figure { break-inside: avoid; }
+  h1, h2, h3, .ads-kicker { break-after: avoid-page; }
+  .ads-colophon { break-inside: avoid; }
+}
+/* Physical page margins — mm is a paper unit, outside 04's screen
+   scope by construction (standards/12). */
+@page { margin: 18mm 16mm; }

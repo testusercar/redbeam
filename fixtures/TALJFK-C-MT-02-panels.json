@@ -1,0 +1,127 @@
+{
+  "name": "TALJFK-C-MT-02-panels",
+  "source": {
+    "bridge": "redbeam-okular MCP",
+    "project": "Turkish Airlines Lounge JFK",
+    "scopeId": "2b749afa-e803-4d89-af0e-473da96a159b",
+    "document": "clean_drawing.pdf",
+    "capturedAt": "2026-08-28"
+  },
+  "scope": {
+    "label": "C-MT-02 - Suspended Metal Ceiling, Wave Effect (Arktura Vapor-Syntax)",
+    "productType": "panels",
+    "specifications": {
+      "alignSeams": "true",
+      "maxConnectorSpacing": "3",
+      "maxConnectorSpacingUnit": "ft",
+      "panelGranularity": "full",
+      "panelLength": "4",
+      "panelLengthUnit": "ft",
+      "panelWidth": "2",
+      "panelWidthUnit": "ft",
+      "yieldGranularity": "full"
+    }
+  },
+  "calibration": {
+    "feetPerPoint": 0.11121675330260115,
+    "pageWidth": 3024.24,
+    "pageHeight": 2160.24
+  },
+  "markups": [
+    {
+      "id": "cb4c392b",
+      "kind": "area",
+      "page": 39,
+      "rings": [
+        [
+          {
+            "x": 0.5658,
+            "y": 0.6204
+          },
+          {
+            "x": 0.5658,
+            "y": 0.645
+          },
+          {
+            "x": 0.5892,
+            "y": 0.645
+          },
+          {
+            "x": 0.5892,
+            "y": 0.6204
+          }
+        ]
+      ]
+    },
+    {
+      "id": "70c399da",
+      "kind": "area",
+      "page": 39,
+      "rings": [
+        [
+          {
+            "x": 0.5875,
+            "y": 0.582
+          },
+          {
+            "x": 0.5875,
+            "y": 0.6193
+          },
+          {
+            "x": 0.6117,
+            "y": 0.6193
+          },
+          {
+            "x": 0.6117,
+            "y": 0.582
+          }
+        ]
+      ]
+    },
+    {
+      "id": "8d9fb888",
+      "kind": "area",
+      "page": 39,
+      "rings": [
+        [
+          {
+            "x": 0.542,
+            "y": 0.5878
+          },
+          {
+            "x": 0.542,
+            "y": 0.645
+          },
+          {
+            "x": 0.5633,
+            "y": 0.645
+          },
+          {
+            "x": 0.5633,
+            "y": 0.5878
+          }
+        ]
+      ]
+    }
+  ],
+  "expected": {
+    "quantities": [
+      {
+        "itemKey": "area_sf",
+        "quantity": 217.91387097275256,
+        "unit": "SF"
+      }
+    ],
+    "pieces": {
+      "panelCount": 54,
+      "primaryStockCount": 54,
+      "plankCount": 0,
+      "baffleStockCount": 0,
+      "connectors": 0,
+      "endCaps": 0,
+      "joiners": 0,
+      "trimPieces": 0,
+      "productType": "Panels"
+    }
+  }
+}

@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>REDBEAM Build Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style id="rb-style">
+  :root {
+    --paper:#F6F7F8; --surface:#FFFFFF; --surface-2:#EFF1F3;
+    --ink:#16181A; --ink-2:#3D4448; --grey:#6B7176; --rule:#DCE0E3;
+    --red:#C2382C; --red-soft:#F5E2DF;
+    --slate:#3E6B84; --slate-soft:#E1EAEF;
+    --amber:#8A6212; --amber-soft:#F6EBD4;
+    --green:#2F6B4F; --green-soft:#DFEDE5;
+    --f-display:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+    --f-body:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+    --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#131517; --surface:#1A1D20; --surface-2:#212528;
+      --ink:#E9ECEE; --ink-2:#B4BBC0; --grey:#8B9298; --rule:#2B3034;
+      --red:#E4685A; --red-soft:#35211F;
+      --slate:#7FB2CC; --slate-soft:#1B2A33;
+      --amber:#D9A63C; --amber-soft:#2E2617;
+      --green:#71B591; --green-soft:#16281F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#131517; --surface:#1A1D20; --surface-2:#212528;
+    --ink:#E9ECEE; --ink-2:#B4BBC0; --grey:#8B9298; --rule:#2B3034;
+    --red:#E4685A; --red-soft:#35211F;
+    --slate:#7FB2CC; --slate-soft:#1B2A33;
+    --amber:#D9A63C; --amber-soft:#2E2617;
+    --green:#71B591; --green-soft:#16281F;
+  }
+
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--f-body); font-size:15px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:70rem; margin:0 auto; padding:0 1.75rem 5rem; }
+
+  /* ---- header ---- */
+  .top { padding:2.25rem 0 1.1rem; border-bottom:2px solid var(--ink); }
+  .toprow { display:flex; flex-wrap:wrap; gap:1rem 2rem; align-items:baseline; justify-content:space-between; }
+  h1 {
+    font-family:var(--f-display); font-weight:700; letter-spacing:-.015em;
+    font-size:clamp(1.7rem,3.4vw,2.4rem); margin:0; line-height:1;
+  }
+  .sub { font-family:var(--f-mono); font-size:.72rem; letter-spacing:.13em; text-transform:uppercase; color:var(--red); margin-bottom:.5rem; }
+  .headline-count { font-family:var(--f-mono); font-size:1.6rem; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .headline-count em { font-style:normal; color:var(--grey); font-size:.95rem; font-weight:400; }
+
+  .meter { height:8px; background:var(--surface-2); margin-top:1rem; display:flex; overflow:hidden; }
+  .meter i { display:block; height:100%; }
+  .meter .m-done { background:var(--green); }
+  .meter .m-doing { background:var(--amber); }
+  .legend { display:flex; flex-wrap:wrap; gap:1.15rem; margin-top:.55rem; font-family:var(--f-mono); font-size:.7rem; color:var(--grey); }
+  .legend b { color:var(--ink); font-weight:500; }
+  .dotk { display:inline-block; width:8px; height:8px; margin-right:.35rem; vertical-align:baseline; }
+
+  /* ---- now banner ---- */
+  .now {
+    margin-top:1.75rem; border:1px solid var(--rule); border-left:4px solid var(--amber);
+    background:var(--surface); padding:1rem 1.2rem;
+    display:flex; flex-wrap:wrap; gap:.75rem 1.5rem; align-items:center; justify-content:space-between;
+  }
+  .now.idle { border-left-color:var(--grey); }
+  .now-k { font-family:var(--f-mono); font-size:.64rem; letter-spacing:.13em; text-transform:uppercase; color:var(--amber); }
+  .now.idle .now-k { color:var(--grey); }
+  .now-t { font-family:var(--f-display); font-weight:600; font-size:1.15rem; line-height:1.2; }
+  .now-m { font-size:.88rem; color:var(--ink-2); max-width:60ch; margin-top:.15rem; }
+  .now-id { font-family:var(--f-mono); font-size:.8rem; color:var(--grey); }
+
+  /* ---- tiers ---- */
+  .tierhead {
+    display:flex; align-items:baseline; gap:.9rem; margin:2.5rem 0 .2rem;
+    border-bottom:1px solid var(--ink); padding-bottom:.4rem;
+  }
+  .tierhead h2 { font-family:var(--f-display); font-weight:700; font-size:1.3rem; margin:0; }
+  .tierhead .tcount { font-family:var(--f-mono); font-size:.8rem; color:var(--grey); font-variant-numeric:tabular-nums; margin-left:auto; }
+
+  /* ---- phase ---- */
+  .phase { border-bottom:1px solid var(--rule); }
+  .ph {
+    display:flex; align-items:center; gap:.8rem; padding:.85rem 0 .7rem;
+    cursor:pointer; user-select:none;
+  }
+  .ph:hover .ph-t { color:var(--red); }
+  .ph-n { font-family:var(--f-mono); font-size:.8rem; color:var(--grey); font-variant-numeric:tabular-nums; min-width:1.6rem; }
+  .ph-t { font-family:var(--f-display); font-weight:600; font-size:1.05rem; }
+  .ph-bar { flex:1; height:4px; background:var(--surface-2); min-width:3rem; display:flex; overflow:hidden; }
+  .ph-bar i { height:100%; }
+  .ph-c { font-family:var(--f-mono); font-size:.76rem; color:var(--grey); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .ph-x { font-family:var(--f-mono); font-size:.85rem; color:var(--grey); width:1rem; text-align:center; }
+
+  .items { display:none; padding:0 0 .9rem; }
+  .phase.open .items { display:block; }
+
+  .item {
+    display:flex; align-items:flex-start; gap:.7rem;
+    padding:.34rem 0 .34rem 2.4rem; font-size:.92rem;
+  }
+  .item button.dot {
+    flex:none; width:14px; height:14px; margin-top:.28rem; padding:0;
+    border:1.5px solid var(--grey); background:transparent; cursor:pointer; border-radius:0;
+  }
+  .item button.dot:hover { border-color:var(--red); }
+  .item.done  button.dot { background:var(--green); border-color:var(--green); }
+  .item.doing button.dot { background:var(--amber); border-color:var(--amber); }
+  .item.blocked button.dot { border-color:var(--red); background:var(--red-soft); }
+  .item .iid { font-family:var(--f-mono); font-size:.74rem; color:var(--grey); min-width:2.8rem; padding-top:.09rem; }
+  .item .itx { color:var(--ink-2); }
+  .item.done .itx { color:var(--grey); text-decoration:line-through; text-decoration-thickness:1px; }
+  .item.doing .itx { color:var(--ink); font-weight:500; }
+
+  .milestone {
+    margin:.5rem 0 .2rem 2.4rem; border-left:2px solid var(--green);
+    background:var(--green-soft); padding:.5rem .75rem; font-size:.86rem; color:var(--ink-2);
+  }
+  .milestone b {
+    display:block; font-family:var(--f-mono); font-size:.6rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--green); margin-bottom:.15rem; font-weight:500;
+  }
+
+  .note { margin:.15rem 0 .5rem 2.4rem; font-size:.84rem; color:var(--grey); }
+  .flag {
+    display:inline-block; font-family:var(--f-mono); font-size:.6rem; letter-spacing:.09em;
+    text-transform:uppercase; padding:.1rem .4rem; border:1px solid currentColor; margin-left:.5rem;
+  }
+  .flag.gate { color:var(--amber); background:var(--amber-soft); }
+  .flag.risk { color:var(--red); background:var(--red-soft); }
+
+  /* ---- off-plan ---- */
+  .offplan { margin-top:3rem; }
+  .offplan h2 { font-family:var(--f-display); font-weight:700; font-size:1.3rem; margin:0 0 .2rem; }
+  .offplan p.l { color:var(--ink-2); font-size:.9rem; margin:0 0 1rem; max-width:62ch; }
+  .oprow {
+    display:flex; gap:.7rem; align-items:baseline; padding:.5rem 0;
+    border-bottom:1px solid var(--rule); font-size:.9rem;
+  }
+  .oprow .od { font-family:var(--f-mono); font-size:.74rem; color:var(--grey); white-space:nowrap; }
+  .oprow .ot { color:var(--ink-2); flex:1; }
+  .opempty { color:var(--grey); font-size:.9rem; padding:.6rem 0; border-top:1px solid var(--rule); }
+  .opform { display:flex; gap:.5rem; margin-top:.9rem; flex-wrap:wrap; }
+  .opform input {
+    flex:1; min-width:16rem; background:var(--surface); color:var(--ink);
+    border:1px solid var(--rule); padding:.45rem .6rem; font:inherit; font-size:.9rem;
+  }
+  .opform input:focus-visible { outline:2px solid var(--red); outline-offset:1px; }
+  button.act {
+    font-family:var(--f-mono); font-size:.74rem; letter-spacing:.06em; text-transform:uppercase;
+    background:var(--ink); color:var(--paper); border:none; padding:.5rem .9rem; cursor:pointer;
+  }
+  button.act:hover { background:var(--red); }
+  button.act:disabled { opacity:.4; cursor:default; }
+
+  .saving {
+    position:fixed; right:1rem; bottom:1rem; background:var(--ink); color:var(--paper);
+    font-family:var(--f-mono); font-size:.72rem; padding:.45rem .8rem; opacity:0;
+    transition:opacity .18s; pointer-events:none;
+  }
+  .saving.on { opacity:1; }
+  .ro {
+    margin-top:1rem; border:1px solid var(--rule); background:var(--surface-2);
+    padding:.6rem .9rem; font-size:.86rem; color:var(--ink-2);
+  }
+
+  footer {
+    margin-top:3rem; padding-top:1rem; border-top:1px solid var(--rule);
+    font-family:var(--f-mono); font-size:.72rem; color:var(--grey);
+    display:flex; flex-wrap:wrap; gap:.4rem 1.5rem;
+  }
+  @media (max-width:620px) {
+    .wrap { padding:0 1rem 3rem; }
+    .item { padding-left:.5rem; } .milestone, .note { margin-left:.5rem; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap"><div id="root"></div></div>
+<div class="saving" id="saving">saving…</div>
+<script id="rb-state" type="application/json">
+{
+  "updated": "2026-09-02",
+  "offPlan": [
+    {
+      "d": "2026-09-02",
+      "t": "06.6/06.7/06.8 done. pieces.ts had been a complete port of the Qt run layout for months and nothing called it: calculatePieces returned a blocker reading 'not verified against the Qt build' for every plank, baffle and cassette. Wrong shape of honesty \u2014 that is a confidence, and bom.ts already carries confidence per line. runs.ts now wires it up; three Qt quirks ported deliberately with tests that fail if anyone 'fixes' them."
+    },
+    {
+      "d": "2026-09-02",
+      "t": "06.11 done, and it was a bug not a feature. The piece roll-up was handed the OPEN page's markups and the OPEN page's calibration: a scope spanning sheets reported a fraction of itself, and any sheet at a different scale would have been measured at the open sheet's. A 1/4\" details page read against a 1/8\" plan is four times its true area and looks perfectly plausible."
+    },
+    {
+      "d": "2026-09-02",
+      "t": "06.10 in progress. calculation_runs / quantity_results / layout_components have existed since migration 3 with nothing writing to them; recordCalculation and freezeLayout now do, transactionally, and a frozen run survives recalculation untouched. NOT finished: nothing in the UI can freeze yet, so the phase milestone ('lay out one real RCP, freeze it, read a BOM') is not reachable."
+    },
+    {
+      "d": "2026-09-02",
+      "t": "Shell rebuilt on one design system after a design review found it reading as three products. Root cause was four icon stroke weights and per-component metrics; both are now one token block. Warnings left the dock for the estimates sidebar, the scope panel reads spec -> total -> markups with the spec always editable, and Take off is white rather than the scope colour."
+    },
+    {
+      "d": "2026-09-02",
+      "t": "Title bar finished: the project name was wired straight to Close Project \u2014 a dropdown that threw your job away. Now a switcher that opens a SECOND window, plus an app menu on the mark and pop-a-tab-out-to-context-window carrying its document. Native decorations turned off; the app draws its own frame, which removes the second title bar nobody chose."
+    },
+    {
+      "d": "2026-09-02",
+      "t": "TRACKER DISCREPANCY, unresolved: phase 08 shows all five items pending, but packages/store/src/repo.ts has listEstimates, createEstimate, copyEstimate, addScopeToEstimate and estimateDocuments, and the sidebar has all three navigation levels. 08.1-08.4 look substantially done. Not marked here because nobody has checked them against the phase milestone."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "06.12 BOM done, and a full takeoff now runs end to end through the bridge: open, calibrate, set orientation, draw, 450 panels. Every BOM line carries its own confidence as a column; totals cover verified lines only."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Two gaps that made piece counts unreachable: seed scopes shipped with empty specs so every scope in a new project was blocked, and the pattern-direction tool existed in code but was never in the toolbar. Both fixed; direction is now a two-click tool writing onto the SCOPE, not the page."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Sub-agents retired as the default at Aaron's request \u2014 poor observability while they run. Working directly unless the work is genuinely parallel and disjoint; recorded in docs/PLAN.md."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "11.3 done: agent can calibrate, draw, delete and rescope through the same runCommand path a click uses. Two bugs the second entry point exposed within minutes \u2014 a calibration that landed in the DB but left the app reporting itself uncalibrated, and agent work logged with origin 'user' so the estimator's Ctrl+Z would have reverted something they never did."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "11.5 done: the agent can open a project, drive the UI and screenshot the real desktop app. Verified on the Barclays package, release build \u2014 693 docs in 35s, and the screenshot confirmed the go_to_page that had been issued. MCP server registered as redbeam-ts, 12 tools, dependency-free."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Phase 11 pulled forward at the user's direction: the agent needed to drive the Tauri build directly. Bridge (11.1/11.2) is live \u2014 token-authed JSON socket on loopback, reads answered from the store so a minimized or busy app still responds. Writes deliberately absent; execute_query is SELECT-only."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "BUG found by driving the bridge against the real Barclays package: opening a project scanned the 3.71 GB tree TWICE concurrently (React StrictMode double-invoke; the effect's cancelled flag cannot cancel Rust work). ~1.8 cores for 5+ minutes with the project showing empty. Fixed by joining concurrent scans."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Open follow-ups on project open: no progress reporting during a ~15s release scan, and every file is re-hashed on every open when size+mtime would usually settle it."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Phase 06 integration landed: takeoff.ts rolls markups up to orderable pieces and reproduces 662/54 end to end from raw geometry. Sidebar shows piece counts; blocked scopes render distinctly from zero ones. Layout preview (06.9) draws the computed grid so the count can be checked by eye."
+    },
+    {
+      "t": "TH.8 done — files on disk, not telemetry. Two users do not need an aggregation service; they need something that survives the crash and can be emailed. Three failures, genuinely different: a RUST PANIC kills the process before any error boundary runs (panic hook, chained so the default stderr print still happens); a RENDER ERROR is caught by the boundary but its stack dies on the reload everybody presses first, so it is written and the crash screen names the file; an UNHANDLED REJECTION reaches neither, which matters because ingest, SQLite and PDF export are all async and a rejection there leaves a window that looks healthy and has stopped working. Twenty kept, oldest pruned, non-report files in the log dir left alone (tested). Each file states its own contents in a header because one of them is the open project PATH, which names a client folder — somebody emailing a report should not have to read a stack trace to learn what they are sending. Repeat suppression on a 10s window keyed on the MESSAGE, so a crash loop writes once but a DIFFERENT second error still lands: the second error is often the informative one. Two bugs caught while building it: a second .setup() on the Tauri builder silently REPLACES the first, so the crash init would have been discarded — there is now one setup and a comment saying why; and set_open_project was written and never called, which would have made every report say project:none."
+    },
+    {
+      "t": "TH.7 mechanism built, endpoint not chosen. Updater and process plugins, a generated signing key living OUTSIDE the repo, and an Updates row in Settings that checks, downloads and restarts. Capability grant is updater:default plus a single process:allow-restart — NOT process:default, which would also let the webview exit the app. The point of the feature is the state it refuses to misreport: with no endpoint it says \"no update channel is set up… it will stay on this version\" rather than \"you're up to date\", which is the most dangerous sentence available because it is exactly what a HEALTHY updater says — a dead channel reporting it would never be found. A failed check is likewise never folded into up-to-date. Both pinned by tests, and UPDATES_CONFIGURED is asserted false so whoever configures an endpoint must flip that test rather than delete it. STILL NEEDED: an HTTPS URL serving a manifest (SharePoint, S3, a GitHub release — not a UNC path). TH.6 marked done: the installer builds and signing was dropped at Aaron's direction, since this is internal to Maxxit for now. Also fixed in passing: outlineReal.test.ts asserted a 200ms wall-clock budget, measured ~17ms alone and failed once under full parallel load — a test reporting on the machine rather than the code. Budget raised to 5s, which still catches the regression it exists for (opening pages would take tens of seconds)."
+    },
+    {
+      "t": "10.6 RETIRED AS WRITTEN and replaced. It was \"open the export in Bluebeam and confirm the measurements survive\" — unreachable: Bluebeam's automation needs a subscription tier Maxxit does not hold, and no engineering here changes that. Leaving it open would have been a lie about what is achievable. Nor is \"try more readers\" available: only Edge is installed and it is Chromium, the engine already tested. What replaced it is conformance — 18 assertions against ISO 32000-1 on a file from the real writer, on an origin-centred CropBox because a conformance check on an easy page proves less. Required Subtype/Rect, Rect ordered lower-left first and enclosing every vertex, paired Vertices, unique /NM per page, only spec-defined /IT values, Print set with Hidden and NoView clear, an /AP form XObject whose BBox matches Rect and whose Resources declare the ExtGState its content stream names, and the full 12.9 measurement chain down to U and C on every NumberFormat. Perturbation checked: flag the annotation Hidden and it fails; shift the appearance BBox alone and it fails. WHAT THIS DOES NOT PROVE, named rather than pending: that Bluebeam is happy. It reads standard annotations but carries private keys of its own, and a conforming file it renders badly is a gap no suite here can see. The claim is now narrower and true — if a reader mishandles this file, the file is not the thing that is wrong."
+    },
+    {
+      "t": "11.6 done and TH.6 half done. The agent bridge went from 9 actions and 12 tools to 22 and 14: scope setup, preset scales across a page RANGE, scale regions, panels, the BOM and all three exports. Guarded by a source-reading drift test that compares the app's own lists against the bridge's — set_tool's allowlist against the Tool union, the switch's cases against the action enum, each params[x] a handler reads against its schema. It catches both drifts that had already shipped unnoticed: `direction` and `scale-region` unselectable, and `commit_scope` implemented but never advertised. It CANNOT catch capability that lives in a component rather than a list, nor a handler that compiles and no longer works. NOTE: the running MCP server is a separate process and advertises the OLD schema until it is restarted, so none of the new tools are reachable until then. TH.6: the installer builds — per-user (no admin on a managed laptop), WebView2 download bootstrapper, 95MB NSIS and MSI. Two traps recorded in docs/PACKAGING.md. A bare `tauri build` on this ARM64 host names an x64 binary `arm64`, so the target must be named explicitly. And it is UNSIGNED: SmartScreen will say \"Windows protected your PC\" and hide the Run button, which needs a certificate rather than a config change. Signing is the half that is not done."
+    },
+    {
+      "t": "Closed the gap 14.5 shipped with: piece LAYOUT now resolves scale per markup (region, then page) exactly as the roll-up does, so a details sheet no longer has its area saying one thing and its piece count another. A cutout takes its OWNER area's scale rather than its own — resolving it independently would let a hole whose centroid strayed over a boundary punch the wrong size or nothing. Golden fixtures unchanged at 662/54 because a page with no regions returns the page calibration OBJECT untouched. Two things worth recording. A region component added to the group key turned out to be DEAD: directionGroupKey already ends in the area id, so every area is its own group and two details can never share one — the perturbation test proved it changed nothing and it was removed rather than left with a comment claiming it mattered. And the panel grid origin is sheet-wide by default, which looked like it would leak across a scale boundary; tested, and a detail counts the same beside another detail as it does alone, so the worry was unfounded rather than merely unexamined."
+    },
+    {
+      "t": "07 UNBLOCKED. The phase existed because \"agreement with a human estimator has never been measured\" — there was no ground truth. There is: Maxxit's own quotation 28019 for Barclays Toronto (2025-01-21) sits in the project folder, and it carries four quoted quantities — CL02 681 LF, CL03 180 SF, CL04 30 clouds, CL05 756 LF. Captured as fixtures/ground-truth/barclays-28019.json with provenance, plus compareToGroundTruth() which reports a delta worst-first and distinguishes MISSING (never measured) from a quantity of zero — a scope with no takeoff showing -100% would read as disagreement when the app has simply not been pointed at the drawing. 07.2 now needs a real takeoff rather than an oracle. 07.1 is NOT done: the markups on file for CL03 are four boxes drawn in fourteen seconds, so the 238 SF against the quoted 180 is test data and not an accuracy finding. Note also the app's scopes are named C-MT-01/CL03/FIX-01/LV-04/WP-12 and the quote's are CL02..CL05, so only one matches by string — the comparison takes an explicit mapping rather than matching on names, which would silently pair the wrong scopes and report agreement that does not exist. 10.5 marked done: the branded report was built, wired into the BOM panel and has ten tests."
+    },
+    {
+      "t": "Phase 14 done through 14.6. The UI: multi-select sheets in the index (shift for a range taken from what is ON SCREEN, ctrl to toggle), right-click, one scale for the lot; a region tool (Shift-K) that drags a box and then asks for its scale and a name; regions painted unfilled with their scale on them, largest first so a nested one stays visible; a list with delete while the tool is in hand; the dock says \"+2 regions\" when the page scale is not the whole sheet; unscaled sheets say so in the index. Driven with real clicks in a browser, which also turned up that ?harness=shell had been crashing on a stale `as never` fixture since runs/cells joined PieceResult. Found along the way: the dock ALREADY had per-page scale display, preset selection and apply-to-whole-document — what was missing was the selective RANGE and regions. Also fixed: the bridge tool allowlist had drifted and could not select `direction` or `scale-region`, so the two gestures that decide how a takeoff is measured were the two an agent could not exercise. REMAINING GAP, deliberately not hidden: calculatePieces still resolves one scale per page, so panel and run LAYOUT on a multi-scale sheet uses the page number. Areas, perimeters and lengths are region-aware; piece counts on a details sheet are not."
+    },
+    {
+      "t": "Phase 14 opened at Aaron's direction: a calibration was one number per page, and a real set needs one scale over a RANGE of pages and several scales WITHIN a sheet. Audited first and the good news held — nothing in the app has ever inferred a scale; commitCalibration is the only write path. That is now a stated rule, not an accident: a point in no region on a page with no scale resolves to null, and null means uncalibrated and must block. 14.1-14.3 done: regions and applyScaleToPages in the domain and store (migration 008, schema 7->8, a table rather than loosening the UNIQUE on calibrations), a region-aware roll-up that buckets by page AND region so cutouts still subtract inside their own detail, and viewports in the exported PDF ordered largest-first so the file resolves the way the app does. 14.4-14.6 are the UI and are what an estimator can actually touch: multi-select in the TOC and thumbnails, drawing and labelling regions, and showing which pages are unscaled. Until those land this feature is invisible."
+    },
+    {
+      "t": "10.4 done, and it fixed a defect 10.3 shipped: a LINEAR or COUNT scope exported nothing at all, because the writer wanted three points and a Polygon. LV-04 and FIX-01 were absent from a sheet that looked complete. Runs now go out as PolyLine (unclosed, no interior — filling one draws a region nobody measured) and counts as a fixed-radius Circle. Non-takeoff kinds are declined BY NAME rather than by falling through. Measurement: each calibrated page gets a viewport whose /Measure converts one point to feet, so a recipient measures the sheet in their own reader and reaches our numbers instead of a length in points; /R reads \"1 in = 18 ft\" the way a drawing states it. Per PAGE, never per document. An uncalibrated page gets NO scale rather than a neighbour's — a sheet measuring confidently to the wrong number is the worst outcome. Our viewport replaces any the source carried, because our quantities came from our calibration. Still open: 10.6 (Bluebeam MCP not permitted here, so Chromium is the only independent renderer this has been through), and the BOM panel has no MCP action to open it, so the button itself is unverified through the agent surface."
+    },
+    {
+      "t": "10.3 PDF write-back landed and is REACHABLE — a marked-up PDF button in the BOM panel, not another tested-but-uncalled capability. Polygon annotations with explicit appearance streams, so they render in readers that will not synthesise one. The coordinate work is the whole of it: stored coordinates run y-DOWN in PDFium display space, PDF user space runs y-UP from a box origin that need not be (0,0), and a rotated page disagrees about which axis is which. All four rotations asserted as corner bijections. Verified past the unit tests by writing three real Barclays markups into clean_drawing.pdf and opening it in Chromium's PDF viewer, an independent renderer: all three draw, positions match the stored normalized coordinates to pixel-reading error, vertical order preserved. 10.6 stays open — Bluebeam was the intended oracle and its MCP is not permitted in this session. 10.4 (polylines and /Measure dictionaries) is untouched, so a written area carries its measurement as TEXT and not as something Bluebeam can re-measure."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "06.1/06.2 panel engine matches the Qt build EXACTLY: 662 and 54 panels, asserted in panels.test.ts against the golden fixtures, and now ALSO through calculatePieces — the path the app actually calls, which adds grouping, per-page calibration and the roll-up on top and was never checked. Verified both bite: stop pairing halves and C-MT-01 gives 759 instead of 662. The fixture JSON records no pattern direction, so both suites PIN it and the count is unreproducible from the file alone — a re-capture should record it. Whether a panel may be CUT is the per-scope Granularity setting, and the two fixtures sit on opposite values (C-MT-01 'half', C-MT-02 'full'), so both paths are covered. Its size is now pinned by an identity rather than a captured number: at 'full' every placed cell must consume a whole panel, so the order equals the cell count. Worth 759 vs 662 on C-MT-01 and 54 vs 36 on C-MT-02 — 15% and 33% on one dropdown. One real flaw remains and is deliberately unfixed: orderStockPieceCount pairs any two halves while the engine knows each one's axis, and C-MT-01's 194 halves are 79 half-length and 115 half-width, which pair by axis into 98 panels not 97. Bounded at ONE panel for good — only the odd leftover of each axis is lost and there are two axes — so 0.15% here, and Qt does it this way."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "06.3/06.4 plank and baffle builders are now validated ANALYTICALLY (runs.validation.test.ts): eleven shapes whose answers are derivable on paper — a 20x10 rectangle of 6in planks, a run that is exactly one stock, one foot over a stock, half and quarter yield, the pattern turned 90 and 45 degrees, a cutout, rails, perimeter trim, and a baffle grid. The engine matched every hand-derived number exactly, first try. Perturbation checked: widening the plank fails 7 of them, doubling the stock length fails 5. What is still open is CONVENTION against the Qt oracle — chiefly whether `full` yield reuses an offcut, which is worth 1.8x on stock ordered — and there is still no Qt project with a plank scope to capture from. Every reachable one is 'panels'."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "TH.4 settings: toolbar snap toggle and the Settings row were separate state and drifted apart. Now derived from one source. Reset all verified to leave the open project and its tabs untouched."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "05.2 DONE. Two golden fixtures captured live from the Qt build (Turkish Airlines Lounge JFK): C-MT-01 4128.830820581 SF / 662 panels, C-MT-02 217.913870973 SF / 54 panels. Our engine matches both exactly. Phase 06 is unblocked."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Fixtures found a real bug: areaSquareFeet ignored pageId, so a cutout on one sheet punched a hole in another. Measured 226 of 4,128 SF lost. Now grouped per page, matching the Qt basis string."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Fixtures found a second bug: Specifications was typed Record<string,string> but real scopes carry scopeDefaultDirection as a nested object. Now Record<string,unknown> behind a readString gate."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "Real-tree scan measured: 693 PDFs / 3.71 GB catalogs in 15.6s release, 175s debug. The debug number is the unoptimized hand-rolled SHA-256, not a scanner defect."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "TH.2: the tab strip was fed every ingested document, not the open ones \u2014 693 tabs on a real job. Split into open-tabs plus a searchable browser."
+    },
+    {
+      "d": "2026-08-28",
+      "t": "TH.1 tokenization exposed a .warn class collision: a block panel overrode the inline severity mark, so every missing-file '!' rendered with padding and an amber background inside a tab."
+    }
+  ],
+  "status": {
+    "00.1": "done",
+    "00.2": "done",
+    "00.3": "done",
+    "00.4": "done",
+    "00.5": "done",
+    "01.1": "done",
+    "01.2": "done",
+    "01.3": "done",
+    "01.4": "done",
+    "01.5": "done",
+    "01.6": "done",
+    "02.1": "done",
+    "02.2": "done",
+    "02.3": "done",
+    "02.4": "done",
+    "02.5": "done",
+    "03.1": "done",
+    "03.2": "done",
+    "03.3": "done",
+    "03.4": "done",
+    "03.5": "done",
+    "03.6": "done",
+    "03.7": "done",
+    "04.1": "done",
+    "04.2": "done",
+    "04.3": "done",
+    "04.4": "done",
+    "04.5": "done",
+    "05.1": "done",
+    "05.2": "done",
+    "05.3": "done",
+    "TH.1": "done",
+    "TH.2": "done",
+    "TH.10": "done",
+    "06.1": "done",
+    "06.2": "done",
+    "06.3": "done",
+    "06.4": "done",
+    "TH.4": "done",
+    "06.5": "done",
+    "06.9": "done",
+    "11.1": "done",
+    "11.2": "done",
+    "11.5": "done",
+    "11.3": "done",
+    "06.12": "done",
+    "06.6": "done",
+    "06.7": "done",
+    "06.8": "done",
+    "06.11": "done",
+    "06.10": "done",
+    "08.5": "done",
+    "07.1": "doing",
+    "08.1": "done",
+    "08.2": "done",
+    "08.3": "done",
+    "08.4": "done",
+    "09.1": "todo",
+    "09.2": "todo",
+    "09.3": "todo",
+    "09.4": "todo",
+    "10.1": "done",
+    "10.3": "done",
+    "10.4": "done",
+    "14.1": "done",
+    "14.2": "done",
+    "14.3": "done",
+    "14.4": "done",
+    "14.5": "done",
+    "14.6": "done",
+    "10.5": "done",
+    "11.6": "done",
+    "10.6": "done",
+    "TH.6": "done",
+    "TH.7": "doing",
+    "TH.8": "done"
+  }
+}
+</script>
+<script id="rb-app">
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------- plan --
+  // The plan is fixed. Achievables are only ever added here by editing the
+  // source, never by the page — that is what keeps the tracker honest.
+  var PLAN = [
+    { tier: 1, name: "Takeoff parity", phases: [
+      { id: "00", title: "Foundation", milestone: "Draw a 300x300px square on a calibrated sheet and read exactly 10,000 SF. Cut a hole in it and watch it drop to 8,888.9. Undo it all.", items: [
+        ["00.1", "Repo scaffold; geometry and units ported with tests"],
+        ["00.2", "Markup authoring, calibration, SQLite persistence"],
+        ["00.3", "Snapping, cutout tool, cutout aggregation fix"],
+        ["00.4", "Edit committed markups: select, move, reshape, vertices"],
+        ["00.5", "Undo/redo command stack and activity trail"]
+      ]},
+      { id: "01", title: "Desktop shell and window model", flag: "risk", flagText: "architectural",
+        note: "One project per window, documents as tabs, optional context windows. Decides where state lives, so it comes first.",
+        milestone: "Open two projects in two windows. Tab between three drawings in one. Pop a context window onto the same project, move a markup in it, watch the main window update live. Close and reopen — everything is where you left it.", items: [
+        ["01.1", "Tauri v2 shell, window creation, dev and build pipeline"],
+        ["01.2", "Rust core owns SQLite; migrations run native (FTS5 restored)"],
+        ["01.3", "Project = window; open, close, recent projects"],
+        ["01.4", "Document tabs within a window"],
+        ["01.5", "Context windows with independent view state"],
+        ["01.6", "Cross-window broadcast; undo becomes project-scoped in the core"]
+      ]},
+      { id: "02", title: "Documents and pages",
+        milestone: "Open the 75-page Barclays PKG A set, jump to sheet A-514A.00 by label, search “ELEVATOR LOBBY” and land on the hit, then calibrate three sheets to three different scales.", items: [
+        ["02.1", "Project folder ingest; documents and pages populated"],
+        ["02.2", "Multi-page navigation and page labels"],
+        ["02.3", "Page thumbnail panel"],
+        ["02.4", "Per-page calibration"],
+        ["02.5", "Text extraction and FTS5 search"]
+      ]},
+      { id: "03", title: "Markup completeness",
+        milestone: "Every tool in the Qt tool row has a working equivalent. Draw one of each on a real RCP sheet, select three at once, reassign them to another scope.", items: [
+        ["03.1", "Dimension tool"],
+        ["03.2", "Text callout and text highlight"],
+        ["03.3", "Freeform markup polygon"],
+        ["03.4", "Pattern direction and pattern origin"],
+        ["03.5", "Direction zones"],
+        ["03.6", "Region trace / finish-region detection"],
+        ["03.7", "Multi-select, copy/paste, scope reassignment"]
+      ]},
+      { id: "04", title: "Scope model and typed specifications",
+        milestone: "Build a CL03 baffle-cassette scope with real spec values, typing “7 1/2 in” where you mean it. Duplicate it, change one parameter, archive the original.", items: [
+        ["04.1", "Scope CRUD, scope shelf, active scope"],
+        ["04.2", "Typed spec schema for the seven product types"],
+        ["04.3", "Spec editor with fraction-aware measure inputs"],
+        ["04.4", "Scope colors, duplicate, archive"],
+        ["04.5", "Scope-type / tool guard (fixes the silent no-op)"]
+      ]},
+      { id: "05", title: "Golden fixture harness", flag: "gate", flagText: "gates 06",
+        note: "Nothing in phase 06 gets written before this exists.",
+        milestone: "Deliberately break one number in the new engine and watch the fixture suite fail loudly, naming the scope and the quantity that moved.", items: [
+        ["05.1", "Fixture dump harness driving the Qt build over its MCP bridge"],
+        ["05.2", "Fixture corpus across every scope type and real drawing set"],
+        ["05.3", "Regression runner wired into npm run verify"]
+      ]},
+      { id: "06", title: "Piece, yield and layout engine", flag: "risk", flagText: "highest risk",
+        note: "The bulk of the 8,854-line scope panel. Turns measurements into orderable material.",
+        milestone: "Run every fixture scope through the new engine and match the Qt build exactly. Then lay out one real RCP, freeze it, and read a BOM you would actually order from.", items: [
+        ["06.1", "Allowed piece fractions and yield granularity"],
+        ["06.2", "Panel piece builder"],
+        ["06.3", "Plank piece builder"],
+        ["06.4", "Baffle cassette piece builder"],
+        ["06.5", "Custom assembly"],
+        ["06.6", "Suspension rails"],
+        ["06.7", "Connectors and joiners"],
+        ["06.8", "End caps and perimeter trim"],
+        ["06.9", "Layout preview rendering"],
+        ["06.10", "Freeze and bake into layout_components"],
+        ["06.11", "Cross-document piece and stock pooling"],
+        ["06.12", "BOM output and quantity table"]
+      ]},
+      { id: "07", title: "Ground-truth accuracy validation", flag: "risk", flagText: "never done",
+        note: "Every accuracy claim in the legacy repo is self-consistency. Agreement with a human estimator has never been measured.",
+        milestone: "A published delta: scope by scope, the app’s quantities against an estimator’s, with every disagreement explained.", items: [
+        ["07.1", "Run one real bid package end to end"],
+        ["07.2", "Publish the scope-by-scope delta against an estimator"]
+      ]},
+      { id: "14", title: "Scale", flag: "risk", flagText: "measurement",
+        note: "A calibration was one number per page. A real set needs one scale over a RANGE of pages, several scales within one sheet, and never a scale the software chose by itself.",
+        milestone: "Select the whole 400-series in the table of contents, set 1/8\" = 1'-0\" once, and watch forty sheets become measurable. Draw four scale regions on a details page and have four details measure correctly at the same time — in REDBEAM and in the exported PDF.", items: [
+        ["14.1", "Scale regions and page-range scales in the domain and store"],
+        ["14.2", "Region-aware roll-up: quantities measure per region"],
+        ["14.3", "Scale regions carried into the exported PDF as viewports"],
+        ["14.4", "Multi-select pages in the TOC and thumbnails; set one scale"],
+        ["14.5", "Draw, label and edit scale regions on a sheet"],
+        ["14.6", "Scale surfaced per page and per region, with unscaled called out"]
+      ]}
+    ]},
+    { tier: 2, name: "Program parity", phases: [
+      { id: "08", title: "Estimates",
+        milestone: "Build an estimate spanning two documents, copy it, change one scope in the copy, and see both totals stay correct and independent.", items: [
+        ["08.1", "Estimate CRUD"],
+        ["08.2", "Estimate scopes"],
+        ["08.3", "Copy estimate"],
+        ["08.4", "Estimate overview and navigation"],
+        ["08.5", "Cross-document totals"]
+      ]},
+      { id: "09", title: "Review gate",
+        milestone: "An agent proposes ten markups. You see the quantity impact before deciding, accept six, reject four, and the totals move by exactly the previewed amount.", items: [
+        ["09.1", "Proposed markup rendering on canvas"],
+        ["09.2", "Review cards with quantity impact preview"],
+        ["09.3", "Accept, reject, request revision"],
+        ["09.4", "Change set records"]
+      ]},
+      { id: "10", title: "Export and artifacts",
+        milestone: "Export a takeoff package, open the TSV in Excel, and open the marked-up PDF in Bluebeam with the measurements intact.", items: [
+        ["10.1", "TSV takeoff package matching the legacy exporter"],
+        ["10.2", "Artifact and artifact_exports lifecycle"],
+        ["10.3", "PDF write-back: polygons via pdf-lib"],
+        ["10.4", "PDF write-back: polylines and /Measure dictionaries"],
+        ["10.5", "Report and summary output"],
+        ["10.6", "PDF conformance, since Bluebeam cannot be reached"]
+      ]}
+    ]},
+    { tier: 3, name: "Agent parity", phases: [
+      { id: "11", title: "Automation surface",
+        milestone: "Point an agent at the new app and have it complete a scoped takeoff through the same tool names the Qt build answered to.", items: [
+        ["11.1", "MCP server against the Rust core"],
+        ["11.2", "Query tools: state, scopes, markups, pages"],
+        ["11.3", "Propose and review command tools"],
+        ["11.4", "Idempotent replay and change sets"],
+        ["11.5", "Render and screenshot tools"],
+        ["11.6", "Contract parity suite against the 72-tool list"]
+      ]},
+      { id: "12", title: "Tasks and conversations",
+        milestone: "Start a task from a selected markup, hold a conversation about it, and have the pinned context still make sense a day later.", items: [
+        ["12.1", "Task threads"],
+        ["12.2", "Message history"],
+        ["12.3", "Provider configuration"],
+        ["12.4", "Agent streaming"],
+        ["12.5", "Immediate context"],
+        ["12.6", "Pinned context"],
+        ["12.7", "Task search and drawer"]
+      ]},
+      { id: "13", title: "Takeoff inference",
+        milestone: "Run inference on an RCP sheet, cancel it mid-run, and have it actually stop — the legacy build reports success while still burning a core.", items: [
+        ["13.1", "ONNX worker port"],
+        ["13.2", "Bounded simplify (fixes the livelock)"],
+        ["13.3", "Cancel that cancels; proper interpreter resolution"]
+      ]}
+    ]},
+    { tier: 4, name: "Threaded throughout", phases: [
+      { id: "TH", title: "Shell, distribution, performance",
+        note: "Runs alongside the tiers rather than after them.",
+        milestone: "Install the app from a signed installer on a clean machine and have it open a project.", items: [
+        ["TH.1", "Design system and tokens"],
+        ["TH.2", "Document bar and navigation"],
+        ["TH.3", "Workspace panels and status"],
+        ["TH.4", "Settings"],
+        ["TH.5", "Diagnostics"],
+        ["TH.6", "Installer and signing"],
+        ["TH.7", "Update channel"],
+        ["TH.8", "Crash reporting"],
+        ["TH.9", "Canvas benchmark inside the Tauri window"],
+        ["TH.10", "Perf budget instrumentation"]
+      ]}
+    ]}
+  ];
+
+  var ORDER = ["todo", "doing", "done", "blocked"];
+
+  // --------------------------------------------------------------- state --
+  var stateEl = document.getElementById("rb-state");
+  var S;
+  try { S = JSON.parse(stateEl.textContent); }
+  catch (e) { S = { updated: "", offPlan: [], status: {} }; }
+  if (!S.status) S.status = {};
+  if (!S.offPlan) S.offPlan = [];
+  // Rows seeded from source carry {date,text}; rows the page writes carry
+  // {d,t}, and the renderer reads d/t — so every seeded row displayed as
+  // "undefined undefined". Normalize on load, once, so the next save converges.
+  S.offPlan = S.offPlan.map(function (o) {
+    return { d: o.d || o.date || "", t: o.t || o.text || "" };
+  });
+
+  var artifact = null, writable = true, open = {};
+
+  function allItems() {
+    var out = [];
+    PLAN.forEach(function (t) { t.phases.forEach(function (p) {
+      p.items.forEach(function (it) { out.push({ id: it[0], text: it[1], phase: p }); });
+    }); });
+    return out;
+  }
+  function st(id) { return S.status[id] || "todo"; }
+  function tally(items) {
+    var c = { done: 0, doing: 0, blocked: 0, total: items.length };
+    items.forEach(function (i) { var s = st(i[0] || i.id); if (c[s] !== undefined) c[s]++; });
+    return c;
+  }
+  function nextUp() {
+    var all = allItems();
+    var doing = all.filter(function (i) { return st(i.id) === "doing"; });
+    if (doing.length) return { item: doing[0], mode: "doing" };
+    var todo = all.filter(function (i) { return st(i.id) === "todo"; });
+    if (todo.length) return { item: todo[0], mode: "next" };
+    return null;
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // -------------------------------------------------------------- render --
+  function render() {
+    var all = allItems();
+    var g = tally(all.map(function (i) { return [i.id]; }));
+    var pctDone = g.total ? (g.done / g.total) * 100 : 0;
+    var pctDoing = g.total ? (g.doing / g.total) * 100 : 0;
+    var nx = nextUp();
+
+    var h = "";
+    h += '<div class="top">';
+    h +=   '<div class="sub">okular-redbeam → redbeam · build tracker</div>';
+    h +=   '<div class="toprow"><h1>The road to parity</h1>';
+    h +=     '<div class="headline-count">' + g.done + '<em> / ' + g.total + ' done</em></div></div>';
+    h +=   '<div class="meter"><i class="m-done" style="width:' + pctDone.toFixed(2) + '%"></i>' +
+             '<i class="m-doing" style="width:' + pctDoing.toFixed(2) + '%"></i></div>';
+    h +=   '<div class="legend">' +
+             '<span><i class="dotk" style="background:var(--green)"></i><b>' + g.done + '</b> done</span>' +
+             '<span><i class="dotk" style="background:var(--amber)"></i><b>' + g.doing + '</b> in progress</span>' +
+             '<span><i class="dotk" style="background:var(--red)"></i><b>' + g.blocked + '</b> blocked</span>' +
+             '<span><i class="dotk" style="border:1.5px solid var(--grey)"></i><b>' +
+                (g.total - g.done - g.doing - g.blocked) + '</b> to do</span>' +
+             '<span>off-plan <b>' + S.offPlan.length + '</b></span>' +
+           '</div>';
+    h += '</div>';
+
+    // NOW
+    if (nx) {
+      h += '<div class="now' + (nx.mode === "next" ? " idle" : "") + '">';
+      h +=   '<div><div class="now-k">' + (nx.mode === "doing" ? "In progress" : "Next up") + '</div>';
+      h +=     '<div class="now-t">' + esc(nx.item.text) + '</div>';
+      h +=     '<div class="now-m">' + esc(nx.item.phase.title) + '</div></div>';
+      h +=   '<div class="now-id">' + esc(nx.item.id) + '</div>';
+      h += '</div>';
+    } else {
+      h += '<div class="now idle"><div><div class="now-k">Complete</div>' +
+           '<div class="now-t">Every achievable on the plan is done.</div></div></div>';
+    }
+
+    if (!writable) {
+      h += '<div class="ro">Read-only view — progress is shown but cannot be changed here.</div>';
+    }
+
+    // tiers
+    PLAN.forEach(function (t) {
+      var titems = [];
+      t.phases.forEach(function (p) { p.items.forEach(function (i) { titems.push(i); }); });
+      var tc = tally(titems);
+      h += '<div class="tierhead"><h2>' + esc(t.name) + '</h2>' +
+           '<span class="tcount">' + tc.done + ' / ' + tc.total + '</span></div>';
+
+      t.phases.forEach(function (p) {
+        var pc = tally(p.items);
+        var isOpen = open[p.id];
+        var pd = pc.total ? (pc.done / pc.total) * 100 : 0;
+        var pg = pc.total ? (pc.doing / pc.total) * 100 : 0;
+
+        h += '<div class="phase' + (isOpen ? " open" : "") + '">';
+        h +=   '<div class="ph" data-phase="' + p.id + '" role="button" tabindex="0">';
+        h +=     '<span class="ph-n">' + esc(p.id) + '</span>';
+        h +=     '<span class="ph-t">' + esc(p.title) + '</span>';
+        if (p.flag) h += '<span class="flag ' + p.flag + '">' + esc(p.flagText) + '</span>';
+        h +=     '<span class="ph-bar"><i class="m-done" style="width:' + pd.toFixed(2) + '%;background:var(--green)"></i>' +
+                 '<i style="width:' + pg.toFixed(2) + '%;background:var(--amber)"></i></span>';
+        h +=     '<span class="ph-c">' + pc.done + '/' + pc.total + '</span>';
+        h +=     '<span class="ph-x">' + (isOpen ? "−" : "+") + '</span>';
+        h +=   '</div>';
+
+        h +=   '<div class="items">';
+        if (p.note) h += '<div class="note">' + esc(p.note) + '</div>';
+        p.items.forEach(function (it) {
+          var s = st(it[0]);
+          h += '<div class="item ' + s + '">';
+          h +=   '<button class="dot" data-id="' + it[0] + '" aria-label="' + esc(it[1]) + ': ' + s + '"></button>';
+          h +=   '<span class="iid">' + esc(it[0]) + '</span>';
+          h +=   '<span class="itx">' + esc(it[1]) + '</span>';
+          h += '</div>';
+        });
+        if (p.milestone) {
+          h += '<div class="milestone"><b>Milestone — test it yourself</b>' + esc(p.milestone) + '</div>';
+        }
+        h +=   '</div>';
+        h += '</div>';
+      });
+    });
+
+    // off plan
+    h += '<div class="offplan"><h2>Off-plan work</h2>';
+    h += '<p class="l">Anything worked on that is not an achievable above gets logged here. ' +
+         'The count sits in the header so detours are visible rather than absorbed.</p>';
+    if (S.offPlan.length) {
+      S.offPlan.forEach(function (o, i) {
+        h += '<div class="oprow"><span class="od">' + esc(o.d) + '</span><span class="ot">' + esc(o.t) + '</span>' +
+             (writable ? '<button class="act" data-rm="' + i + '">remove</button>' : '') + '</div>';
+      });
+    } else {
+      h += '<div class="opempty">Nothing off-plan. Keep it that way.</div>';
+    }
+    if (writable) {
+      h += '<div class="opform"><input id="opin" placeholder="What was worked on that is not in the plan?" ' +
+           'aria-label="Off-plan work description"><button class="act" id="opadd">Log it</button></div>';
+    }
+    h += '</div>';
+
+    h += '<footer><span>updated ' + esc(S.updated || "—") + '</span>' +
+         '<span>' + g.total + ' achievables</span>' +
+         '<span>click a phase to expand · click a marker to cycle status</span></footer>';
+
+    document.getElementById("root").innerHTML = h;
+    bind();
+  }
+
+  // --------------------------------------------------------------- bind --
+  function bind() {
+    var root = document.getElementById("root");
+
+    root.querySelectorAll(".ph").forEach(function (el) {
+      function toggle() { var id = el.dataset.phase; open[id] = !open[id]; render(); }
+      el.addEventListener("click", toggle);
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+    });
+
+    if (!writable) return;
+
+    root.querySelectorAll("button.dot").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var id = b.dataset.id;
+        var cur = st(id);
+        var nextS = ORDER[(ORDER.indexOf(cur) + 1) % ORDER.length];
+        if (nextS === "todo") delete S.status[id]; else S.status[id] = nextS;
+        stamp(); render(); save();
+      });
+    });
+
+    var add = root.querySelector("#opadd");
+    if (add) {
+      var input = root.querySelector("#opin");
+      function commit() {
+        var v = (input.value || "").trim();
+        if (!v) return;
+        S.offPlan.unshift({ d: today(), t: v });
+        input.value = "";
+        stamp(); render(); save();
+      }
+      add.addEventListener("click", commit);
+      input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
+    }
+
+    root.querySelectorAll("button[data-rm]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        S.offPlan.splice(Number(b.dataset.rm), 1);
+        stamp(); render(); save();
+      });
+    });
+  }
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+           "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function stamp() { S.updated = today(); }
+
+  // -------------------------------------------------------------- persist --
+  // Rebuild the whole document from our own authored style + script and the
+  // current state. Never serialize the live DOM: it carries viewer-session
+  // state and injected runtime scripts.
+  function buildDoc() {
+    var css = document.getElementById("rb-style").textContent;
+    var js = document.getElementById("rb-app").textContent;
+    var close = "<\/script>";
+    return "<!doctype html>\n<html lang=\"en\">\n<head>\n" +
+      "<meta charset=\"utf-8\">\n" +
+      "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n" +
+      "<title>REDBEAM Build Tracker</title>\n" +
+      "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n" +
+      "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n" +
+      "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap\">\n" +
+      "<style id=\"rb-style\">" + css + "</style>\n</head>\n<body>\n" +
+      "<div class=\"wrap\"><div id=\"root\"></div></div>\n" +
+      "<div class=\"saving\" id=\"saving\">saving…</div>\n" +
+      "<script id=\"rb-state\" type=\"application/json\">\n" + JSON.stringify(S, null, 2) + "\n" + close + "\n" +
+      "<script id=\"rb-app\">" + js + close + "\n</body>\n</html>";
+  }
+
+  var pending = null, timer = null;
+  function save() {
+    if (!artifact) return;              // capability not resolved (yet or ever)
+    pending = true;
+    flash(true);
+    clearTimeout(timer);
+    timer = setTimeout(doSave, 700);    // batch rapid ticks into one publish
+  }
+  function doSave() {
+    if (!artifact || !pending) return;
+    pending = false;
+    artifact.publish(buildDoc()).then(function () {
+      // the view reloads to the new version
+    }).catch(function (err) {
+      flash(false);
+      var code = err && err.code;
+      if (code === "conflict") return;  // routine: every view reloads to the winner
+      if (code === "not_writer" || code === "not_granted" ||
+          code === "not_declared" || code === "capability_disabled") {
+        writable = false; render(); return;
+      }
+      if (code === "rate_limited") { setTimeout(doSave, 4000); pending = true; return; }
+      console.warn("[tracker] publish failed:", code, err && err.message);
+    });
+  }
+  function flash(on) {
+    var el = document.getElementById("saving");
+    if (el) el.classList.toggle("on", !!on);
+  }
+
+  render();
+
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("artifact").then(function (ns) {
+      artifact = ns;
+      if (!ns) { writable = false; render(); }
+    }).catch(function () { writable = false; render(); });
+  } else {
+    writable = false;
+    render();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+apps/desktop/public/*.pdf
+apps/desktop/public/*.wasm
+scratch/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+
+# project databases created at runtime
+*.db
+*.db-shm
+*.db-wal
+
+# Emitted JS/decls must never sit next to sources. `tsc <file>` (file mode)
+# ignores tsconfig and emits in place; a stale pattern.js then SHADOWS
+# pattern.ts under Vite and breaks every importer with a confusing
+# "Failed to load url ./geometry.js". Build with `tsc -b`, never `tsc <file>`.
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+
+# Scratch projects opened while driving the app. A project folder holds the
+# drawings themselves — the demo one carries a 95 MB PDF — and `git add -A`
+# would commit them. Real projects live outside the repo; these are throwaway.
+/demo/
+/bomtest/
+/wtest*/
+/*test/
+
+# Local Claude Code tooling (launch configs, session settings) — machine-specific.
+.claude/

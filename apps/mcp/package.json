@@ -1,0 +1,14 @@
+{
+  "name": "@redbeam/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server for the REDBEAM automation bridge.",
+  "type": "module",
+  "bin": {
+    "redbeam-mcp": "./bin.mjs"
+  },
+  "scripts": {
+    "start": "node bin.mjs",
+    "test": "node --test mcp.test.mjs"
+  }
+}

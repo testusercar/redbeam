@@ -1,0 +1,371 @@
+/* aaron-design-system v0.11.0 */
+/* ============================================================
+   aaron-design-system · tokens.css · v0.11.0
+   Direction: Warm Graphite (locked 2026-08-24 · restepped 2026-08-25)
+   ------------------------------------------------------------
+   THE single source of truth for every surface Aaron hosts.
+   Consumers import this file at runtime — never copy values out.
+
+   DELIVERY (v0.7.0): the public host's CDN force-caches *.css
+   paths for 4 hours regardless of origin Cache-Control (measured
+   2026-08-25: edge rewrites max-age=60 → 14400, on MISS too).
+   Propagation therefore rides VERSION-PINNED URLS — a new version
+   is a new URL, an edge cache miss by construction:
+
+     Zo Space / web:  <link rel="stylesheet" href="https://aaronm.zo.space/tokens.css?v=0.8.0">
+     Same-origin:     @import url('/tokens.css?v=0.8.0');
+
+   Never reference the bare (unpinned) URL from a surface. On every
+   version bump, the pinned URLs on consuming surfaces are updated
+   in the same pass (release checklist, AGENTS.md). The first line
+   of this file is a version stamp; --ads-version below exposes the
+   loaded version to the DOM so a rendered page can PROVE which
+   tokens it resolved (stamp audit #4, MIGRATION.md).
+
+   Scope: apply class "ads" to the surface root. Light is the
+   default; dark activates via [data-theme="dark"] on the root
+   (explicit toggle wins) or OS preference when no toggle is set.
+
+   v0.11.0 (additive — NO token value changed, none added; version
+   surfaces only): the COMPOSITION release. Primitives gain the
+   wayfinder nameplate; the repo gains the estate layer
+   (estate/registry.json + estate.js served at /estate.js?v=,
+   guard-covered), standards/14 (composition: page anatomy, two
+   density modes assigned by archetype, nameplate + cornerstone +
+   doorplate + district laws), archetype E written in 10 from /log,
+   13 "Pointers". The lattice moves as one.
+   v0.10.1 (patch — NO token value changed, none added; version
+   surfaces only): a standards + reference-surface fix release.
+   12's colophon resolution law is corrected (the "read at render"
+   instruction raced the stylesheet and could print silence — duel-2
+   round-2 REWORK) and 11's moment 6 now states its own untested
+   status. The lattice moves as one.
+   v0.10.0 (additive — NO token value changed, none added): version
+   surfaces only. The v0.10.0 release is a primitives + standards
+   release (the data-honesty registers, standards/13); tokens.css
+   moves because the version lattice moves as one.
+   v0.9.0 (additive — no existing token value changed):
+   - --ads-scrim added: the overlay veil behind dialogs/palettes
+     (standards/05 "Overlay grammar"). Own steps per mode, NOT
+     derived from --ads-ink: dark-mode ink is near-white, so an
+     ink-mix scrim would whitewash a dark page. Light is warm ink
+     at 40%; dark is deeper black at 55% because the page it veils
+     is already near-black.
+   - PRINT REGISTER (standards/12): the @media print block at the
+     bottom retokenizes every consumer for paper — light steps
+     regardless of theme stamp or OS preference, and the page/panel
+     planes resolve to white (paper IS the page plane; the warm
+     `#f7f7f5` bg prints as dinge, and this system's elevation is
+     borders, not fills, so nothing structural is lost). Placed
+     LAST in the file so it outranks the equal-specificity
+     OS-preference dark block.
+   v0.8.0:
+   - EXPLICIT THEME NOW REACHES THE ROOT SCROLLER. Theme hooks stamp
+     data-theme on <html> alongside the .ads root (standards/09);
+     the html[data-theme] rules at the bottom of this file key the
+     UA canvas, viewport scrollbar and overscroll color to the
+     choice. Before this, choosing dark on a light-OS machine left
+     the document canvas white — white overscroll flash and a light
+     root scrollbar against a dark page. OS-preference behaviour
+     (no stamp) is unchanged. No token value changed in 0.8.0.
+   v0.7.0:
+   - --ads-version added (runtime-provable token version).
+   - --ads-hover-bright added: primary-button hover filter value,
+     1.07 light / 0.92 dark. Brightening a near-white dark accent
+     was a ~16-RGB-point no-op; darkening it is visible. 05 now
+     documents the shipped behaviour (the never-built ".85 opacity"
+     alternative is deleted from the spec).
+   v0.6.0 (breaking):
+   - --ads-ink-3 restepped to clear WCAG 4.5:1 as text on ALL THREE
+     planes (bg/surface/inset), both modes: light #918d85 -> #6f6b61,
+     dark #7e7a73 -> #8f8b83. The old values failed the text floor
+     the system claimed to hold (standards/09).
+   - --ads-s4 DELETED. Every multi-series form caps at three slots
+     (s1..s3), which pass the validator's ALL-PAIRS gates in both
+     modes. The old azure s4 sat dE 4.8 from light --ads-link and
+     dE 7.8 from s1 — below every separation floor. >3 categories:
+     fold into "Other", facet, or small multiples.
+   - --ads-link is never a MARK (dot/swatch/fill) — text links and
+     focus rings only. Link is measured, not exempted: s1-vs-link is
+     dE 5.5 light / 10.3 dark (two blues), safe only because link
+     never takes a mark role. Record: round-02-palette-validation.txt.
+   - --ads-radius-m collapsed into an alias of --ads-radius-s (the
+     old 6px/7px adjacent steps were indistinguishable).
+   v0.5.0 (breaking): series re-derived off the status hues; dark
+   elevation restepped (inset 0.180 < bg 0.213 < surface 0.241);
+   status text contrast fixes; spacing + type scales added.
+   Do not restep series without re-running the validator. Status
+   colors are reserved — never series fills.
+   ============================================================ */
+
+.ads {
+  color-scheme: light;
+
+  /* Version probe — lets a rendered page prove which token file it
+     resolved: getComputedStyle(root).getPropertyValue('--ads-version') */
+  --ads-version: "0.11.0";
+
+  /* Primary-button hover: filter brightness value (see primitives).
+     Light brightens the near-black fill; dark darkens the
+     near-white fill — brightening it further is invisible. */
+  --ads-hover-bright: 1.07;
+
+  /* Surfaces */
+  --ads-bg: #f7f7f5;
+  --ads-surface: #ffffff;
+  --ads-inset: #f0eeeb;
+
+  /* Overlay veil (v0.9.0) — behind dialogs and palettes only
+     (standards/05). Own steps, never ink-derived: dark ink is
+     near-white and would whitewash the page it should recede. */
+  --ads-scrim: rgba(26, 25, 21, 0.4);
+
+  /* Ink ramp. ink-3 is the lightest tone that may carry words:
+     4.95:1 on bg, 5.31:1 on surface, 4.59:1 on inset (measured). */
+  --ads-ink: #1a1915;
+  --ads-ink-2: #67635c;
+  --ads-ink-3: #6f6b61;
+
+  /* Rules */
+  --ads-line: #eae8e4;
+  --ads-line-2: #d9d6d0;
+
+  /* Accent = ink. Primary actions are black-on-light. */
+  --ads-accent: #1a1915;
+  --ads-accent-ink: #ffffff;
+
+  /* Functional color — the only chromatic UI. All pass 4.5:1 as
+     text on --ads-bg, --ads-surface AND --ads-inset (measured).
+     Never series fills. Link is text/focus-ring only — never a
+     mark (dot, swatch, fill): it cannot clear the impersonation
+     floors against s1 (both are blue by convention). */
+  --ads-link: #0a66c2;
+  --ads-good: #00755d;
+  --ads-warn: #8f6400;
+  --ads-bad: #c23636;
+
+  /* Chart series — THREE slots, fixed assignment order, never
+     cycled. All-pairs validator gates PASS in both modes, and every
+     slot clears normal dE>=15 / CVD dE>=8 against good/warn/bad.
+     There is no s4: no fourth hue clears the separation floors in
+     both modes (measured, round-02 record). >3 categories: fold
+     into "Other", facet, or small multiples — standards/06. */
+  --ads-s1: #3d72b4;
+  --ads-s2: #9880e8;
+  --ads-s3: #783068;
+
+  /* Type faces */
+  --ads-serif: 'Instrument Serif', Georgia, serif;
+  --ads-sans: 'Geist', system-ui, sans-serif;
+  --ads-mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* Type scale — discrete steps, each with a paired line-height.
+     No other font sizes exist. Roles per standards/03. */
+  --ads-text-2xs: 10px;  --ads-leading-2xs: 14px;  /* table heads, kbd, axis, legends, micro labels */
+  --ads-text-xs: 11px;   --ads-leading-xs: 16px;   /* kickers, captions, pills, statlines, tooltips */
+  --ads-text-sm: 13px;   --ads-leading-sm: 20px;   /* UI default: buttons, inputs, tables, labels */
+  --ads-text-base: 16px; --ads-leading-base: 26px; /* report/editorial body copy */
+  --ads-text-lg: 21px;   --ads-leading-lg: 28px;   /* deks, pull quotes, panel display rows */
+  --ads-text-xl: 28px;   --ads-leading-xl: 34px;   /* editorial H2, app/dashboard H1 */
+  --ads-text-2xl: 36px;  --ads-leading-2xl: 42px;  /* display figures, verdict words */
+  --ads-text-3xl: 52px;  --ads-leading-3xl: 56px;  /* editorial H1, hero figures */
+
+  /* Spacing — base-4 scale. The only spacing values that exist.
+     The canonical (and only) structural-exception list lives in
+     standards/04 — do not restate or extend it elsewhere. */
+  --ads-sp-1: 4px;
+  --ads-sp-2: 8px;
+  --ads-sp-3: 12px;
+  --ads-sp-4: 16px;
+  --ads-sp-5: 20px;
+  --ads-sp-6: 24px;
+  --ads-sp-7: 32px;
+  --ads-sp-8: 40px;
+  --ads-sp-9: 48px;
+  --ads-sp-10: 64px;
+
+  /* Geometry. radius-m is a deprecated alias of radius-s (v0.6.0):
+     the old 6px/7px adjacent steps were indistinguishable. */
+  --ads-radius-s: 6px;
+  --ads-radius-m: var(--ads-radius-s);
+  --ads-radius-l: 10px;
+  --ads-radius-xl: 12px;
+  --ads-titlebar-h: 40px;
+}
+
+.ads[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ads-hover-bright: 0.92;
+
+  /* Elevation: inset < bg < surface in lightness. Raised planes
+     are the lightest; wells sit below the page. */
+  --ads-bg: #191918;
+  --ads-surface: #211f1e;
+  --ads-inset: #131110;
+
+  /* Deeper veil: the page being receded is already near-black. */
+  --ads-scrim: rgba(0, 0, 0, 0.55);
+
+  /* ink-3: 5.19:1 on bg, 4.84:1 on surface, 5.55:1 on inset. */
+  --ads-ink: #ecebe8;
+  --ads-ink-2: #a6a29b;
+  --ads-ink-3: #8f8b83;
+
+  --ads-line: #2e2c2a;
+  --ads-line-2: #3c3936;
+
+  --ads-accent: #ecebe8;
+  --ads-accent-ink: #191918;
+
+  --ads-link: #52a9ff;
+  --ads-good: #27ab8d;
+  --ads-warn: #d3a04b;
+  --ads-bad: #e8555a;
+
+  --ads-s1: #5b8ac9;
+  --ads-s2: #7c50d8;
+  --ads-s3: #9c5080;
+}
+
+/* OS preference applies only when no explicit toggle is stamped. */
+@media (prefers-color-scheme: dark) {
+  .ads:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+
+    --ads-hover-bright: 0.92;
+
+    --ads-bg: #191918;
+    --ads-surface: #211f1e;
+    --ads-inset: #131110;
+
+    --ads-scrim: rgba(0, 0, 0, 0.55);
+
+    --ads-ink: #ecebe8;
+    --ads-ink-2: #a6a29b;
+    --ads-ink-3: #8f8b83;
+
+    --ads-line: #2e2c2a;
+    --ads-line-2: #3c3936;
+
+    --ads-accent: #ecebe8;
+    --ads-accent-ink: #191918;
+
+    --ads-link: #52a9ff;
+    --ads-good: #27ab8d;
+    --ads-warn: #d3a04b;
+    --ads-bad: #e8555a;
+
+    --ads-s1: #5b8ac9;
+    --ads-s2: #7c50d8;
+    --ads-s3: #9c5080;
+  }
+}
+
+/* Base element behaviour every consumer inherits.
+   Theme change fades at .25s (standards/09); hover micro-transitions
+   are .15s and live in primitives.css. */
+.ads {
+  background: var(--ads-bg);
+  color: var(--ads-ink);
+  font-family: var(--ads-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color .25s ease, color .25s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ads { transition: none; }
+}
+.ads ::selection { background: var(--ads-accent); color: var(--ads-accent-ink); }
+.ads :focus-visible { outline: 2px solid var(--ads-link); outline-offset: 2px; }
+
+/* Root scroller (v0.8.0): an EXPLICIT theme choice must theme the
+   document itself, not just the .ads root — otherwise the viewport
+   scrollbar and overscroll canvas stay OS-colored (white flash over
+   a dark page). Theme hooks stamp data-theme on <html> alongside
+   the .ads root when — and only when — the user has chosen
+   (standards/09); with no stamp, OS preference stays live and the
+   UA default canvas applies, as before. Custom properties are
+   scoped to .ads, so these literals mirror --ads-bg exactly —
+   restep them together. */
+html[data-theme="light"] { color-scheme: light; background-color: #f7f7f5; }
+html[data-theme="dark"]  { color-scheme: dark;  background-color: #191918; }
+
+/* PWA shell: the reserved window-controls zone exists ONLY when the
+   app is installed on desktop with window-controls-overlay active.
+   Browser tabs and mobile never reserve it. See standards/08-pwa-shell.md */
+.ads .ads-wco-zone { display: none; }
+@media (display-mode: window-controls-overlay) {
+  .ads .ads-wco-zone { display: flex; }
+  .ads .ads-titlebar {
+    position: fixed;
+    left: env(titlebar-area-x, 0);
+    /* +1px: the native controls container sits flush over the titlebar's
+       1px bottom divider otherwise */
+    top: calc(env(titlebar-area-y, 0px) + 1px);
+    width: env(titlebar-area-width, 100%);
+    height: env(titlebar-area-height, var(--ads-titlebar-h));
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  .ads .ads-titlebar a,
+  .ads .ads-titlebar button,
+  .ads .ads-titlebar input {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
+/* ============================================================
+   PRINT REGISTER (v0.9.0 · standards/12)
+   ------------------------------------------------------------
+   Paper is a light, borderless-canvas medium: every consumer
+   prints on the LIGHT steps regardless of theme stamp or OS
+   preference, and the page/panel planes resolve to WHITE — paper
+   itself is the page plane; printing the warm #f7f7f5 wash costs
+   toner to look dingy, and this system's elevation is 1px borders,
+   not fills, so panels lose nothing. --ads-inset keeps its light
+   value (code blocks and wells still read as wells on paper).
+
+   These literals mirror the light block above — restep together.
+
+   SPECIFICITY: the third selector matches the OS-preference dark
+   selector's 0-3-0 exactly; this block sits LAST in the file so
+   source order settles it. Do not move this block. Print
+   BEHAVIOUR (page breaks, colophon, chrome hiding) lives in
+   primitives.css; this block is values only.
+   ============================================================ */
+@media print {
+  .ads,
+  .ads[data-theme="dark"],
+  .ads:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --ads-hover-bright: 1.07;
+
+    --ads-bg: #ffffff;      /* paper is the page plane */
+    --ads-surface: #ffffff;
+    --ads-inset: #f0eeeb;
+
+    --ads-ink: #1a1915;
+    --ads-ink-2: #67635c;
+    --ads-ink-3: #6f6b61;
+
+    --ads-line: #eae8e4;
+    --ads-line-2: #d9d6d0;
+
+    --ads-accent: #1a1915;
+    --ads-accent-ink: #ffffff;
+
+    --ads-link: #0a66c2;
+    --ads-good: #00755d;
+    --ads-warn: #8f6400;
+    --ads-bad: #c23636;
+
+    --ads-s1: #3d72b4;
+    --ads-s2: #9880e8;
+    --ads-s3: #783068;
+  }
+  /* The explicit-choice canvas follows paper too. */
+  html[data-theme="light"],
+  html[data-theme="dark"] { color-scheme: light; background-color: #ffffff; }
+}

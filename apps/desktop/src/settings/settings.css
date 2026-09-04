@@ -1,0 +1,284 @@
+/**
+ * Settings, the page.
+ *
+ * Same rules as `shell.css` and `palette.css`: every value is an `--ads-*` or
+ * `--rb-*` token, or one of the structural exceptions standards/04 enumerates
+ * (0, 1px hairlines, 2px micro-strokes, em/ch, viewport math, calc over
+ * tokens). The one literal width below is the column, and says so.
+ *
+ * NOT `.settings`. shell.css still carries the retired two-column layout under
+ * that name, and a bare selector defined in two loaded sheets is settled by
+ * bundler order — the coin-flip `styles.test.ts` exists to refuse. The root
+ * here is `.prefs`, which nothing else defines; the old `.settings*` block in
+ * shell.css is dead and can go when that sheet's owner next has it open.
+ *
+ * The page mounts inside the shell's `.settingsview` — fixed beneath the title
+ * bar, z-index 250, the canvas colour — and fills it.
+ */
+
+/* ---------------------------------------------------------------- frame -- */
+
+.prefs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--rb-panel);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+}
+
+/*
+ * ONE centred column, and the header sits on it too.
+ *
+ * 640px, not the 880 of the old layout: the rows are `text | control`, and at
+ * 880 the switch sat a hand-span from the words it belonged to. 640 keeps a
+ * two-line description and its switch inside one eye movement, which is the
+ * whole ergonomic of a settings row.
+ */
+.prefs-col {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+}
+/*
+ * One inline padding for both rows, declared as a longhand where the column
+ * is. A shorthand `padding:` on either row would silently reset it, and the
+ * title would sit a few pixels off the rows beneath — the misalignment you
+ * see without being able to name, on the one screen whose job is to look
+ * settled. `settings.test.ts` holds this.
+ */
+.prefs-head, .prefs-body { padding-inline: var(--ads-sp-6); }
+
+.prefs-head {
+  flex: none;
+  height: var(--rb-topbar-h);
+  border-bottom: 1px solid var(--rb-line);
+  background: var(--rb-chrome);
+}
+.prefs-headrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  height: 100%;
+}
+.prefs-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  font-weight: 600;
+  color: var(--rb-ink);
+}
+.prefs-close {
+  display: grid;
+  place-items: center;
+  width: var(--ads-sp-7);
+  height: var(--ads-sp-7);
+  flex: none;
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-3);
+  cursor: pointer;
+}
+.prefs-close:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+/*
+ * `scrollbar-gutter: stable both-edges` so the header and the rows agree
+ * where centre is: only the body scrolls, so only the body loses width to a
+ * scrollbar, and spending it on both edges keeps the column where the header
+ * put it.
+ */
+.prefs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+  padding-block: var(--ads-sp-4) var(--ads-sp-10);
+}
+
+/* ------------------------------------------------------------- sections -- */
+
+.prefs-section { margin-top: var(--ads-sp-6); }
+.prefs-section:first-child { margin-top: 0; }
+.prefs-body .warnblock { margin: 0 0 var(--ads-sp-4); }
+
+/* The kicker voice, as `.menuhead` and `.panetitle` set it in shell.css. */
+.prefs-kicker {
+  margin: 0;
+  padding: 0 0 var(--ads-sp-1);
+  border-bottom: 1px solid var(--rb-line);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rb-ink-3);
+}
+
+/* ----------------------------------------------------------------- rows -- */
+
+/*
+ * A settings row is a CARD, which is how Windows 11 draws one.
+ *
+ * These were bare rows separated by hairlines — a ruled ledger, and the one
+ * place in the app that still looked like a form rather than like Settings.
+ * Fluent gives each setting its own Layer-filled card with the control on the
+ * right; the fill is what makes a row feel like a thing you can act on.
+ */
+.prefs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-4);
+  min-height: 48px;
+  padding: var(--ads-sp-2) var(--ads-sp-4);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-raised);
+}
+.prefs-row + .prefs-row { margin-top: var(--ads-sp-1); }
+/* A family of sub-settings is indented and quieter: the rows belong to the
+   one above them, so they sit on a lower plane rather than repeating its card. */
+.prefs-children .prefs-row { background: var(--rb-hover); }
+.prefs-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+.prefs-label { color: var(--rb-ink); }
+.prefs-desc {
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+
+/*
+ * The family under a switch: indented by the width of a switch plus the gap,
+ * with a hairline down the left so five rows read as belonging to the one
+ * above. Dimmed, not hidden, while the parent is off — see Family in the
+ * component for why hiding them would be a lie about what is remembered.
+ */
+.prefs-children {
+  margin-left: var(--ads-sp-4);
+  padding-left: var(--ads-sp-4);
+  border-left: 1px solid var(--rb-line-2);
+  transition: opacity .15s ease;
+}
+.prefs-children.off { opacity: .55; }
+
+/* "Default" — a per-row reset, present only when the row differs. */
+.prefs-default {
+  flex: none;
+  height: var(--rb-control);
+  padding-inline: var(--ads-sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.prefs-default:hover { border-color: var(--rb-line-2); color: var(--rb-ink); }
+
+/* Reset all — a bordered control, since it acts on the whole page. */
+.prefs-resetall {
+  flex: none;
+  height: var(--rb-control);
+  padding-inline: var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.prefs-resetall:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+/* Number and choice controls, matching the sidebar's. */
+.prefs-control {
+  flex: none;
+  height: var(--rb-control);
+  min-width: 96px;
+  padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+}
+
+/* ------------------------------------------------------------ this copy -- */
+
+/*
+ * Facts about the installed copy, as cards rather than rows: nothing in them
+ * has a switch, and a row grammar built around one would leave a hole where
+ * the control goes.
+ */
+.prefs-card {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-4);
+  margin-top: var(--ads-sp-3);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border: 1px solid var(--rb-line);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-raised);
+}
+/*
+ * `attention` covers "no update channel" as well as "an update is waiting": a
+ * build that cannot receive fixes is a fact about the copy someone is bidding
+ * from, even though it is nothing they did and nothing they can fix. Warn
+ * colour on the edge AND a word in the text — never the colour alone.
+ */
+.prefs-card.attention { border-color: var(--rb-warn); }
+.prefs-cardtext { flex: 1 1 auto; min-width: 0; }
+.prefs-cardtitle { color: var(--rb-ink); font-weight: 600; }
+.prefs-cardnote {
+  margin-top: 2px;
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+
+/* Problem reports: a prompt to send one, not a log viewer. */
+.prefs-reports {
+  list-style: none;
+  margin: var(--ads-sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-1);
+}
+.prefs-reports li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: var(--ads-sp-2);
+  align-items: baseline;
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
+.prefs-reportwhen {
+  color: var(--rb-ink-3);
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.prefs-reportmsg {
+  color: var(--rb-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,244 @@
+/**
+ * The command palette, on aaron-design-system v0.11.0.
+ *
+ * Same rules as `shell.css`: every value below is an `--ads-*` token or one of
+ * the structural exceptions standards/04 enumerates (0, 1px hairlines, 2px
+ * micro-strokes, 999px full-round, em/ch, viewport math, calc over tokens,
+ * z-index 100). The three literals that are none of those are each a system
+ * recipe quoted verbatim, and each says so where it appears.
+ *
+ * NOT prefixed `.ads-`, and deliberately NOT named `.palette`: `styles.css`
+ * already owns `.palette` for the scope editor's colour-chip strip, and that
+ * sheet is loaded app-wide. A second `.palette` here would settle by source
+ * order and quietly relayout one of the two — the same collision `.warn` /
+ * `.warnblock` in that file is a note about. The root is `.palette-panel`.
+ *
+ * See also: the design system ships `.ads-palette` (primitives.css, v0.11.0),
+ * which this re-implements the way `.dockmenu` re-implements `.ads-popover`.
+ * Noted in the handoff, not decided here.
+ */
+
+/* ---------------------------------------------------------------- scrim -- */
+
+/*
+ * The system's overlay recipe (standards/05): `--ads-scrim`, the single
+ * z-index-100 overlay layer, centred. Centred and not top-anchored because
+ * that is what `.ads-scrim` does — a palette that pins itself a fixed fraction
+ * down the viewport is a second opinion about where overlays live.
+ */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--ads-sp-6);
+  background: var(--ads-scrim);
+}
+
+/*
+ * 600px is the system's mini-app width (standards/04): a palette is a
+ * transient mini-app, and the same number carries `.startscreen`'s card.
+ * 60vh is viewport math — the same cap `.dockmenu` uses.
+ */
+.palette-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 600px;
+  max-height: 60vh;
+  overflow: hidden;
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-xl);
+  background: var(--ads-surface);
+  /* The dialog / window-frame shadow recipe (standards/02). */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .07);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+}
+
+/* ---------------------------------------------------------------- field -- */
+
+.palette-field {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border-bottom: 1px solid var(--ads-line);
+  color: var(--ads-ink-3);
+}
+/*
+ * No border, no fill: unlike the pane's search box this input has no siblings
+ * to be told apart from — the whole overlay is the field's affordance. The
+ * system's `:focus-visible` ring is left alone; it is the only thing marking
+ * where typing goes.
+ */
+.palette-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ads-ink);
+  font: inherit;
+}
+.palette-input::placeholder { color: var(--ads-ink-3); }
+
+/* ---------------------------------------------------------------- rows -- */
+
+.palette-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ads-sp-1);
+}
+.palette-group + .palette-group { border-top: 1px solid var(--ads-line); }
+
+/* The kicker voice, as `.menuhead` and `.panetitle` set it in shell.css. */
+.palette-kicker {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-1);
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ads-ink-3);
+}
+/* A group's note, in sentence voice beside the kicker: what Enter does here. */
+.palette-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--ads-sans);
+  font-weight: 400;
+  font-size: var(--ads-text-xs);
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: right;
+}
+
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  color: var(--ads-ink-2);
+  cursor: pointer;
+}
+/* The kind glyph reads as a column, so it keeps the caption tone whatever
+   the row is doing. */
+.palette-row > svg { flex: none; color: var(--ads-ink-3); }
+/*
+ * A row that cannot run: dimmed, and the reason set where the shortcut
+ * would go. It still takes the highlight, so arrowing onto it shows the
+ * reason rather than skipping past a project as if it were never opened.
+ */
+.palette-row.unavailable { color: var(--ads-ink-3); }
+.palette-row.unavailable .palette-title { color: var(--ads-ink-3); }
+.palette-row.unavailable:hover,
+.palette-row.unavailable[aria-selected="true"] { color: var(--ads-ink-3); }
+.palette-why {
+  flex: none;
+  color: var(--ads-warn);
+  font-size: var(--ads-text-xs);
+  white-space: nowrap;
+}
+/*
+ * Hover and keyboard highlight are one state on purpose. The mouse moves the
+ * highlight (the row handler sets it), so a row that looked hovered but was not
+ * what Enter would run would be a lie about which one is armed.
+ *
+ * The treatment is the house selected-row grammar: the selected fill plus a
+ * 2px bar on the leading edge. The bar is REDBEAM red — the armed row is where
+ * Enter lands, which makes it the focus, and focus is one of the four places
+ * the foundations frame spends red. It was `--ads-accent`, which on this
+ * ground is the white action fill: the one selected row in the product drawn
+ * in a different grammar from the rail, the tabs and the sheet index.
+ */
+.palette-row:hover,
+.palette-row[aria-selected="true"] {
+  background: var(--rb-selected);
+  color: var(--ads-ink);
+  box-shadow: inset 2px 0 0 var(--rb-accent);
+}
+
+.palette-text { flex: 1 1 auto; min-width: 0; }
+.palette-title,
+.palette-detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/*
+ * The matched characters. Ink and weight, not a highlighter: the functional
+ * palette is reserved for states (standards/02), and a yellow wash here would
+ * read as a warning on every row. `<mark>`'s UA background has to go explicitly.
+ */
+.palette-title mark {
+  background: transparent;
+  color: var(--ads-ink);
+  font-weight: 600;
+}
+/* Sheet numbers and file paths — technical, secondary, and set to be compared
+   down the column rather than read (spec §14). */
+.palette-detail {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  color: var(--ads-ink-3);
+}
+
+/* The 2xs step is the kbd role (tokens.css). Right-set by the row's flex. */
+.palette-key {
+  flex: none;
+  padding: 0 var(--ads-sp-1);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--ads-bg);
+  color: var(--ads-ink-3);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-sm);
+  white-space: nowrap;
+}
+
+/* Matches `.paneempty` in shell.css — an empty overlay reads like an empty pane. */
+.palette-empty {
+  margin: 0;
+  padding: var(--ads-sp-8) var(--ads-sp-6);
+  color: var(--ads-ink-3);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- foot -- */
+
+/* The key legend: caption tone, kbd role, one line. */
+.palette-foot {
+  flex: none;
+  display: flex;
+  gap: var(--ads-sp-4);
+  padding: var(--ads-sp-2) var(--ads-sp-4);
+  border-top: 1px solid var(--ads-line);
+  color: var(--ads-ink-3);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-sm);
+}
+.palette-foot > span { display: inline-flex; align-items: center; gap: var(--ads-sp-1); }
+.palette-foot kbd {
+  padding: 0 var(--ads-sp-1);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--ads-bg);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+}

@@ -1,0 +1,62 @@
+[package]
+name = "redbeam"
+version = "0.1.0"
+description = "REDBEAM — construction quantity takeoff"
+authors = ["REDBEAM"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# The library is what the desktop binary and (later) the mobile shells both
+# call into. Keeping `run()` in the lib rather than main.rs is the Tauri v2
+# convention and costs nothing here.
+[lib]
+name = "redbeam_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# `bundled` compiles SQLite into the binary rather than linking the system one.
+# That is what restores FTS5: stock sql.js ships FTS3, so `page_text_fts` is
+# skipped in the browser driver. Verified here — 3.46.0 with ENABLE_FTS5.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Only for the native folder picker, opened from Rust inside an app command.
+# NOT granted to the frontend: app commands are not ACL-gated, so no `dialog:`
+# capability entry is needed and none is added.
+tauri-plugin-dialog = "2"
+# TLS through the OS (schannel) rather than rustls.
+#
+# Not a preference — rustls pulls `ring`, whose build script assembles its
+# aarch64 crypto with clang specifically, and cl.exe will not do. On this
+# ARM64 machine that made a NATIVE build impossible without installing LLVM,
+# and it would make one impossible for anyone else building for ARM64 too.
+# Swapping the backend removes the requirement instead of satisfying it.
+#
+# It is also the better fit here: REDBEAM is Windows-only and internal, and
+# schannel honours the machine's certificate store and proxy configuration,
+# which a bundled root set does not. The default features are restated because
+# `default-features = false` would otherwise drop `zip` (how an update is
+# unpacked) and `system-proxy` along with rustls.
+tauri-plugin-updater = { version = "2.11.0", default-features = false, features = [
+  "native-tls", "system-proxy", "zip",
+] }
+tauri-plugin-process = "2.3.1"
+
+# The user's accent colour, read from their own Windows theme (see accent.rs).
+# Microsoft's own crate, and already in the tree via tauri — pinning the same
+# version adds no crates to the build.
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

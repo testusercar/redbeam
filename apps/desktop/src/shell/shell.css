@@ -1,0 +1,3460 @@
+/**
+ * The application shell, on aaron-design-system v0.11.0.
+ *
+ * REDBEAM is archetype D — productivity app, dense mode (standards/10). That
+ * fixes most of what used to be taste here: 40px titlebar, chrome on
+ * `--ads-bg`, the document plane on `--ads-surface`, panes split by 1px
+ * `--ads-line` rather than gaps, no serif anywhere, and `--ads-accent` is ink
+ * — there is no second accent colour in this system, so "the active thing" is
+ * signalled by an ink bar, an ink underline or an ink fill, never a hue.
+ *
+ * Every value below is a token or one of the structural exceptions the system
+ * enumerates in standards/04 (0, 1px hairlines, 2px micro-strokes, 999px
+ * full-round, em/ch, viewport math, calc over tokens, z-index 100). If you are
+ * about to type a number that is not one of those, it belongs in tokens.css or
+ * it is a defect.
+ *
+ * Two things here are NOT in the system yet and are queued to be pushed
+ * upstream — see ads/upstream-queue.md:
+ *   .side  — the left sidebar: a tab strip and the panel it names
+ *   .dock  — the floating control dock over a document plane
+ */
+/* The system itself is imported once, by styles.css — the app entry sheet. */
+
+/* --------------------------------------------------------------- layout -- */
+
+/*
+ * Pane widths are the archetype's, not ours: standards/04 sets the
+ * productivity-app list pane at 330px. The rail is --ads-sp-9 (48px), the
+ * token the system already uses for a topbar height, so the rail and the
+ * titlebar are dimensionally related rather than independently chosen.
+ *
+ * Both panes collapse to 0. The window's minimum is 960px, and 48 + 330 + 330
+ * of chrome leaves 252px of drawing — narrower than any sheet is readable at.
+ * Collapsing is therefore a real mode, not a nicety.
+ */
+.shellapp {
+  --rail-w: var(--rb-rail-w);
+  --pane-w: var(--rb-pane-w);
+  --work-w: var(--rb-work-w);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  /*
+   * The PANES yield; the drawing does not.
+   *
+   * These were fixed widths, so at the 960px window minimum the chrome took
+   * 724px and left 236 for the sheet — narrower than the dock that floats over
+   * it, which then overflowed its own cell. A drawing application whose drawing
+   * is the first thing squeezed has its priorities backwards.
+   *
+   * The minimums are the design package's own (pane 232, workspace 320) — and
+   * the DRAWING gets one too, which is the part that makes this work. A bare
+   * `1fr` has no minimum, so grid hands it whatever is left over and never
+   * squeezes the panes at all; the sheet was still getting 236px at the window
+   * minimum with the panes sitting at their full 300 and 380. With a floor of
+   * 360 the panes are the tracks that give, which is the whole point.
+   *
+   * 232 + 360 + 320 = 912 open, and 48 + 360 + 320 = 728 collapsed — both
+   * inside the 960 window minimum. It was 956 when the rail was a fourth
+   * column that could not be closed.
+   */
+  grid-template-columns:
+    minmax(232px, var(--pane-w))
+    minmax(360px, 1fr)
+    minmax(320px, var(--work-w));
+  grid-template-rows: var(--rb-topbar-h) 1fr;
+  grid-template-areas:
+    "title title    title"
+    "side  viewport work";
+  background: var(--ads-bg);
+  color: var(--ads-ink);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  overflow: hidden;
+}
+/* Collapsed, the sidebar is Fluent's compact navigation: icons only, no zero
+   track. The rail used to be that column permanently. */
+.shellapp[data-pane="closed"] { grid-template-columns: var(--rail-w) minmax(360px, 1fr) minmax(320px, var(--work-w)); }
+.shellapp[data-work="closed"] { grid-template-columns: minmax(232px, var(--pane-w)) minmax(360px, 1fr) 0; }
+.shellapp[data-pane="closed"][data-work="closed"] { grid-template-columns: var(--rail-w) minmax(360px, 1fr) 0; }
+
+/* ------------------------------------------------------------- titlebar -- */
+
+/*
+ * One row, 40px, everything in it — the Qt build's shape, and the reason we
+ * came back to it: a second 40px strip for document tabs cost 80px of vertical
+ * chrome on a landscape drawing, which is the axis a drawing has least of.
+ *
+ * The Tauri window keeps its native OS decorations, so this is 08's "no WCO"
+ * fallback: an in-app header in normal flow, no reserved controls zone, no
+ * drag regions. See ads/README.md.
+ */
+.titlebar {
+  grid-area: title;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  background: var(--rb-panel);
+  border-bottom: 1px solid var(--rb-line);
+}
+/* Brand, project and tabs each sit in their own divided cell. */
+.titlecell {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding-inline: var(--ads-sp-3);
+  border-right: 1px solid var(--rb-line);
+}
+
+/*
+ * The app mark. Red, and one of only four places red is allowed — the
+ * foundations frame reserves it for brand, active navigation and focus.
+ */
+.brand {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ads-sp-5);
+  height: var(--ads-sp-5);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-red);
+  color: var(--rb-ink);
+  font-weight: 600;
+  font-size: var(--ads-text-xs);
+}
+
+.appname {
+  flex: none;
+  font-weight: 600;
+  font-size: var(--ads-text-sm);
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.projectpick {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  /* Sized by the title bar's grid — see "the title bar is a subgrid". */
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-right: 1px solid var(--rb-line);
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.projectpick:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.projectpick > svg:first-child { color: var(--rb-ink-4); flex: none; }
+/* The chevron holds the far edge, so the button reads as the pane's own header. */
+.projectpick > svg:last-child { margin-left: auto; flex: none; color: var(--rb-ink-4); }
+.projectname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.titlerule {
+  flex: none;
+  width: 1px;
+  align-self: stretch;
+  margin-block: var(--ads-sp-2);
+  background: var(--ads-line);
+}
+
+/* ------------------------------------------------------- document tabs -- */
+
+/*
+ * Full-height tabs, from the Title Bar frame.
+ *
+ * A tab occupies the whole 44px bar and is separated from its neighbour by one
+ * vertical hairline — not by an underline under a short chip. The active tab is
+ * a RAISED plane with a red document icon; it is not a coloured underline,
+ * because at this height a 2px line under a 44px cell reads as an accident.
+ *
+ * Tabs never compress. Past what fits they move into a `+N` menu, because the
+ * point at which a strip would start shrinking labels is exactly the point at
+ * which there are enough documents open to need reading them.
+ */
+.tabstrip {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  max-width: 32ch;
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-right: 1px solid var(--rb-line);
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/*
+ * A tab past the fold. Still laid out — so the strip can measure it and grow
+ * back when the window widens — but out of flow and out of reach.
+ */
+.tab.tucked {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.tab:first-child { border-left: 1px solid var(--rb-line); }
+.tab:hover { background: var(--rb-hover); color: var(--rb-ink-2); }
+.tab > svg { color: var(--rb-ink-4); flex: none; }
+.tab.active { background: var(--rb-hover); color: var(--rb-ink); }
+/* The one mark of the active document: its icon in the brand red. */
+.tab.active > svg { color: var(--rb-accent); }
+.tab.missing, .tab.missing > svg { color: var(--rb-bad); }
+.tabname { overflow: hidden; text-overflow: ellipsis; }
+
+.tabclose {
+  display: grid;
+  place-items: center;
+  /* 20, the floor every other secondary target in the product sits on; the
+     glyph inside stays 12. */
+  width: var(--ads-sp-5);
+  height: var(--ads-sp-5);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+.tab:hover .tabclose, .tab.active .tabclose, .tabmenurow:hover .tabclose { opacity: 1; }
+.tabclose:hover { background: var(--rb-selected); color: var(--rb-ink); }
+
+.taboverflow { position: relative; display: flex; }
+.tabmore {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-right: 1px solid var(--rb-line);
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+}
+.tabmore:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+/* An invisible layer that closes the menu on any outside click. */
+.menuveil { position: fixed; inset: 0; z-index: 100; }
+
+.tabmenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  min-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--ads-sp-1);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
+}
+.tabmenurow { display: flex; align-items: center; border-radius: var(--ads-radius-s); }
+.tabmenurow:hover { background: var(--rb-hover); }
+.tabmenurow > .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tabmenurow > .grow > svg { color: var(--rb-ink-4); flex: none; }
+.tabmenurow:hover > .grow { color: var(--rb-ink); }
+
+/*
+ * An icon button at title-bar height, in its own divided cell.
+ *
+ * Two buttons wear this: the tab strip's "open another document", and the
+ * estimate panel's toggle at the far right. They looked identical because the
+ * toggle was literally given `class="tabadd"` — so a change to the tab
+ * affordance would have silently restyled an unrelated control, and the DOM
+ * claimed the panel toggle was a way to add a tab. The shared thing is the
+ * SHAPE, which is what this names; what each button IS is the class beside it.
+ */
+.titleicon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ads-sp-9);
+  align-self: stretch;
+  border: 0;
+  border-right: 1px solid var(--rb-line);
+  background: transparent;
+  color: var(--rb-ink-3);
+  cursor: pointer;
+}
+.titleicon:hover { background: var(--rb-hover); color: var(--rb-ink); }
+/*
+ * A toggle has to look like it is holding a state, or it is a button that
+ * appears to do nothing when the thing it hides is already hidden.
+ */
+.titleicon[aria-pressed="true"] { color: var(--rb-ink); }
+/* Nothing to divide from: it is the last cell in the row. */
+.paneltoggle { border-right: 0; }
+
+/* --------------------------------------------------------------- rail -- */
+
+/* QUEUED UPSTREAM as .ads-rail — see ads/upstream-queue.md. */
+.side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: var(--ads-sp-1);
+  border-right: 1px solid var(--ads-line);
+}
+
+/* The strip IS the panel header — see the note on Sidebar in Shell.tsx. */
+.sidetabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-block: var(--ads-sp-1);
+  flex: none;
+}
+.sidetab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  height: var(--rb-rail-btn);
+  min-width: var(--rb-rail-btn);
+  padding-inline: var(--ads-sp-3);
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+.sidetab:hover { background: var(--ads-inset); color: var(--ads-ink); }
+/* The 3x16 indicator Fluent puts on a selected navigation item. */
+.sidetab.on {
+  background: var(--rb-selected);
+  color: var(--ads-ink);
+  justify-content: flex-start;
+}
+.sidetab.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
+}
+.sidetablabel { white-space: nowrap; font-size: var(--ads-text-base); }
+/* An unlabelled tab is a square hit target, not a padded pill. */
+.sidetab:not(.on) { padding-inline: 0; width: var(--rb-rail-btn); }
+
+/* A head row carrying only actions: no title, because the tab beside it
+   already said the panel's name. */
+.side > .paneactions { justify-content: flex-end; }
+
+.sidesettings {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  height: var(--rb-rail-btn);
+  padding-inline: var(--ads-sp-3);
+  margin-block: var(--ads-sp-1);
+  flex: none;
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  cursor: pointer;
+  border-top: 1px solid var(--ads-line);
+  border-radius: 0;
+}
+.sidesettings:hover { background: var(--ads-inset); color: var(--ads-ink); }
+.sidesettings > span { font-size: var(--ads-text-base); }
+
+/* Icons only when collapsed. */
+.shellapp[data-pane="closed"] .sidetabs { flex-direction: column; }
+.shellapp[data-pane="closed"] .sidetablabel,
+.shellapp[data-pane="closed"] .sidesettings > span { display: none; }
+.shellapp[data-pane="closed"] .sidetab { padding-inline: 0; justify-content: center; }
+.shellapp[data-pane="closed"] .side > .panehead { display: none; }
+
+
+/* -------------------------------------------------------------- panes -- */
+
+.workspace {
+  grid-area: work;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--ads-bg);
+  border-left: 1px solid var(--ads-line);
+}
+.shellapp[data-pane="closed"] .pane,
+.shellapp[data-work="closed"] .workspace { display: none; }
+
+.panehead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-3) var(--ads-sp-4);
+  border-bottom: 1px solid var(--ads-line);
+}
+.panetitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ads-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panebody { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.paneempty {
+  padding: var(--ads-sp-8) var(--ads-sp-6);
+  color: var(--ads-ink-3);
+  text-align: center;
+}
+
+/* ------------------------------------------------------- search field -- */
+
+/*
+ * A Fluent TextBox, not a ruled line across the pane.
+ *
+ * This was a full-bleed row with a hairline under it — the shape a search field
+ * had in the Qt build, and the one control in the sidebar that did not look
+ * like a control. Fluent gives a text field a fill, a 4px radius and a brighter
+ * bottom stroke; the brighter edge is the affordance that says "type here".
+ */
+.panesearch {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--rb-control);
+  margin: var(--ads-sp-1) var(--ads-sp-1) var(--ads-sp-2);
+  padding-inline: var(--ads-sp-2);
+  border: 1px solid var(--ads-line);
+  border-bottom-color: var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-hover);
+}
+.panesearch:focus-within { border-bottom-color: var(--rb-accent); }
+.panesearch > svg {
+  position: absolute;
+  left: calc(var(--ads-sp-3) + var(--ads-sp-2));
+  color: var(--ads-ink-3);
+  pointer-events: none;
+}
+.panesearch input {
+  width: 100%;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  padding-left: var(--ads-sp-8);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--ads-inset);
+  color: var(--ads-ink);
+  font: inherit;
+}
+.panesearch input::placeholder { color: var(--ads-ink-3); }
+
+/* --------------------------------------------------------- sheet rows -- */
+
+/*
+ * The sheet index. One row per sheet, ONE LINE: the sheet number (mono,
+ * because sheet numbers are a code and get compared down the column), the
+ * title, and on the right the scopes drawn on it and the page number.
+ *
+ * THE NUMBER IS NEVER WHAT TRUNCATES. The grid says so: the number track is
+ * `minmax(0, max-content)`, which grid grows to the number's full width before
+ * the `1fr` title track gets anything — so a narrow pane shortens the title,
+ * then loses it, and only a pane narrower than the number itself touches the
+ * number. A flex row with the number allowed to shrink did the opposite: at
+ * 232px "AE6-01-02" became "AE6-0…" to keep "ARCHITECTURAL CEILING PLAN"
+ * on screen, which is exactly backwards for the thing an index is scanned by.
+ */
+.sheetrow {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  min-height: var(--rb-row);
+  padding: var(--ads-sp-1) var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sheetrow:hover { background: var(--rb-hover); }
+.sheetrow { position: relative; }
+.sheetrow.active { background: var(--rb-selected); }
+/* The 3x16 pill Fluent puts on a selected list item — the same mark the
+   sidebar's own tabs carry, rather than a second grammar for "selected". */
+.sheetrow.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
+}
+
+/*
+ * A scope's dot, in the scope's own colour — DATA colour, which standards/02
+ * permits on the 8px identifier and nowhere else. The one dot that is not a
+ * scope is the hollow one: takeoff that belongs to no scope, drawn in ink so
+ * it is still a fact about the sheet and not a state.
+ */
+.sheetdot {
+  flex: none;
+  width: var(--rb-dot);
+  height: var(--rb-dot);
+  border-radius: 999px;
+  background: var(--ads-ink-3);
+}
+.sheetdot.unscoped { background: transparent; box-shadow: inset 0 0 0 2px var(--ads-ink-3); }
+
+/*
+ * A floor on the number column so the titles start on one line down most of
+ * an index: "A-101" and "A-102" then read as a column rather than a ragged
+ * list. 7ch holds every short-form code; a long one (`AE6-01-02`) is allowed
+ * past it, because the alternative is clipping the identifier.
+ */
+.sheetnum {
+  min-width: 7ch;
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink);
+  white-space: nowrap;
+}
+.sheettitle {
+  min-width: 0;
+  container-type: inline-size;
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  color: var(--ads-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheettitle > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+/*
+ * Same rule as the file qualifier: a title with room for one letter and an
+ * ellipsis ("A…") is not a title, it is lint. The row's tooltip has the whole
+ * thing. 48px is four characters of the caption face, the least that still
+ * reads as the start of a word.
+ */
+@container (max-width: 48px) {
+  .sheettitle > span { visibility: hidden; }
+}
+.sheetpage {
+  /* Its own cell with its own floor, so the dots beside it never move it. */
+  min-width: 3ch;
+  text-align: right;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ads-ink-3);
+}
+.sheetscopes { display: inline-flex; align-items: center; gap: var(--ads-sp-1); }
+/* Past the cap — see `sheetDots` — the rest are a count, in the caption voice. */
+.sheetmore {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ads-ink-3);
+}
+
+/* A table-of-contents outline nests; a per-sheet outline does not. */
+.sheetgroup { border-bottom: 1px solid var(--ads-line); }
+.sheetgroup:last-child { border-bottom: 0; }
+.sheetgrouphead {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  padding: var(--ads-sp-2) var(--ads-sp-4);
+  border: 0;
+  background: transparent;
+  color: var(--ads-ink-3);
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.sheetgrouphead:hover { background: var(--ads-inset); color: var(--ads-ink-2); }
+.sheetgrouphead .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sheetgrouphead > svg { transition: transform 120ms ease; }
+.sheetgrouphead[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.sheetgroup .sheetrow { padding-left: var(--ads-sp-7); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheetgrouphead > svg { transition: none; }
+}
+
+.panefoot {
+  flex: none;
+  padding: var(--ads-sp-2) var(--ads-sp-4);
+  border-top: 1px solid var(--ads-line);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-3);
+}
+
+/* ----------------------------------------------------------- viewport -- */
+
+.viewport {
+  grid-area: viewport;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  /* True black, per the comps: the sheet is the only bright object in the
+     window, and a grey surround competes with it for the eye. */
+  background: var(--rb-oled);
+  /* The dock's collapse tiers key off THIS box, not the window: closing a pane
+     widens the viewport and should un-collapse the dock. */
+  container-type: inline-size;
+  container-name: viewport;
+}
+
+/* The surround the sheet floats on. */
+.stage {
+  position: absolute;
+  inset: 0;
+  background: var(--rb-oled);
+  touch-action: none;
+  /*
+   * The drawing stays inside the drawing's cell.
+   *
+   * The canvases are absolutely positioned children sized in JavaScript, so
+   * nothing in the grid constrains them: when the stage shrank below the
+   * minimum `useStageSize` used to clamp to, the canvas stayed WIDER than its
+   * cell and painted 80px of sheet across the estimates pane. Clipping here
+   * costs nothing when the sizes agree and is the difference between a bug and
+   * a scrollbar when they do not.
+   */
+  overflow: hidden;
+}
+.stage canvas { position: absolute; inset: 0; display: block; }
+
+/* ---------------------------------------------------------------- dock -- */
+
+/*
+ * Two pills, side by side, in ONE floating row over the drawing.
+ *
+ * The left pill is what you are DOING — tools, and the scope they land in. The
+ * right pill is where you ARE — sheet, scale, zoom. Separate pills because
+ * they answer different questions and get reached for at different moments;
+ * one row because a second floating strip is a second footer, which is exactly
+ * what this replaces.
+ *
+ * QUEUED UPSTREAM as .ads-dock / .ads-dock-group / .ads-dock-btn.
+ */
+/*
+ * ONE bar, not three floating pills.
+ *
+ * The dock was three separate `.dockgroup` surfaces — three borders, three
+ * shadows, three blur planes and three unrelated widths sitting under one
+ * drawing. Nothing in Windows looks like that; a command bar is one surface
+ * with its groups told apart by separators, which is what `.dockrule` already
+ * was for between tools. The surface moved up here and the groups went
+ * transparent; the collapse tiers below are unchanged, and they now shorten a
+ * single object instead of making whole islands appear and disappear.
+ *
+ * In-app acrylic rather than a flat fill: this floats over the DRAWING, so it
+ * blurs the sheet beneath it. The tint is neutral — `--rb-chrome` is
+ * blue-leaning and would cast on the paper.
+ */
+.dock {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: var(--ads-sp-4);
+  max-width: calc(100% - var(--ads-sp-8));
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--rb-dock-pad);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-acrylic);
+  backdrop-filter: blur(30px) saturate(125%);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+}
+
+.dockgroup {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dockbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--ads-sp-7);
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dockbtn:hover { background: var(--ads-inset); color: var(--ads-ink); }
+/* AppBarToggleButton, checked: a subtle fill and a 2px accent underline. An
+   accent-filled slab in a row of ghost buttons read as the primary action
+   rather than as the tool in hand. */
+.dockbtn[aria-pressed="true"] {
+  background: var(--ads-inset);
+  color: var(--ads-ink);
+  box-shadow: inset 0 -2px 0 var(--rb-accent);
+}
+.dockbtn:disabled { color: var(--ads-ink-3); cursor: default; }
+.dockbtn:disabled:hover { background: transparent; }
+
+.dockicon { padding-inline: 0; width: var(--ads-sp-7); justify-content: center; }
+
+.dockrule {
+  flex: none;
+  width: 1px;
+  height: var(--ads-sp-5);
+  align-self: center;
+  margin-block: 0;
+  margin-inline: var(--ads-sp-1);
+  background: var(--rb-line-2);
+}
+
+.dockvalue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--ads-sp-7);
+  padding-inline: var(--ads-sp-3);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ads-ink-2);
+  white-space: nowrap;
+}
+
+/* The active scope, as a control rather than a readout. */
+.dockscope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--ads-sp-7);
+  min-width: 0;
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: var(--ads-inset);
+  color: var(--ads-ink);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.dockscope:hover { background: var(--ads-line); }
+.dockscopename { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * The scope swatch carries a per-scope colour the estimator chose. That is
+ * DATA colour, not palette colour — standards/02's accent rule constrains the
+ * system's own hues, and a takeoff whose scopes are all ink is unusable.
+ */
+.dockswatch {
+  flex: none;
+  width: var(--ads-sp-3);
+  height: var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  border: 1px solid var(--ads-line-2);
+}
+
+.docklabel { display: inline; }
+
+.dockwarn {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--ads-sp-2));
+  max-width: 60ch;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  background: color-mix(in srgb, var(--ads-warn) 12%, var(--ads-bg));
+  color: var(--ads-warn);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+
+/*
+ * Collapse tiers.
+ *
+ * Sized against the widest the dock ever gets: eight tools with labels plus a
+ * scope name runs ~640px, and the document pill with a full scale name ~300px,
+ * so both fit side by side above ~1000px of viewport. Below each threshold the
+ * dock sheds the least load-bearing thing left:
+ *   < 1000  tool labels go — the icon is the tool's identity, the word is
+ *           reassurance, and the tooltip still carries it.
+ *   <  760  setup tools and the scope actions move into the overflow menu.
+ *           They are used once per sheet, not once per markup.
+ *   <  560  the scale label drops, leaving the zoom. Scale is still one click
+ *           away in the overflow, and the sheet index shows it too.
+ */
+
+/* ------------------------------------------------------------ popover -- */
+
+.dockmenu {
+  position: absolute;
+  bottom: calc(100% + var(--ads-sp-2));
+  z-index: 100;
+  min-width: 220px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--ads-sp-1);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-l);
+  background: var(--ads-surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
+}
+.dockmenu.right { right: 0; }
+.dockmenu.left { left: 0; }
+
+.menuitem {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.menuitem:hover { background: var(--ads-inset); color: var(--ads-ink); }
+.menuitem[aria-checked="true"] { color: var(--rb-ink); box-shadow: inset 2px 0 0 var(--rb-accent); }
+.menuitem .grow { flex: 1 1 auto; }
+.menuitem .hint {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  color: var(--ads-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.menuhead {
+  padding: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-1);
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ads-ink-3);
+}
+.menusep { height: 1px; margin: var(--ads-sp-1) 0; background: var(--ads-line); }
+
+/* ----------------------------------------------------- right workspace -- */
+
+.wstabs {
+  flex: none;
+  display: flex;
+  padding-inline: var(--ads-sp-2);
+  border-bottom: 1px solid var(--ads-line);
+}
+.wstab {
+  padding: var(--ads-sp-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ads-ink-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.wstab:hover { color: var(--ads-ink-2); }
+.wstab.active { color: var(--rb-ink); border-bottom-color: var(--rb-accent); }
+
+.wsbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ads-sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-5);
+}
+
+.wssection { display: flex; flex-direction: column; gap: var(--ads-sp-2); }
+.wssection {
+  border: 1px solid var(--rb-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  gap: 0;
+  overflow: hidden;
+}
+.wssection > h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  margin: 0;
+  padding: var(--ads-sp-3);
+  border-bottom: 1px solid var(--rb-line);
+  font-size: var(--ads-text-sm);
+  font-weight: 600;
+  color: var(--rb-ink);
+}
+.wssection > h3 > svg { color: var(--rb-ink-3); }
+.wssection > .wsmuted,
+.wssection > .wswarn { padding: var(--ads-sp-3); }
+.wssection > h3 .grow { flex: 1 1 auto; }
+
+.wshead { display: flex; align-items: center; gap: var(--ads-sp-2); min-width: 0; }
+.wshead h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--ads-text-lg);
+  line-height: var(--ads-leading-lg);
+  letter-spacing: -0.015em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsmuted { color: var(--ads-ink-3); font-size: var(--ads-text-xs); line-height: var(--ads-leading-xs); }
+
+/*
+ * The definition form — inline, not behind a modal.
+ *
+ * Editing a panel width and watching the piece count move is the whole loop; a
+ * dialog that covers the drawing breaks it. Rows are label/value pairs.
+ */
+.deffield {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding-block: var(--ads-sp-1);
+}
+.deffield > label {
+  min-width: 0;
+  color: var(--ads-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.defcontrol { display: inline-flex; align-items: center; gap: var(--ads-sp-1); }
+.defcontrol input, .defcontrol select {
+  width: var(--ads-sp-10);
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--ads-inset);
+  color: var(--ads-ink);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.defcontrol select { width: auto; text-align: left; font-family: var(--ads-sans); }
+.defcontrol .unit { color: var(--ads-ink-3); font-family: var(--ads-mono); font-size: var(--ads-text-xs); }
+
+.defswatch {
+  width: var(--ads-sp-5);
+  height: var(--ads-sp-5);
+  padding: 0;
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  cursor: pointer;
+}
+
+.deftoggle {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.deftoggle:hover { background: var(--ads-inset); color: var(--ads-ink); }
+.deftoggle[aria-pressed="true"] { color: var(--ads-ink); }
+.deftoggle .grow { flex: 1 1 auto; }
+
+/*
+ * Quantities.
+ *
+ * standards/01 §7 forbids KPI tiles and stat-card rows: this is a text-first
+ * kv list with mono tabular values, which is the sanctioned form.
+ */
+.qrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: var(--ads-sp-3);
+  padding-block: var(--ads-sp-1);
+}
+.qrow > .qlabel { color: var(--ads-ink-2); }
+.qrow > .qvalue {
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ads-ink);
+}
+.qrow.blocked > .qvalue { color: var(--ads-ink-3); }
+
+.markuprow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.markuprow:hover { background: var(--ads-inset); }
+.markuprow .mkind { color: var(--ads-ink-2); }
+.markuprow .mvalue {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ads-ink-3);
+}
+
+.wswarn {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  background: color-mix(in srgb, var(--ads-warn) 12%, transparent);
+  color: var(--ads-warn);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.wswarn > svg { flex: none; margin-top: 2px; }
+
+/* ------------------------------------------------------------ buttons -- */
+
+/*
+ * A text button is still a button.
+ *
+ * These were 14-16px tall — the height of the text and nothing else — which is
+ * under every hit target in the product and includes the ones people reach for
+ * most: the action on a warning, the expander on a stack of them. Inline-flex
+ * with a minimum height keeps them in the run of text they sit in while giving
+ * the pointer something to land on.
+ */
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ads-sp-5);
+  padding-inline: var(--ads-sp-1);
+  margin-inline: calc(var(--ads-sp-1) * -1);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  /*
+   * Ink, not the link colour. `--ads-link` is REDBEAM red, and red is
+   * budgeted for brand, navigation and focus — a "Cancel" or a "close" in red
+   * reads as a danger action, and "Remove" in red reads as the one thing on
+   * the row you must not press. The underline carries "this is pressable";
+   * the ink step carries nothing but words.
+   */
+  color: var(--rb-ink-2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+.ghostbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.ghostbtn:hover { background: var(--ads-inset); color: var(--ads-ink); }
+
+.primarybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  /*
+   * Fluent's AccentButton. This was ink-on-ink — a white slab, from the rule
+   * that "red is navigation, white is action". Red is gone and the accent is
+   * the system's now, so the primary action wears it, which is what Windows
+   * does and what every other window on the machine will agree with.
+   */
+  background: var(--rb-accent);
+  color: var(--rb-accent-ink);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.primarybtn:hover { background: var(--rb-accent-2); }
+.primarybtn:disabled { background: var(--ads-inset); color: var(--ads-ink-3); cursor: default; }
+
+/* Focus is red — the fourth and last place the foundations frame allows it. */
+.shellapp :focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+
+/*
+ * The takeoff action.
+ *
+ * At rest the dock is a scope pill and this button — three controls over the
+ * drawing instead of twelve.
+ *
+ * WHITE, not the scope's colour. It carried the scope colour on its border and
+ * its label, which put a third rule on screen for "the thing to press": red is
+ * navigation, white is action, scope colour is data. On an amber or a pale
+ * scope the button also read as a warning rather than as the primary action,
+ * which is precisely backwards. The scope's identity is carried by the dot in
+ * the pill beside it, where it costs nothing.
+ */
+.docktakeoff {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--rb-dock-btn);
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--rb-dock-btn-r);
+  background: var(--rb-action);
+  color: var(--rb-action-ink);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.docktakeoff:hover:not(:disabled) { background: #fff; }
+.docktakeoff:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); cursor: default; }
+
+/* ------------------------------------------------- right sidebar: estimates -- */
+
+.wshead-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--ads-sp-4);
+  height: var(--rb-topbar-h);
+  border-bottom: 1px solid var(--rb-line);
+}
+.wstitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  font-weight: 600;
+  font-size: var(--ads-text-sm);
+  color: var(--rb-ink);
+}
+
+/* The drill-down path. Every level but the last is a way back. */
+.crumbs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  padding: var(--ads-sp-2) var(--ads-sp-4);
+  border-bottom: 1px solid var(--rb-line);
+  font-size: var(--ads-text-xs);
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.crumbs::-webkit-scrollbar { display: none; }
+.crumbs > svg { color: var(--rb-ink-4); flex: none; }
+.crumb {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+.crumb:hover { color: var(--rb-ink); text-decoration: underline; }
+.crumb.current {
+  color: var(--rb-ink);
+  cursor: default;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumbs { min-width: 0; }
+.crumbs .crumb:not(.current) { flex: none; }
+
+/* A row that drills in: icon or dot, two lines, chevron. */
+.estrow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  width: 100%;
+  padding: var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  color: var(--rb-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.estrow:hover { background: var(--rb-hover); }
+.estrow > svg:first-child { color: var(--rb-ink-3); }
+.esttext { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.estname {
+  display: block;
+  color: var(--rb-ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The 8px scope identifier — the size the foundations frame specifies. */
+.scopedot {
+  flex: none;
+  width: var(--rb-dot);
+  height: var(--rb-dot);
+  border-radius: 999px;
+}
+
+/*
+ * The active scope's header card. Its border and 8% tint are the scope's own
+ * colour — the only surface in the app a scope colour may fill.
+ */
+.scopecard {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3);
+  border: 1px solid;
+  border-radius: var(--ads-radius-s);
+}
+.scopecard .grow { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scopecard .estname { font-size: var(--ads-text-sm); }
+.scopecard .scopemeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scopemeta {
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  font-weight: 500;
+}
+.takeoffbtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  color: var(--rb-oled);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.takeoffbtn:hover { filter: brightness(1.08); }
+
+/* Label left, value right — the comps' row grammar throughout. */
+.kvrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-top: 1px solid var(--rb-line);
+}
+.wssection .kvrow:first-of-type { border-top: 0; }
+.kvlabel { color: var(--rb-ink-3); min-width: 0; }
+.kvvalue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  color: var(--rb-ink);
+  font-weight: 500;
+}
+.kvvalue.num { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.kvvalue.unset { color: var(--rb-ink-4); font-weight: 400; }
+.req { color: var(--rb-warn); }
+.kvcontrol, .kvedit input, .kvedit select {
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-oled);
+  color: var(--rb-ink);
+  font: inherit;
+}
+.kvedit { display: inline-flex; gap: var(--ads-sp-1); }
+.kvedit input {
+  width: var(--ads-sp-10);
+  text-align: right;
+  font-family: var(--ads-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mgrouphead {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-top: 1px solid var(--rb-line);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+}
+
+/* Segmented control, from the comps' "Group [Page] [Type]". */
+.seg {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  padding: var(--ads-sp-1);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-oled);
+}
+.seglabel { color: var(--rb-ink-3); font-size: var(--ads-text-xs); padding-inline: var(--ads-sp-2); }
+.segbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+}
+.segbtn:hover { color: var(--rb-ink-2); }
+.segbtn.active { background: var(--rb-selected); color: var(--rb-ink); }
+
+.nameeditor { display: flex; gap: var(--ads-sp-2); align-items: center; }
+.nameeditor input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-oled);
+  color: var(--rb-ink);
+  font: inherit;
+}
+
+/* An honest note about state, not an error. */
+.notecard {
+  display: flex;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.notecard > svg { flex: none; color: var(--rb-ink-3); }
+.notetitle { color: var(--rb-ink); font-weight: 500; font-size: var(--ads-text-sm); margin-bottom: 2px; }
+
+.ghostbtn.small { padding: var(--ads-sp-1) var(--ads-sp-2); font-size: var(--ads-text-xs); }
+
+/* Thumbnails, in the left pane: a vertical grid rather than a horizontal strip. */
+/* The strip is the pane's body now — the frame no longer wraps one around it. */
+.pane .pagestrip { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.pane .pagestrip .pagenav { display: none; }
+.pane .pagestrip .thumbs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-3);
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------- dock popovers -- */
+
+/* The scope pill: colour-bordered, two lines, opening upward. */
+.dockscope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--ads-sp-7);
+  min-width: 0;
+  padding-inline: var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.dockscope:hover { background: var(--rb-hover); }
+.dockscopetext { min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.dockscopename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.dockscopestate {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rb-ink-3);
+}
+
+/*
+ * The scale control names its own state.
+ *
+ * "Unset" is a warning, not a blank: a takeoff drawn before calibration
+ * produces numbers in points, and points are not a quantity anyone can order
+ * from. So an uncalibrated sheet says so, in the warn colour, rather than
+ * showing an empty control.
+ */
+.dockscale {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--ads-sp-7);
+  padding-inline: var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dockscale:hover { background: var(--rb-hover); }
+.dockscale > svg { color: var(--rb-ink-3); }
+/*
+ * An uncalibrated sheet reads "Unset" in ordinary ink, not in amber.
+ *
+ * This control used to turn warning-coloured, which put a status in the dock —
+ * and a persistent one, since most sheets are uncalibrated until somebody gets
+ * to them. The consequence is real and it is reported where consequences are
+ * reported: the estimates panel says the sheet is not calibrated and that no
+ * quantity is in real units. The dock says what the scale IS.
+ */
+.dockscale.unset { color: var(--rb-ink-3); }
+
+.scopemenuhead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--ads-sp-3) var(--ads-sp-3) var(--ads-sp-2);
+  border-bottom: 1px solid var(--rb-line);
+  margin-bottom: var(--ads-sp-1);
+}
+.scopemenuname { color: var(--rb-ink); font-weight: 600; font-size: var(--ads-text-sm); }
+.scopemenuhead .menuhead { padding: 0; }
+
+.scopemenu, .scalemenu { min-width: 260px; }
+
+.menuitem.raised { background: var(--rb-hover); color: var(--rb-ink); margin-bottom: var(--ads-sp-1); }
+.menuitem.raised:hover { background: var(--rb-selected); }
+
+.scalegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ads-sp-1);
+  padding: var(--ads-sp-1);
+}
+.scalechip {
+  padding: var(--ads-sp-2);
+  border: 1px solid var(--rb-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-oled);
+  color: var(--rb-ink-2);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+}
+.scalechip:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.scalechip.active { border-color: var(--rb-line-2); background: var(--rb-selected); color: var(--rb-ink); }
+
+/*
+ * A blocked layout, stated exactly, with the action that unblocks it.
+ *
+ * The alternative — a quantity sitting at zero with no explanation — is the
+ * failure mode this exists to prevent: zero and "cannot calculate" look
+ * identical in a number, and only one of them means there is no material.
+ */
+.dockblock {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--ads-sp-2));
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  max-width: 68ch;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid color-mix(in srgb, var(--rb-warn) 40%, transparent);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  color: var(--rb-warn);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  white-space: nowrap;
+}
+.dockblock > .grow { flex: 1 1 auto; }
+.dockblock > button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rb-warn);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/*
+ * The scope pill yields first when the dock runs out of room.
+ *
+ * It is the widest control and the most compressible: its colour dot carries
+ * the identity, so the name can truncate and then disappear entirely before
+ * anything else in the row has to move.
+ */
+.dockscope { flex: 0 1 auto; max-width: 30ch; }
+/*
+ * The last step — the name goes and the dot stands alone — is declared with
+ * the rest of the tiers at the end of this file, where it can win. A container
+ * query adds no specificity, so a tier stated here would lose to the base rules
+ * below it.
+ */
+
+/* ============================================================== density == */
+/*
+ * The density pass.
+ *
+ * Everything above was written at a comfortable rhythm; this block tightens it
+ * to a working one. It is kept as one block rather than folded into the rules
+ * above so the whole density decision can be read, argued with, or reverted in
+ * one place — and so the earlier rules still say what each component IS
+ * without also encoding how tight it happens to be this month.
+ *
+ * The rule throughout: remove air, never remove the hit target. Every
+ * interactive row stays at or above 22px with its full-width click area, which
+ * is comfortably past the point where a pointer starts missing.
+ *
+ * The density came out of GUTTERS, not rows. The sidebars used to hold their
+ * sections in inset cards inside a padded body: 8px of gutter on each edge, 8px
+ * between every section, and a 1px card border drawn twice where two sections
+ * met. On a 380px panel that is ~20% of the width and a full row of height per
+ * section, spent on air. Sections now run edge to edge, separated by a single
+ * hairline, and every row height is exactly what it was.
+ */
+
+/* ---- left pane ---- */
+.panehead { height: var(--rb-pane-head); padding: 0 var(--rb-pad-row); }
+.panesearch { padding: var(--rb-pad) var(--rb-pad); }
+.panesearch input { padding: var(--ads-sp-1) var(--ads-sp-2); padding-left: var(--ads-sp-7); }
+.panesearch > svg { left: calc(var(--rb-pad) + var(--ads-sp-2)); }
+.panefoot { padding: var(--ads-sp-1) var(--rb-pad-row); }
+
+/*
+ * One line, at the dense-list floor.
+ *
+ * The index used to stack number over title at 26px, which was the least dense
+ * list in the product for the list that is scrolled the most; flattening it to
+ * one line fixed that. It then sat at the 22px one-line floor, which is tighter
+ * than Windows draws any list — the approved design puts a dense row at 28,
+ * File Explorer's own compact row, and that is what `--rb-row` is now.
+ */
+.sheetrow {
+  min-height: var(--rb-row);
+  padding: 0 var(--rb-pad-row);
+  gap: var(--ads-sp-2);
+}
+.sheetgrouphead { padding: var(--ads-sp-1) var(--rb-pad-row); }
+.sheetgroup .sheetrow { padding-left: var(--ads-sp-6); }
+
+/*
+ * A file in the project tree: icon, name, qualifier, and the pop-out on the
+ * active one. Same grid discipline as the sheet row and for the same reason —
+ * the name track fills before the detail track sees a pixel, so the NAME is
+ * the last thing to give.
+ *
+ * Its own class, not `.sheetrow.oneline`. The file row borrowed the sheet
+ * row's shape and then fought it — a flex override of a grid, a dot column
+ * that was always empty, a page-number cell holding a button — and every
+ * density change to one had to be checked against the other.
+ */
+.filerow {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  min-height: var(--rb-row-sm);
+  padding: 0 var(--rb-pad-row) 0 var(--ads-sp-6);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.filerow:hover { background: var(--rb-hover); }
+.filerow.active { background: var(--rb-selected); box-shadow: inset 2px 0 0 var(--rb-accent); }
+.filerow > svg { color: var(--rb-ink-4); }
+/* The open document's icon is red, the same mark its tab carries. */
+.filerow.active > svg { color: var(--rb-accent); }
+.filename {
+  min-width: 0;
+  color: var(--rb-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filerow:hover .filename, .filerow.active .filename { color: var(--rb-ink); }
+.filedetail {
+  min-width: 0;
+  container-type: inline-size;
+  color: var(--rb-ink-4);
+  font-size: var(--ads-text-xs);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filedetail > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+/*
+ * A qualifier that has lost the room to say anything says nothing. Below
+ * about four characters an ellipsed "38 pages" is a lone "3" — a number that
+ * is not the number — and the tooltip on the row carries the whole detail
+ * anyway. The threshold is the cell's own width, which is what the container
+ * query measures; the name track has already taken what it needs by then.
+ */
+@container (max-width: 40px) {
+  .filedetail > span { visibility: hidden; }
+}
+/* A file that is not there is said in the bad colour, and in words ("not found"). */
+.filerow.missing .filename, .filerow.missing > svg { color: var(--rb-bad); }
+
+/* ---- right sidebar ---- */
+.wshead-bar { height: var(--rb-topbar-h); padding: 0 var(--rb-pad-row); }
+.crumbs { padding: var(--ads-sp-1) var(--rb-pad-row); }
+.wshead h2 { font-size: var(--ads-text-lg); line-height: var(--ads-leading-lg); }
+
+/*
+ * Full bleed. No gutter, no gap, no card.
+ *
+ * A section is now a band: a mono-caps header on the chrome step, its rows, and
+ * one hairline closing it off. The header stops being a title bar and becomes a
+ * divider you read rather than one you look at — which is what a section header
+ * in a dense panel is for. Elements that are NOT sections (the level heading,
+ * the name editor, a standalone note) carry their own inset instead, since the
+ * body no longer supplies one.
+ */
+.wsbody { padding: 0; gap: 0; }
+/*
+ * Sections keep their height and the BODY scrolls.
+ *
+ * The body is a flex column, so without this every section is shrinkable and a
+ * short panel compresses all of them at once — Specification collapsing to its
+ * first field, Total quantity to half a row — instead of overflowing into the
+ * scroller that is already there. It read as content being cut off at random,
+ * which is roughly the worst failure mode a panel of numbers has.
+ */
+.wsbody > * { flex: 0 0 auto; }
+.wsbody > .wshead,
+.wsbody > .nameeditor,
+.wsbody > .notecard,
+.wsbody > .wsmuted { padding: var(--ads-sp-2) var(--rb-pad-row); }
+.wsbody > .wshead { padding-block: var(--ads-sp-3); }
+
+.wssection {
+  border: 0;
+  border-bottom: 1px solid var(--rb-line);
+  border-radius: 0;
+  background: transparent;
+}
+.wssection > h3 {
+  min-height: var(--rb-head);
+  padding: 0 var(--rb-pad-row);
+  background: var(--rb-chrome);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rb-ink-3);
+}
+.wssection > .wsmuted, .wssection > .wswarn { padding: var(--ads-sp-2) var(--rb-pad-row); }
+
+.kvrow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
+.kvcontrol, .kvedit input, .kvedit select { padding: 0 var(--ads-sp-2); height: var(--ads-sp-5); }
+
+.estrow { min-height: var(--rb-row); padding: var(--ads-sp-2) var(--rb-pad-row); gap: var(--ads-sp-2); }
+.markuprow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
+.mgrouphead { padding: var(--ads-sp-1) var(--rb-pad-row); }
+
+.scopecard { padding: var(--ads-sp-2) var(--rb-pad-row); gap: var(--ads-sp-2); }
+.takeoffbtn { padding: var(--ads-sp-1) var(--ads-sp-2); }
+.seg { padding: 0; }
+.segbtn { padding: var(--ads-sp-1) var(--ads-sp-2); }
+.notecard { padding: var(--ads-sp-2) var(--rb-pad-row); }
+
+/* ---- dock ---- */
+/*
+ * 32px controls in a 4px-padded shell: a 40px bar, matching the title bar.
+ *
+ * The two radii are concentric — 8 outside, minus the 4 of padding, is the 4
+ * inside. When they were not (a shell radius around smaller buttons) every end
+ * button left a visible crescent of shell in its corner, which is what read as
+ * "artefacts on the compact toolbars".
+ *
+ * The surface these rules used to paint now lives on `.dock` itself: this WAS
+ * the three-pill implementation, and a group that keeps its own fill and shadow
+ * inside the bar is three islands again with extra steps.
+ */
+.dockgroup { gap: 2px; }
+.dockbtn, .dockscope, .dockscale, .docktakeoff, .dockvalue {
+  height: var(--rb-dock-btn);
+  border-radius: var(--rb-dock-btn-r);
+}
+.dockicon, .dockbtn { padding-inline: var(--ads-sp-2); }
+.dockicon { width: var(--rb-dock-btn); }
+.docktakeoff { padding-inline: var(--ads-sp-3); }
+/*
+ * One divider spec, everywhere: a 20px hairline centred in the 32px row, not a
+ * stretched rule that touches the shell's padding.
+ */
+@container viewport (max-width: 999px) {
+  .dockbtn { width: var(--rb-dock-btn); }
+}
+
+/* ---- menus ---- */
+.menuitem { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--ads-sp-2); }
+.menuhead { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1); }
+.scopemenuhead { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1); }
+.scalechip { padding: var(--ads-sp-1) var(--ads-sp-2); }
+.tabmenurow > .grow { padding: var(--ads-sp-1) var(--ads-sp-2); }
+
+/* ---- buttons ---- */
+.ghostbtn, .primarybtn { height: var(--rb-control); padding-inline: var(--ads-sp-3); }
+.ghostbtn.small { padding: 0 var(--ads-sp-2); height: var(--ads-sp-5); }
+.nameeditor input { padding: var(--ads-sp-1) var(--ads-sp-2); }
+
+/* ---- rail ---- */
+/*
+ * Full-width buttons, 44 × 36, flush to the top of the rail with no inset.
+ *
+ * A 32px button centred in a 44px rail with 4px of block padding left a 6px
+ * dead margin either side of every glyph and a rounded selected-fill floating
+ * inside a square column. The selected state is the panel's own surface running
+ * to both edges with the red bar on the leading one — the button and the pane
+ * it opens read as one object.
+ */
+
+/* ---- title bar ---- */
+/*
+ * Chrome, not panel: the bar is the same step as the rail and the dock, so the
+ * three read as one frame around the drawing rather than as three tones.
+ */
+.titlebar { background: var(--rb-chrome); }
+.titlecell {
+  position: relative;
+  width: var(--rb-rail-w);
+  justify-content: center;
+  padding-inline: 0;
+}
+/* The mark is a button now — it opens the app menu — so it needs the reset. */
+.brand { border: 0; font-family: inherit; cursor: pointer; }
+.brand:disabled { cursor: default; }
+.projectcell { position: relative; display: flex; align-items: stretch; min-width: 0; }
+.projectpick:disabled { cursor: default; }
+
+/*
+ * THE TITLE BAR IS A SUBGRID OF THE SHELL.
+ *
+ * The mark sits over the rail and the project button over the pane — the
+ * SAME columns the rail and the pane occupy, because the bar borrows the
+ * shell's tracks rather than approximating them. So the project button is
+ * exactly as wide as the pane at whatever width the pane is, including when
+ * the grid squeezes the pane at a narrow window, and its right edge is the
+ * pane's right edge. It used to be a content-sized button capped at 280px,
+ * which sat a random distance short of the pane's edge and read as a control
+ * floating in the bar rather than the pane's own header.
+ *
+ * The tabs and the panel toggle take the remaining columns as one flex cell.
+ * With the pane CLOSED its column is zero, and a zero-width project switcher
+ * is a switcher nobody can find — so the bar falls back to a flex row and
+ * the button is content-sized again, capped where it was.
+ */
+.titlebar { display: grid; grid-template-columns: subgrid; align-items: stretch; }
+/* The mark and the switcher share the sidebar's column, so the switcher is
+   exactly as wide as the panel under it — whatever width that panel is. */
+.titlelead { grid-column: 1; display: flex; align-items: stretch; min-width: 0; }
+.titlecell { width: auto; flex: none; }
+.projectcell { flex: 1 1 auto; }
+.titlemain { grid-column: 2 / -1; display: flex; align-items: stretch; min-width: 0; }
+/* Collapsed, the sidebar is 48px and a switcher that narrow is one nobody can
+   find, so the bar falls back to a flex row and the button is content-sized. */
+.shellapp[data-pane="closed"] .titlebar { display: flex; }
+.shellapp[data-pane="closed"] .titlelead { flex: none; }
+.shellapp[data-pane="closed"] .titlecell { width: var(--rb-rail-w); }
+.shellapp[data-pane="closed"] .projectcell { flex: none; max-width: 280px; }
+.shellapp[data-pane="closed"] .projectpick { width: auto; }
+.shellapp[data-pane="closed"] .titlemain { flex: 1 1 auto; }
+
+/*
+ * A menu that hangs DOWN from the title bar.
+ *
+ * `.dockmenu` is the same shell opening upward from a floating dock; the only
+ * differences are which edge it is pinned to and that this one is not inside a
+ * positioned pill. Everything else — 10px radius, 4px padding, 26px rows — is
+ * the one menu shell the product has.
+ */
+.titlemenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 240px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--ads-sp-1);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-raised);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
+}
+.projectmenu { min-width: 340px; }
+/* The tab menu is fixed to the pointer, since the strip clips its overflow. */
+.tabctx { position: fixed; min-width: 260px; }
+
+.projectrow { display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: left; }
+.projectrowname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projectrowpath {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  color: var(--rb-ink-4);
+  direction: rtl;             /* elide the START of a path, not the end */
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menuitem.missing, .menuitem:disabled { color: var(--rb-ink-dim); cursor: default; }
+.menuitem.missing:hover, .menuitem:disabled:hover { background: transparent; }
+
+/* ---- chrome is not a document ---- */
+/*
+ * Dragging across the shell used to select its text — filenames, sheet
+ * numbers, row labels, the whole title bar. That is browser behaviour showing
+ * through: this is an application window, and nobody drags across a toolbar
+ * meaning to highlight it. Worse, a drag that begins on chrome and ends on the
+ * sheet leaves a selection highlighted over the drawing.
+ *
+ * Turned off for the shell, and turned back on for the places where selecting
+ * text is the point: inputs, and any element that opts in with `.selectable`.
+ */
+.shellapp { user-select: none; -webkit-user-select: none; }
+.shellapp input, .shellapp textarea, .shellapp [contenteditable],
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * THERE IS NO MODAL LAYER.
+ *
+ * There was one — fixed, z-index 300, a scrim — holding the bill, the
+ * browser, the scope editor, the scale picker and the calibration form.
+ * Aaron's rule is that the palette is the only overlay this app has; each of
+ * those now lives in the pane, panel or control its moment is already in
+ * (see "rehomed dialogs" at the end of this sheet). The palette keeps its
+ * own layer in palette.css.
+ */
+
+/* ---- settings ---- */
+/*
+ * A category column beside the settings, from the comps — not one long scroll
+ * of every section in the product. The old rules for `.settings` live in
+ * styles.css and were written for the pre-shell layout (absolute, pinned 34px
+ * down, its own shadow); everything positional is overridden by `.modal > *`,
+ * and what is left here is the panel itself.
+ */
+/*
+ * Settings fills the window beneath the title bar.
+ *
+ * Not a dialog: a dialog asks a question and settings is a place. The title bar
+ * stays visible so the window remains movable and closable from inside it, and
+ * nothing is scrimmed — there is no task underneath waiting to be returned to.
+ */
+.settingsview {
+  position: fixed;
+  inset: var(--rb-topbar-h) 0 0 0;
+  z-index: 250;
+  display: flex;
+  background: var(--rb-canvas);
+}
+.settings {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--rb-panel);
+  overflow: hidden;
+}
+/*
+ * ONE centred, capped column — header, body and footer aligned to it.
+ *
+ * Capping only the sections left the title hard against the left edge, the
+ * search field hard against the right, and a metre of empty panel between a
+ * setting and its switch on a maximized window. The column is the layout, so
+ * everything in the view sits inside it.
+ */
+.settings-main > * > .settings-col,
+.settings-col {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+}
+/*
+ * One inline padding for all three rows, declared where the column is.
+ *
+ * The header, the body and the footer each wrap the same centred 880px
+ * column, so they have to agree about where its edges are — and they did not:
+ * the header carried an asymmetric `0 sp-2 0 sp-4` from its own rule and the
+ * footer a `sp-2 pad-row`, which put the title 4px right of the settings
+ * underneath it. `!important` is the wrong tool and a later rule the fragile
+ * one, so this is stated as a longhand the shorthands above cannot silently
+ * reset out from under it.
+ */
+.settings-head, .settings-foot, .settings-body { padding-inline: var(--ads-sp-6); }
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  width: 196px;
+  flex: none;
+  background: var(--rb-chrome);
+  border-right: 1px solid var(--rb-line);
+}
+.settings-navhead {
+  display: flex;
+  align-items: center;
+  height: var(--rb-topbar-h);
+  padding-inline: var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+  font-weight: 600;
+}
+.settings-navrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--rb-row);
+  padding-inline: var(--rb-pad-row);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-navrow:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.settings-navrow.on {
+  background: var(--rb-selected);
+  color: var(--rb-ink);
+  box-shadow: inset 2px 0 0 var(--rb-accent);
+}
+.settings-navfoot {
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border-top: 1px solid var(--rb-line);
+  color: var(--rb-ink-4);
+  font-size: var(--ads-text-xs);
+}
+
+.settings-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  height: var(--rb-topbar-h);
+  padding-block: 0;
+  border-bottom: 1px solid var(--rb-line);
+  flex: none;
+}
+.settings-title { font-weight: 600; white-space: nowrap; }
+.settings-search { flex: 1 1 auto; min-width: 0; display: flex; }
+.settings-search input {
+  width: 100%;
+  height: var(--rb-control);
+  padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+}
+.settings-search input:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 1px; }
+.settings-close {
+  display: grid;
+  place-items: center;
+  width: var(--ads-sp-7);
+  height: var(--ads-sp-7);
+  flex: none;
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-close:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+/*
+ * `scrollbar-gutter: stable both-edges` so the header and the content agree
+ * where centre is.
+ *
+ * Only the body scrolls, so only the body loses width to a scrollbar — which
+ * put its centred 880px column 4px right of the header's and the footer's.
+ * Small, but it is the kind of misalignment you see without being able to say
+ * what you are looking at, on the one screen whose whole job is to look
+ * settled.
+ */
+.settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; }
+.settings-section > h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  margin: 0;
+  min-height: var(--rb-head);
+  padding: 0 var(--rb-pad-row);
+  background: var(--rb-chrome);
+  border-block: 1px solid var(--rb-line);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rb-ink-3);
+}
+.settings-section:first-child > h4 { border-top: 0; }
+.settings-empty { padding: var(--ads-sp-4) var(--rb-pad-row); color: var(--rb-ink-3); }
+.settings-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding-block: var(--ads-sp-2);
+  border-top: 1px solid var(--rb-line);
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  flex: none;
+}
+.settings-reset {
+  height: var(--rb-control);
+  padding-inline: var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-reset:hover:not(:disabled) { background: var(--rb-hover); color: var(--rb-ink); }
+.settings-reset:disabled { color: var(--rb-ink-dim); cursor: default; }
+
+/* Rows: the registry's own, re-spaced to this shell's density. */
+.settings .settingrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--ads-sp-4);
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+}
+.settings .settingrow label { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.settings .settinglabel { color: var(--rb-ink); }
+.settings .settingdesc {
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.settings .settingrow.modified { box-shadow: inset 2px 0 0 var(--rb-warn); }
+.settings .settingrow.modified .settinglabel { color: var(--rb-warn); }
+
+/* ---- window controls ---- */
+/*
+ * OS furniture, drawn by the app because the app draws its own title bar.
+ *
+ * Fixed rather than laid out in the bar: the start screen has no title bar and
+ * a frameless window still has to be closable from it. The bar reserves the
+ * width below so nothing lands underneath.
+ *
+ * These deliberately do NOT follow the product's button rules — 46px cells, a
+ * 1.25 hairline stroke, and a red close on hover. Every user already knows what
+ * these three are and where they live, and this is the one place where being
+ * recognisable beats being ours.
+ */
+.wincontrols {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  height: var(--rb-topbar-h);
+}
+.wcbtn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-2);
+  cursor: pointer;
+}
+.wcbtn:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.wcbtn.close:hover { background: #C42B1C; color: #fff; }
+/* Room for the cluster, so a tab never ends up under the close button. */
+:root[data-frameless] .titlebar { padding-right: 138px; }
+
+/* A line of explanation under a menu, for a control whose effect is not obvious. */
+.menunote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1);
+  border-top: 1px solid var(--rb-line);
+  margin-top: var(--ads-sp-1);
+  color: var(--rb-ink-4);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.menunote > svg { flex: none; margin-top: 1px; }
+/*
+ * The active tab carries the same two signals as an active rail button — raised
+ * fill plus a 2px red bar on the edge its content is on. For a tab that edge is
+ * the BOTTOM, because the sheet is below it.
+ */
+.tab.active { box-shadow: inset 0 -2px 0 var(--rb-accent); }
+
+/* ---- density, second pass ---- */
+/*
+ * The first pass took the obvious air out. This one removes rows that existed
+ * only to hold one control, and takes the remaining one-line rows to 22px —
+ * the floor where a full-width click target is still comfortably bigger than
+ * the pointer.
+ */
+.markuprow { min-height: var(--rb-row-sm); padding: 0 var(--rb-pad-row); }
+.mgrouphead, .sheetgrouphead { min-height: var(--ads-sp-5); padding: 0 var(--rb-pad-row); }
+.panesearch { padding: var(--ads-sp-1) var(--rb-pad); }
+.panesearch > svg { left: calc(var(--rb-pad) + var(--ads-sp-2)); }
+.scopecard { padding: var(--ads-sp-2); }
+.scopecard .estname { font-size: var(--ads-text-sm); line-height: 1.3; }
+.scopecard .scopemeta { line-height: 1.3; }
+.kvrow { min-height: var(--rb-row-sm); }
+
+/* The grouping control now rides in the header it controls. */
+.wssection > h3 > .seg { flex: none; display: inline-flex; gap: 1px; }
+.wssection > h3 > .seg .segbtn { padding: var(--ads-sp-1); }
+.hcount {
+  color: var(--rb-ink-4);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ---- the specification, as a form ---- */
+/*
+ * A label column and a control, on every row, always live.
+ *
+ * The label column is fixed at 78px rather than sized to content: a form whose
+ * labels are ragged reads as a list of unrelated statements, and these are
+ * seven settings on one object. 78 holds "Orientation" — the longest label the
+ * product types actually produce — without wrapping at 11px.
+ */
+.specfield {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  min-height: var(--rb-row);
+  padding: var(--ads-sp-1) var(--rb-pad-row);
+}
+.specfield + .specfield { border-top: 1px solid var(--rb-line); }
+.specfield > label {
+  color: var(--rb-ink-4);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.specpair { display: flex; align-items: center; gap: var(--ads-sp-2); min-width: 0; }
+.specpair > .kvcontrol:first-child { flex: 1 1 auto; min-width: 0; }
+.specpair > select.kvcontrol { flex: none; width: auto; }
+.specpair > select.kvcontrol.grow { flex: 1 1 auto; width: auto; min-width: 0; }
+.specpair > .wsmuted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The swatch is a control, not a row: same height as the field beside it. */
+.specfield .defswatch,
+.speccell .defswatch {
+  flex: none;
+  width: var(--ads-sp-7);
+  height: var(--rb-control);
+  padding: 2px;
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-canvas);
+  cursor: pointer;
+}
+.specfield.wide { grid-template-columns: 78px 1fr; }
+
+/*
+ * Measures, two per line.
+ *
+ * A plank scope has seven; one per row was a column of half-empty rows and a
+ * spec you had to scroll to finish. They are short, uniform controls, so two
+ * fit across a 380px panel with room to spare. The last odd one spans the full
+ * width rather than leaving a hole.
+ */
+.specgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rb-line);
+  border-top: 1px solid var(--rb-line);
+}
+.speccell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  background: var(--rb-panel);
+  min-width: 0;
+}
+.speccell > label {
+  color: var(--rb-ink-4);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  font-family: var(--ads-mono);
+}
+.speccell .specpair > .kvcontrol:first-child { min-width: 0; }
+.speccell .specpair > select.kvcontrol { max-width: 5.5ch; padding-inline: 2px; }
+/* An odd last cell spans, so the grid never ends on a gap. */
+.speccell:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/*
+ * A warning that carries its own fix. The message and the action sit on one
+ * row, because a blocked layout with the remedy on a second line reads as two
+ * separate pieces of news.
+ */
+.wswarn.action { display: flex; align-items: center; gap: var(--ads-sp-2); }
+.wswarn.action > .grow { flex: 1 1 auto; min-width: 0; }
+.wswarn.action > .link { flex: none; color: inherit; font-weight: 600; }
+
+/* ---- the focused scope, full bleed ---- */
+/*
+ * A band, not a card: no radius and no side borders, because the body has no
+ * gutter for them to sit in. The scope's colour is the 2px leading bar (set
+ * inline, since it is per-scope data) plus a 7% wash, which is the same
+ * selected-thing grammar the rail and the tabs use.
+ */
+.scopecard {
+  border: 0;
+  border-bottom: 1px solid var(--rb-line);
+  border-radius: 0;
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  gap: var(--ads-sp-2);
+}
+.scopecard .scopemeta { color: var(--rb-ink-3); font-weight: 400; }
+/* White, like every other primary action. */
+.takeoffbtn {
+  height: var(--rb-control);
+  padding-inline: var(--ads-sp-3);
+  background: var(--rb-action);
+  color: var(--rb-action-ink);
+}
+.takeoffbtn:hover { background: #fff; filter: none; }
+
+/* ---- the switch ---- */
+/*
+ * One control for a boolean, everywhere. Settings drew a browser checkbox and
+ * the comps drew a switch; the checkbox was the single control in the product
+ * that looked like it belonged to another application.
+ */
+/*
+ * The TRACK is 17px; the BUTTON is 24, which is the product's control height.
+ *
+ * Drawn as one 17px element the switch was a 17px-tall hit target — under the
+ * height of every other control in the app and small enough to miss. The track
+ * is a pseudo-element inside a full-height button, so it looks the same and can
+ * actually be hit.
+ */
+.swtoggle {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: var(--rb-control);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.swtoggle::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--rb-selected);
+  transition: background 120ms ease;
+}
+.swtoggle > span {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 999px;
+  background: var(--rb-ink-3);
+  transition: left 120ms ease, background 120ms ease;
+}
+.swtoggle.on::before { background: var(--rb-accent); }
+.swtoggle.on > span { left: 15px; background: var(--rb-canvas); }
+.swtoggle:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+
+/* Settings' own controls, matching the sidebar's. */
+.settings-search { flex: 0 1 280px; margin-left: auto; }
+.settings .settingrow input[type="number"],
+.settings .settingrow select {
+  height: var(--rb-control);
+  min-width: 96px;
+  padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+}
+
+/* ---- consistency sweep ---- */
+/*
+ * The scope pill is one line at 12px, like every other label in the dock. It
+ * was a two-line stack inside a 32px control, which left both lines at 10px and
+ * neither vertically centred.
+ */
+.dockscope .dockscopename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ads-text-sm);
+  line-height: 1;
+}
+
+
+/* ---- the dock shrinks before it overflows ---- */
+/*
+ * Tiers alone could not do this. Each one fires at a fixed width, so between
+ * two of them the dock was reliably 40-50px too wide and clipped its own last
+ * control — and which control that was depended on which side the browser gave
+ * up on first. The tiers decide what DISAPPEARS; this decides what gives.
+ *
+ * The scope pill gives. It is the widest control, the most compressible, and
+ * the only one whose meaning survives truncation — the dot carries the identity
+ * and the menu carries the full name.
+ */
+.dock { min-width: 0; }
+.dockgroup { flex: 0 1 auto; }
+.dockgroup > * { flex: none; }
+/*
+ * THE FLOOR BELONGS TO THE FLEX ITEM, NOT ITS CHILD.
+ *
+ * The minimum was on the button and the wrapper was `min-width: 0`, so flex
+ * happily shrank the wrapper to 30px while the button inside kept its 9ch and
+ * spilled 33px over the Take off button next to it. A min-width on a child
+ * does not constrain the parent that flex is measuring.
+ */
+.dockgroup > .dockscopewrap { flex: 0 1 auto; min-width: 16ch; }
+/*
+ * A floor, not zero.
+ *
+ * Left to shrink freely the pill reached one character and an ellipsis while
+ * 100px of dock sat empty — flex gives the whole deficit to the only item that
+ * will take it, whether or not the deficit is real.
+ *
+ * The floor is on the WRAPPER, and the wrapper is not the name: the swatch,
+ * the chevron, two gaps and the padding come out of it first. At 9ch that left
+ * the name about four characters — "C-MT-01 Plank" rendered as "C-M…", which
+ * is not a scope code, it is the first half of one. 16ch is the same intent
+ * measured on the right box: enough for the code an estimator actually reads.
+ * Below the tier at 480 the name goes entirely and the dot stands alone, which
+ * is honest in a way that four characters is not.
+ */
+.dockscope { width: 100%; min-width: 0; }
+/*
+ * The right group's give is the scale, for the same reason: its menu names the
+ * scale at the top, so a truncated label costs a click and not the value. The
+ * page numbers and the zoom percentage do not shrink — a number clipped to
+ * "1 / 7" of "1 / 75" is worse than no number at all.
+ */
+.dockgroup > .dockscalewrap { flex: 0 1 auto; min-width: 7ch; }
+.dockscale { width: 100%; min-width: 0; }
+.dockscale > span:not(.mono) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==================================================== dock collapse tiers == */
+/*
+ * These live at the END of the file on purpose.
+ *
+ * A container query adds no specificity, so an unconditional rule further down
+ * the sheet beats it. `.dockscope { max-width: 30ch }` sits below the old
+ * position of this block and silently won every tier that tried to narrow the
+ * pill — the queries fired, the pill did not move, and the dock overflowed its
+ * own shell at any width where both groups were open.
+ *
+ * Order of sacrifice, and the reasoning for each:
+ * The tool row is icon-only at every width — see toolButton — so there is no
+ * "drop the labels" tier. It measured 1442px with them, which is wider than the
+ * drawing area at any window size this app supports.
+ *
+ * There is no tier for the scope pill either. It shrinks CONTINUOUSLY (see "the
+ * dock shrinks before it overflows"), so a max-width tier could only make it
+ * narrower than the space actually available — which is exactly what happened:
+ * at a 716px stage the pill was capped at 14ch and truncated to one character
+ * while 45px of dock sat empty beside it.
+ *
+ *   <  900  the zoom stepper. The percentage beside it opens a menu of zooms
+ *           and ctrl+wheel does the same job continuously, so minus and plus
+ *           are the third way to do one thing.
+ *   <  820  setup, the panel buttons and Exit move into the overflow, and the
+ *           scope name gives up half its width. These are used once per sheet,
+ *           not once per markup.
+ *   <  700  the scale keeps its glyph and loses its words. Its menu still names
+ *           the scale at the top, so the value is one click away, not gone.
+ *   <  560  the two pills stop sharing a row and the dock wraps. The tools
+ *           STAY: they are what takeoff mode is for, and a second row has
+ *           room for them.
+ *   <  480  the scope name goes and its dot stands alone.
+ *   <  400  and only now do the drawing tools fold into the overflow. What
+ *           survives is the scope, Pan and the menu: what this lands in, how
+ *           to move, and where everything else went.
+ *
+ * The tools used to go at 560, in the same tier that starts the wrapping —
+ * so they were hidden in the one arrangement that had somewhere to put them.
+ * A 1280 window with both panes open leaves the drawing about 556px, which
+ * meant a normal window in takeoff mode had every drawing tool behind a menu.
+ */
+@container viewport (max-width: 899px) {
+  .dock [data-collapse="zoomstep"] { display: none; }
+}
+@container viewport (max-width: 819px) {
+  .dock [data-collapse="setup"] { display: none; }
+}
+@container viewport (max-width: 699px) {
+  .dockscale > span:not(.mono) { display: none; }
+  .dockscale { padding-inline: var(--ads-sp-2); }
+}
+@container viewport (max-width: 559px) {
+  .dock [data-collapse="fit"] { display: none; }
+  /* The dock's own margins are the cheapest 16px left to reclaim. */
+  .dock { left: var(--ads-sp-2); right: var(--ads-sp-2); gap: var(--ads-sp-2); }
+  .dockgroup > .dockscalewrap { min-width: var(--rb-dock-btn); }
+  /*
+   * AND THEN IT WRAPS.
+   *
+   * Below this the two groups cannot share a row even with every control at
+   * its floor — 360px of drawing is less than the dock's own irreducible
+   * width. Wrapping puts the document controls on a second line; clipping
+   * puts them nowhere. The design rejected a second permanent strip, and this
+   * is not one: it appears only where the alternative is a control the
+   * estimator cannot reach.
+   */
+  .dock { flex-wrap: wrap; justify-content: flex-start; row-gap: var(--ads-sp-2); }
+}
+@container viewport (max-width: 479px) {
+  .dockscope .dockscopename { display: none; }
+  .dockscope { padding-inline: var(--ads-sp-2); }
+  .dockgroup > .dockscopewrap { min-width: var(--rb-dock-btn); }
+}
+/*
+ * The last thing to go, because it is the thing the mode exists for. Below
+ * this even a row of its own cannot hold the scope dot, Pan and five tools.
+ */
+@container viewport (max-width: 399px) {
+  .dock [data-collapse="tools"] { display: none; }
+}
+/*
+ * The overflow button is the inverse: it exists once anything is in it, which
+ * is the first tier that hides something — 820, where setup goes. It was
+ * revealed at 760, so between 820 and 761 the setup tools were hidden with no
+ * way to reach them at all.
+ */
+.dockmore { display: none; }
+@container viewport (max-width: 819px) {
+  .dockmore { display: inline-flex; }
+}
+
+.settings-headrow, .settings-footrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+}
+.settings-head, .settings-foot { display: block; }
+
+/*
+ * The pop-out affordance in a file row is a real button, at the row's height.
+ * It was 12x15 — smaller than the pointer that has to land on it.
+ */
+.fileact {
+  display: grid;
+  place-items: center;
+  min-width: var(--ads-sp-5);
+  min-height: var(--ads-sp-5);
+  border-radius: var(--ads-radius-s);
+  color: var(--rb-ink-4);
+}
+.fileact:hover { background: var(--rb-selected); color: var(--rb-ink); }
+
+/*
+ * A breadcrumb is a control, at the height of one.
+ *
+ * They were 16px tall — half the height of every other clickable thing in the
+ * panel, and the navigation you reach for most while drilling in and out of
+ * estimates.
+ */
+.crumbs { gap: var(--ads-sp-1); }
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--rb-row-sm);
+  padding-inline: var(--ads-sp-1);
+  border-radius: var(--ads-radius-s);
+}
+.crumb:hover:not(.current) { background: var(--rb-hover); text-decoration: none; }
+.wswarn { display: flex; align-items: flex-start; gap: var(--ads-sp-2); }
+.wswarn > .grow { flex: 1 1 auto; min-width: 0; }
+.wswarn > .link { flex: none; color: inherit; font-weight: 600; }
+
+/* ---- the crash screen ---- */
+.crashscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: var(--ads-sp-6);
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+}
+.crashcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-3);
+  width: min(720px, 100%);
+  max-height: 100%;
+  padding: var(--ads-sp-5);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-panel);
+}
+.crashcard h1 {
+  margin: 0;
+  font-size: var(--ads-text-lg);
+  line-height: var(--ads-leading-lg);
+  font-weight: 600;
+}
+.crashcard p { margin: 0; color: var(--rb-ink-2); }
+.crashdetail {
+  margin: 0;
+  padding: var(--ads-sp-3);
+  border: 1px solid var(--rb-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-canvas);
+  color: var(--rb-ink-3);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-xs);
+  overflow: auto;
+  white-space: pre-wrap;
+  max-height: 40vh;
+}
+.crashactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); }
+
+/* ------------------------------------------- below the window minimum -- */
+
+/*
+ * A floor under the floor.
+ *
+ * The grid's columns add up to 956px of irreducible width, and both windows
+ * now refuse to go below 960 — but a webview is not always a window. The dev
+ * server in a browser, a display scale change that reinterprets the minimum,
+ * a platform that honours it loosely: any of those land here, and what
+ * happened then was that the workspace pane hung 56px off the right edge with
+ * the estimates in it. Overflow is never the right answer; a tighter pane is.
+ *
+ * These are below the design package's minimums, so they are a degradation
+ * and not a size anything is designed at. Their job is to keep every pane on
+ * screen until the window comes back to a width the design covers.
+ */
+@media (max-width: 959px) {
+  .shellapp {
+    grid-template-columns:
+      var(--rail-w)
+      minmax(180px, var(--pane-w))
+      minmax(280px, 1fr)
+      minmax(240px, var(--work-w));
+  }
+  .shellapp[data-pane="closed"] {
+    grid-template-columns: var(--rail-w) 0 minmax(280px, 1fr) minmax(240px, var(--work-w));
+  }
+  .shellapp[data-work="closed"] {
+    grid-template-columns: var(--rail-w) minmax(180px, var(--pane-w)) minmax(280px, 1fr) 0;
+  }
+  .shellapp[data-pane="closed"][data-work="closed"] {
+    grid-template-columns: var(--rail-w) 0 minmax(280px, 1fr) 0;
+  }
+}
+
+/* ------------------------------------------- the markup context menu -- */
+
+/*
+ * Everything this menu offers already existed and none of it was findable:
+ * a control point was added or removed by ALT-clicking an edge or a corner,
+ * and a markup changed scope only by selecting it and going somewhere else.
+ * An undiscoverable shortcut is a feature the product does not have.
+ *
+ * It borrows the dock menu's surface, and overrides only its anchoring: the
+ * dock's menus hang off a button above the bar, this one opens where the
+ * pointer is.
+ */
+.markupmenu {
+  bottom: auto;
+  min-width: 200px;
+  /* Above the dock, below the modal layer: it belongs to the drawing. */
+  z-index: 120;
+}
+/*
+ * The next click anywhere dismisses it — and, importantly, lands on nothing
+ * else. Without this a click meant for "close the menu" also reached the
+ * drawing and began a shape.
+ */
+.menuscrim {
+  position: absolute;
+  inset: 0;
+  z-index: 110;
+}
+/* The scope's own colour, at the size the rest of the shell uses for it. */
+.menudot {
+  flex: none;
+  width: var(--ads-sp-2);
+  height: var(--ads-sp-2);
+  border-radius: 50%;
+}
+.menuitem.danger { color: var(--rb-bad); }
+.menuitem.danger:hover { background: color-mix(in srgb, var(--rb-bad) 14%, transparent); }
+
+/*
+ * A shape that contributes nothing to the layout, said where the shape is
+ * listed. The scope-level blocker says what the SCOPE is missing; it cannot
+ * say that four of six areas sit on an unscaled sheet while the other two
+ * carry the whole number — which is the question actually being asked when a
+ * count looks too low.
+ *
+ * Dimmed rather than hidden: it is still takeoff, and still yours.
+ */
+.markuprow.excluded .mkind,
+.markuprow.excluded .mvalue { color: var(--rb-ink-4); }
+.mnote {
+  display: block;
+  color: var(--rb-warn);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-xs);
+}
+
+/* ------------------------------------------------------ the search pane -- */
+
+/*
+ * An action in a pane's head — and in a section head, where "add a scope"
+ * lives. The `actions` slot has existed on the Pane component since it was
+ * written and nothing had ever filled it, so there was no style for what
+ * goes in one — which is how the find drawer ended up with a text "x" where
+ * the rest of the product uses a glyph button.
+ */
+.paneact {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--rb-head);
+  height: var(--rb-head);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-3);
+  cursor: pointer;
+}
+.paneact:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+/*
+ * Search renders into the rail's pane, so the head, the field, the empty
+ * state, the group heads and the footer are all the pane's. What is its own:
+ * a note about a degraded search, and a hit.
+ */
+
+/* A degraded search, or dropped tokens: consequences, not just a mode name. */
+.searchnote {
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+  color: var(--rb-warn);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-xs);
+}
+.searchnote strong { display: block; color: var(--rb-ink-2); }
+.searchnote ul { margin: var(--ads-sp-1) 0 0; padding-left: var(--ads-sp-4); }
+.searchnotehead { display: flex; align-items: center; justify-content: space-between; gap: var(--ads-sp-2); }
+.searchnotehead > .hlink { color: var(--rb-warn); }
+
+/*
+ * A pane footer is one line. It is a count, not a paragraph, and at the
+ * pane's 232px floor a wrapped footer took the height of a row from the
+ * list above it.
+ */
+.panefoot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/*
+ * A hit: the page in the margin, the snippet beside it, under the group head
+ * that names the document. The snippet gets two lines and no more — it is a
+ * place to recognise the match, not to read the sheet, and a pane of
+ * five-line snippets holds four hits.
+ */
+.hitrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  padding: var(--ads-sp-1) var(--rb-pad-row) var(--ads-sp-1) var(--ads-sp-6);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hitrow:hover { background: var(--rb-hover); }
+.hitpage {
+  min-width: 4ch;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--rb-ink-4);
+}
+.hittext {
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The match itself: the one place a highlight is data rather than decoration. */
+.hittext mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--rb-warn) 30%, transparent);
+  color: var(--rb-ink);
+}
+
+/* ------------------------------------------------------------- committing -- */
+
+/*
+ * The line between a live number and a committed one. Quiet: it reports a
+ * state most of the time and only asks for attention when something has moved.
+ */
+.commitrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) 0 0;
+}
+.commitrow > :first-child { flex: 1 1 auto; min-width: 0; font-size: var(--ads-text-2xs); }
+.wswarnink { color: var(--rb-warn); }
+/* A row that moved since it was committed. The arrow carries the meaning. */
+.kvrow.delta .kvvalue { color: var(--rb-warn); }
+
+/*
+ * An estimate row is now a row with an action on it rather than one big
+ * button, so the opening half has to carry the layout the row used to.
+ */
+.estrow { display: flex; align-items: center; gap: var(--ads-sp-1); }
+.estopen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.estopen:hover { background: var(--rb-hover); }
+.esttext { flex: 1 1 auto; min-width: 0; display: grid; }
+.paneact.danger:hover { background: color-mix(in srgb, var(--rb-bad) 16%, transparent); color: var(--rb-bad); }
+
+/* ---- sheet selection (14.4) ----
+   Selecting a range of sheets to set one scale across. `picked` is distinct
+   from `active`: the sheet you are LOOKING at and the sheets you are about to
+   act on are different things, and conflating them is how somebody sets a
+   scale on forty drawings believing they set it on one. */
+.sheetrow.picked { background: color-mix(in srgb, var(--rb-action) 16%, transparent); box-shadow: inset 2px 0 0 var(--rb-action) }
+.sheetrow.picked.active { background: color-mix(in srgb, var(--rb-action) 16%, transparent) }
+/*
+ * Everything that trails a sheet row shares one grid cell — see the row in
+ * SheetIndex.tsx for why a fourth child wrapped the page number onto its own
+ * line. The badge is the kicker voice at the row's caption size, in the warn
+ * colour, and never alone: it carries its words.
+ */
+.sheettrail { display: inline-flex; align-items: center; gap: var(--ads-sp-2); justify-self: end; }
+.sheetunscaled {
+  flex: none;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--rb-warn);
+}
+/*
+ * The sheet index's context menu opens at the POINTER, not above a pill.
+ *
+ * `.dockmenu` rises from the dock (`bottom: calc(100% + 8px)`), and a `top`
+ * set from `clientY` on top of that gave the box a negative height: it
+ * rendered as a one-pixel line and "Set scale…" was unreachable by the
+ * gesture that offers it. Fixed to the pointer's coordinates, and above the
+ * scrim that dismisses it — a menu UNDER its own scrim takes no clicks.
+ */
+.sheetmenu { position: fixed; bottom: auto; z-index: 120; }
+
+/* ---- a header-level text action ---- */
+/*
+ * "Show layout" and "Commit" sit in a section header and in the commit line,
+ * beside the mono-caps count. They had no rule at all and rendered as the
+ * webview's own grey button — the one control in the panel from another
+ * application. Same voice as `.hcount`, made pressable: ink-2 at rest, ink on
+ * hover, and a state colour when it is a toggle holding one.
+ */
+.hlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  min-height: var(--ads-sp-5);
+  padding: 0 var(--ads-sp-1);
+  border: 0;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-2);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-xs);
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hlink:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.hlink[aria-pressed="true"] { color: var(--rb-ink); }
+.hlink > svg { color: var(--rb-ink-3); }
+.hlink[aria-pressed="true"] > svg { color: var(--rb-accent); }
+
+/* ---- warnings at the top of the estimates panel ---- */
+/*
+ * A band, like every other thing in a body that has no gutter. The blocker
+ * and the warning stack render straight under `.wsbody`, and the rounded
+ * card treatment `.wswarn` carries inside a section touched both panel edges
+ * here with corners showing. Full bleed and a hairline beneath, the same
+ * grammar as the sections below it.
+ */
+.wsbody > .wswarn,
+.wswarnstack > .wswarn {
+  border-radius: 0;
+  border-bottom: 1px solid var(--rb-line);
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+}
+
+/* ---- what a pane says while the answer is not in yet ---- */
+/*
+ * A pending state is an empty state that has not earned its claim. Same
+ * placement and voice as `.paneempty`, with a pulse on a leading dot so it
+ * reads as "in progress" rather than "nothing here" — the two used to be one
+ * message, and the wrong one was true for the length of a cloud folder scan.
+ */
+.paneempty.pending { color: var(--rb-ink-2); }
+.paneempty.pending::before {
+  content: "";
+  display: inline-block;
+  width: var(--ads-sp-2);
+  height: var(--ads-sp-2);
+  margin-right: var(--ads-sp-2);
+  border-radius: 999px;
+  background: var(--rb-ink-3);
+  vertical-align: middle;
+  animation: panepulse 1.4s ease-in-out infinite;
+}
+.wsmuted.pending { padding: var(--ads-sp-3) var(--rb-pad-row); }
+@keyframes panepulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paneempty.pending::before { animation: none; opacity: .7; }
+}
+.panehint {
+  margin-top: var(--ads-sp-2);
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+/* The claim in a step up from its hint, so the two read as a title and a line. */
+.paneempty > div:first-child { color: var(--rb-ink-2); }
+
+/* ---- an empty state that is the start of something ---- */
+/*
+ * A project opens with no estimates and no scopes, so "empty" is the FIRST
+ * state, not an edge. This is the shape for it: what the thing is, the three
+ * moves that get past here, and the one action — left-aligned in the panel's
+ * own voice rather than centred and grey, because it is the body of the
+ * panel at this moment and not an apology for a missing one.
+ */
+.emptystate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-5) var(--rb-pad-row) var(--ads-sp-4);
+}
+.emptystate > svg { color: var(--rb-ink-4); margin-bottom: var(--ads-sp-1); }
+.emptytitle {
+  color: var(--rb-ink);
+  font-weight: 600;
+  font-size: var(--ads-text-base);
+  line-height: var(--ads-leading-base);
+}
+.emptybody, .emptysteps {
+  max-width: 44ch;
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.emptysteps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-1);
+  margin: 0;
+  padding-left: var(--ads-sp-5);
+}
+.emptysteps li::marker { color: var(--rb-ink-4); font-family: var(--ads-mono); }
+.emptyactions { display: flex; gap: var(--ads-sp-2); margin-top: var(--ads-sp-2); }
+.wsbody > .emptystate { border-bottom: 1px solid var(--rb-line); }
+
+/*
+ * What the folder scan itself had to say — reconciliation refused because a
+ * cloud folder was mid-download, a folder that could not be read. A band at
+ * the top of the files pane, in the warn colour with its glyph, because the
+ * note qualifies every row beneath it.
+ */
+.panenote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+  background: color-mix(in srgb, var(--rb-warn) 10%, transparent);
+  color: var(--rb-warn);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.panenote > svg { flex: none; margin-top: 1px; }
+
+/* A rail button with something to read behind it. */
+.railflag {
+  position: absolute;
+  top: var(--ads-sp-2);
+  right: var(--ads-sp-2);
+  width: var(--ads-sp-2);
+  height: var(--ads-sp-2);
+  border-radius: 999px;
+  background: var(--rb-warn);
+  box-shadow: 0 0 0 2px var(--rb-chrome);
+}
+
+/* ---- the status line ---- */
+/*
+ * Over the drawing, top-centre. The dock owns the bottom edge and its menus
+ * open upward, so the top is the one edge of the drawing nothing else uses.
+ * Below the modal layer (300) and level with the dock (100): a dialog covers
+ * it, a menu does not.
+ */
+.statustoast {
+  position: absolute;
+  top: var(--ads-sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  max-width: min(64ch, calc(100% - var(--ads-sp-8)));
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-raised);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+  pointer-events: none;
+  animation: toastin 120ms ease-out;
+}
+.statustoast > svg { flex: none; }
+/* A refusal: the warn colour and its glyph, never the colour alone. */
+.statustoast.problem { color: var(--rb-warn); border-color: color-mix(in srgb, var(--rb-warn) 40%, transparent); }
+.statustoast.problem > span { color: var(--rb-ink); }
+.statustoast > span { pointer-events: auto; }
+@keyframes toastin {
+  from { opacity: 0; transform: translate(-50%, calc(var(--ads-sp-1) * -1)); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .statustoast { animation: none; }
+}
+
+/* ---- the frame-time readout ---- */
+/*
+ * Top-right of the drawing, opposite the status line, above the dock's
+ * menus' reach. A diagnostic: mono, small, and quiet until a budget is
+ * breached — and then it says so in a word, not only in a colour.
+ */
+.perfreadout { position: absolute; top: var(--ads-sp-3); right: var(--ads-sp-3); z-index: 100; }
+.perfchip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ads-sp-5);
+  padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-raised);
+  color: var(--rb-ink-3);
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.perfchip:hover { color: var(--rb-ink); }
+/* watch, not breach: one slow frame is normal and colouring it red trains
+   people to ignore red */
+.perfchip.watch { color: var(--rb-warn); }
+.perfchip.breach { color: var(--rb-bad); border-color: color-mix(in srgb, var(--rb-bad) 40%, transparent); }
+.perfsheet {
+  position: absolute;
+  top: calc(100% + var(--ads-sp-1));
+  right: 0;
+  min-width: 340px;
+  padding: var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-raised);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+.perfsheet table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.perfsheet th {
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border-bottom: 1px solid var(--rb-line);
+  color: var(--rb-ink-3);
+  font-weight: 500;
+  text-align: right;
+}
+.perfsheet td { padding: var(--ads-sp-1) var(--ads-sp-2); color: var(--rb-ink-2); text-align: right; }
+.perfsheet th:first-child, .perfsheet td:first-child { text-align: left; }
+.perfsheet tr.watch td:first-child { color: var(--rb-warn); }
+.perfsheet tr.breach td:first-child { color: var(--rb-bad); }
+.perfsheet p { margin: var(--ads-sp-2) var(--ads-sp-2) 0; color: var(--rb-ink-3); font-size: var(--ads-text-2xs); }
+
+/* ---- focus on full-width rows ---- */
+/*
+ * The ring is drawn INSIDE a row that already runs edge to edge.
+ *
+ * At its default 2px offset the ring sits outside the row, and a row that
+ * fills its pane has nowhere outside to put it: the pane's `overflow` clipped
+ * the left and right edges and what remained was two loose horizontal lines
+ * above and below the text, which does not read as focus. Inset, the ring is
+ * a complete rectangle on every row the keyboard can reach.
+ *
+ * Only the shell's own rows. The dialogs' rows (`.docrow`, `.scaleoption`,
+ * `.shelfitem`, `.scoperow`) get the same treatment in styles.css, the sheet
+ * that owns them — `styles.test.ts` refuses a bare selector defined in both.
+ */
+.sheetrow:focus-visible, .filerow:focus-visible, .sheetgrouphead:focus-visible, .estrow:focus-visible,
+.estopen:focus-visible, .markuprow:focus-visible, .menuitem:focus-visible,
+.sidetab:focus-visible, .sidesettings:focus-visible, .settings-navrow:focus-visible, .hitrow:focus-visible,
+.tab:focus-visible, .titleicon:focus-visible, .wcbtn:focus-visible,
+.projectpick:focus-visible, .tabmore:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ================================================== rehomed dialogs == */
+/*
+ * Everything below used to be a dialog in the modal layer, and each rule
+ * here is the shape that surface takes in the place it actually belongs: the
+ * dock's scale control, the Contents pane, the estimates sidebar. The old
+ * `.bom`, `.scalepicker`, `.regionlist` and `.calform` rules in styles.css go
+ * with the layer.
+ */
+
+/* ---- the dock: three pills ---- */
+/*
+ * `read` and the tool pill share the left end. Three direct children under
+ * `space-between` would put the tool pill in the middle of the drawing, which
+ * is nowhere; the wrapper keeps the row's two ends and lets the left one hold
+ * two groups. Pointer events are turned off on the wrapper for the same
+ * reason they are on `.dock` — the drawing under the gap must stay drawable.
+ */
+.dockside {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+/* No wrap: a single bar sheds controls into the collapse tiers above rather
+   than stacking itself into three rows over the drawing. */
+
+/* The zoom chip: a value that opens a menu, styled as the readout it replaces. */
+.dockread { flex: none; }
+.dockzoom {
+  border: 0;
+  border-radius: var(--rb-dock-btn-r);
+  background: transparent;
+  cursor: pointer;
+}
+.dockzoom:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.dockzoom > svg { color: var(--rb-ink-3); }
+
+/* ---- the scale control, holding a half-finished gesture ---- */
+/*
+ * Wider than a menu while it holds a form: the calibration entry needs room
+ * for a sentence and two fields, and the region picker for a two-column list.
+ */
+.scalemenu.entry { width: 340px; max-height: 70vh; display: flex; flex-direction: column; }
+.scalemenu.entry > * { min-height: 0; }
+
+.calibrate { display: flex; flex-direction: column; }
+.calentrybody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.calentrybody p { margin: 0; }
+.calibratepts { color: var(--rb-ink); font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.calentryfields { display: flex; gap: var(--ads-sp-2); }
+.calentryfields > input { flex: 1 1 auto; min-width: 0; font-family: var(--ads-mono); }
+.calentryfields > select { flex: none; width: auto; }
+
+.calentryfoot, .scalepickfoot, .sheetscalefoot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2);
+  border-top: 1px solid var(--rb-line);
+}
+.scalepickfoot > .wsmuted { flex: 1 1 auto; min-width: 0; }
+
+/* ---- scales on this sheet ---- */
+.sheetscales { display: flex; flex-direction: column; }
+.sheetscalerow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: var(--rb-row-sm);
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+}
+.sheetscalerow > .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheetscalerow.pagerow { color: var(--rb-ink); }
+/* A partial overlap between two different scales: which one applies depends
+   on where a markup lands, which is worth seeing while drawing rather than
+   later. */
+.sheetscalerow.conflict { box-shadow: inset 2px 0 0 var(--rb-warn); }
+.sheetscalehint {
+  padding: var(--ads-sp-2);
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.sheetscales > .wswarn { margin: var(--ads-sp-1) var(--ads-sp-2); }
+
+/* ---- the scale picker, as a column of its host ---- */
+.scalepick { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.scalepickhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-3) var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+  color: var(--rb-ink);
+}
+/* The way back sits on its own line above the title, where a pane's
+   breadcrumb would. */
+.scalepickhead > .hlink { flex: 0 0 100%; align-self: flex-start; margin-left: calc(-1 * var(--ads-sp-2)); }
+.scalepickname {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--rb-pad-row);
+  border-bottom: 1px solid var(--rb-line);
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-xs);
+}
+.scalepickname > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-oled);
+  color: var(--rb-ink);
+  font: inherit;
+}
+.scalepicklist { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--ads-sp-1) var(--ads-sp-2) var(--ads-sp-2); }
+/*
+ * As many columns as fit. Twenty-six rows in one column is a scroll hunt;
+ * two fixed columns at the pane's 232px floor truncate every label. The list
+ * decides from its own width — one column in a narrow pane, two in the dock.
+ */
+.scalepicklist > section { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 2px; }
+.scalepicklist h4 {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1);
+  font-family: var(--ads-mono);
+  font-weight: 500;
+  font-size: var(--ads-text-2xs);
+  line-height: var(--ads-leading-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rb-ink-3);
+}
+.scalepickoption {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: var(--rb-row-sm);
+  padding: var(--ads-sp-1) var(--ads-sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--ads-radius-s);
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+.scalepickoption > .grow { flex: 1 1 auto; min-width: 0; }
+.scalepickoption:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.scalepickoption.chosen { background: var(--rb-selected); border-color: var(--rb-line-2); color: var(--rb-ink); }
+.scalepick > .wswarn { margin: var(--ads-sp-2) var(--rb-pad-row) 0; }
+/* Inside the dock's control the picker keeps the menu's tighter gutters. */
+.scalemenu .scalepickhead, .scalemenu .scalepickname { padding-inline: var(--ads-sp-2); }
+.scalemenu .scalepick > .wswarn { margin-inline: var(--ads-sp-2); }
+
+/* ---- the sidebar: scopes managed where they are read ---- */
+.archivedfold { display: flex; flex-direction: column; border-top: 1px solid var(--rb-line); padding-top: var(--ads-sp-1); }
+.archivedfold > .hlink { align-self: flex-start; margin: var(--ads-sp-1) var(--ads-sp-2); }
+/* Archived rows are not buttons — there is nothing to open — so the row's
+   hover, which promises one, is off. */
+.archivedrow { cursor: default; }
+.archivedrow:hover { background: transparent; }
+.scopeactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); padding: var(--ads-sp-1) 0; }
+.hlink.danger:hover { color: var(--rb-bad); background: color-mix(in srgb, var(--rb-bad) 12%, transparent); }
+
+/* ---- the bill, in the sidebar's row grammar ---- */
+.bomactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); }
+.bomline > .kvlabel { display: flex; align-items: baseline; gap: var(--ads-sp-2); min-width: 0; }
+/* Confidence is a word beside the line, in the status colour: a tinted row
+   alone is a legend nobody has. */
+.bomconf {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-2xs);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.bomconf.unverified { color: var(--rb-warn); }
+.bomconf.blocked { color: var(--rb-bad); }
+.bomline.blocked > .kvvalue { color: var(--rb-ink-3); }
+
+/* ---- the files pane: which documents already have a tab ---- */
+.fileopen { font-family: var(--ads-mono); font-size: var(--ads-text-2xs); letter-spacing: .06em; text-transform: uppercase; }
+
+/* ---- the Windows 11 system backdrop (experiment) ---- */
+/*
+ * Nothing here applies unless Rust confirmed the backdrop actually took —
+ * see src/backdrop.ts. The window is created transparent so DWM can paint
+ * Mica behind it, and transparency without a backdrop is a hole onto the
+ * desktop, so the opaque app is the default and this is the exception.
+ *
+ * The chrome paints NOTHING — not a veil, not a tint. The surfaces carried a
+ * color-mix of --rb-chrome at 55%, and that token is blue-leaning (R28 G29
+ * B31), so every wallpaper was pulled three steps toward blue. DWM already
+ * darkens and desaturates Mica itself in dark mode and that part is neutral;
+ * ours was the only tint with a hue in it. Text and rules are white at an
+ * alpha, so they read on any wallpaper without colouring it.
+ *
+ * THE DRAWING IS NOT IN HERE. `.viewport` keeps its opaque --rb-oled ground
+ * on purpose: a sheet composited over the wallpaper would let whatever is on
+ * someone's desktop modulate the contrast between a markup and the paper
+ * under it, in a tool whose whole job is judging what is on the sheet.
+ */
+html[data-backdrop="tabbed"] body,
+html[data-backdrop="tabbed"] .shellapp {
+  background: transparent;
+}
+
+html[data-backdrop="tabbed"] .titlebar,
+html[data-backdrop="tabbed"] .startscreen {
+  background: transparent;
+}
+
+html[data-backdrop="tabbed"] .side,
+html[data-backdrop="tabbed"] .workspace {
+  background: transparent;
+}

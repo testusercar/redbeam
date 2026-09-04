@@ -1,0 +1,95 @@
+{
+  "$comment": [
+    "GROUND TRUTH for plan 07: a human estimator's quantities for a real bid.",
+    "",
+    "Phase 07 exists because 'every accuracy claim in the legacy repo is",
+    "self-consistency \u2014 agreement with a human estimator has never been",
+    "measured'. This is the missing half. It is not another capture from the Qt",
+    "build, which would only prove the two builds agree with each other; it is",
+    "what a person quoted, off the same drawings, for money.",
+    "",
+    "Read from the quotation PDF in the project folder with a crude content-",
+    "stream extractor, so the numbers below were TRANSCRIBED and should be",
+    "re-checked against the PDF before anything is published from them.",
+    "",
+    "Prices are deliberately not recorded per line. This is a quantity oracle;",
+    "the totals are here for provenance only.",
+    "",
+    "REDACTED 2026-09-04 for a public repository: the quoted total, the currency and the estimator who signed it. Nothing that the oracle asserts was touched."
+  ],
+  "source": {
+    "document": "human_proposal.pdf",
+    "projectFolder": "260807 - REDBEAM ML Training/REDBEAM TAKEOFF TRAINING DATASET/00045 - Barclays Toronto",
+    "quoteNumber": "28019",
+    "quotedAt": "2025-01-21",
+    "drawingsDated": "2024-12-20",
+    "extraction": "content-stream text, glyph id + 29; verified by reading as English",
+    "redacted": "Quoted total, currency and the estimator's name are deliberately absent: this file is public and they are commercial terms and a named person. The QUANTITIES are the point \u2014 they are what the app is measured against \u2014 and they are all here."
+  },
+  "project": "Barclays Toronto",
+  "scopes": [
+    {
+      "tag": "CL02",
+      "product": "Silentia Dimensional Custom (Curved Blade)",
+      "measure": "linear",
+      "quantity": 681,
+      "unit": "LF",
+      "specifications": {
+        "profile": "3/8\" x 5\" to 16\"H",
+        "spacing": "5.5",
+        "spacingUnit": "in",
+        "suspension": "connection to grid by Maxxit, grid by others"
+      }
+    },
+    {
+      "tag": "CL03",
+      "product": "Silentia Custom Lay-in Tiles with Concave Blade Baffles",
+      "measure": "area",
+      "quantity": 180,
+      "unit": "SF",
+      "specifications": {
+        "tile": "24\" x 24\" x 5.5\" x 3/8\"",
+        "suspension": "panels lay in to grid, grid by others"
+      }
+    },
+    {
+      "tag": "CL04",
+      "product": "Silentia Custom - Hex Clouds",
+      "measure": "count",
+      "quantity": 30,
+      "unit": "EA",
+      "specifications": {
+        "cloud": "35\" x 31\" x 6\"H",
+        "suspension": "cable connection by Maxxit, attachment to structure by others"
+      }
+    },
+    {
+      "tag": "CL05",
+      "product": "Silentia Profile Traditional Baffles",
+      "measure": "linear",
+      "quantity": 756,
+      "unit": "LF",
+      "specifications": {
+        "profile": "2\" x 4\"",
+        "spacing": "4",
+        "spacingUnit": "in",
+        "suspension": "connection to grid by Maxxit, grid by others"
+      }
+    }
+  ],
+  "notes": [
+    "The four scopes above are the WHOLE quote. A takeoff that produces a fifth",
+    "scope is measuring something nobody was paid for, and one that produces",
+    "three has dropped one.",
+    "",
+    "The tags here (CL02..CL05) are the quote's. The scopes currently in the",
+    "app's Barclays project are named differently (C-MT-01, CL03, FIX-01,",
+    "LV-04, WP-12) and only CL03 matches by name, so a comparison has to map",
+    "them deliberately rather than by string.",
+    "",
+    "A quoted quantity is not automatically the true one. It is what a person",
+    "arrived at and was prepared to be paid against, which is a different and",
+    "more useful thing than a second machine's answer: where the app disagrees,",
+    "the disagreement has to be explained, not assumed to be the app's error."
+  ]
+}

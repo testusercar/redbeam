@@ -1,0 +1,28 @@
+{
+  "name": "redbeam",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @redbeam/desktop",
+    "build": "tsc -b && npm run build -w @redbeam/desktop",
+    "tauri:dev": "npm run tauri:dev -w @redbeam/desktop",
+    "tauri:build": "npm run tauri:build -w @redbeam/desktop",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty",
+    "postinstall": "node tools/sync-pdfium-wasm.mjs",
+    "check:domain-purity": "node tools/check-domain-purity.mjs",
+    "verify": "npm run check:domain-purity && npm run typecheck && npm test && npm run test:mcp && node tools/verify-fixtures.mjs",
+    "fixtures:dump": "node tools/dump-fixtures.mjs",
+    "test:fixtures": "node tools/verify-fixtures.mjs",
+    "test:mcp": "node --test apps/mcp/mcp.test.mjs apps/mcp/coverage.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
