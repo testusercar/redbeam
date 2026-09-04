@@ -18,7 +18,7 @@ describe('projectCommands', () => {
     const [group] = groupMatches(search(cmds, ''))
     expect(group?.kind).toBe('project')
     expect(group?.matches[0]?.command.title).toBe('260411 - Job 1')
-    group?.matches[0]?.command.run()
+    group?.matches[0]?.command.run?.()
     expect(onOpen).toHaveBeenCalledWith('C:\\Jobs\\260411 - Job 1')
   })
 
@@ -75,7 +75,7 @@ describe('projectCommands', () => {
     expect(ids(projectCommands({ currentPath: '', recents: [], onOpen: () => {} }))).toEqual([])
     const cmds = projectCommands({ currentPath: '', recents: [], onOpen: () => {}, onBrowse })
     expect(ids(cmds)).toEqual(['project:browse'])
-    cmds[0]?.run()
+    cmds[0]?.run?.()
     expect(onBrowse).toHaveBeenCalledOnce()
   })
 

@@ -59,7 +59,7 @@ export function hitTest(
     if (m.kind === 'count') continue
     const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
     if (ring.length < 2) continue
-    const closed = m.kind === 'area' || m.kind === 'cutout'
+    const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape'
     const e = nearestEdge(p, ring, closed)
     if (e && e.distance <= EDGE_GRAB_PX) {
       return { markupId: m.id, part: 'edge', index: e.index }
@@ -69,7 +69,7 @@ export function hitTest(
   // pass 3: interiors (closed shapes only)
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
-    if (m.kind !== 'area' && m.kind !== 'cutout') continue
+    if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape') continue
     const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
     if (pointInPolygon(p, ring)) return { markupId: m.id, part: 'inside', index: -1 }
   }
@@ -128,7 +128,7 @@ function drawOne(
   if (ring.length >= 2) {
     ctx.beginPath()
     ring.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
-    if (markup.kind === 'area' || markup.kind === 'cutout') ctx.closePath()
+    if (markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape') ctx.closePath()
     ctx.strokeStyle = 'rgba(57,162,255,0.9)'
     ctx.lineWidth = 3
     ctx.setLineDash([])
@@ -175,7 +175,7 @@ export function removeVertexAt(
   index: number,
   kind: Markup['kind'],
 ): Array<{ x: number; y: number }> | null {
-  const min = kind === 'area' || kind === 'cutout' ? 3 : 2
+  const min = kind === 'area' || kind === 'cutout' || kind === 'shape' ? 3 : 2
   if (ring.length <= min) return null
   const out = ring.slice()
   out.splice(index, 1)

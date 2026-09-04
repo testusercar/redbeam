@@ -7,14 +7,29 @@
  * v2 design study split them into two 40px rows, and on a landscape drawing
  * that second row costs the axis there is least of. One row won.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   Bookmark, ChevronDown, Ellipsis, ExternalLink, FileText, Files, Folder, Glyph,
   Grid2x2, PanelRight, Search, Settings2, X, Plus, ExternalLink as PopOut,
   SlidersHorizontal, Info,
 } from './icons.js'
-import { countFiles, filterFolders } from './fileFilter.js'
+import type { Icon } from './icons.js'
+import {
+  buildFileTree, filterFileTree, treeFiles, treeFolderPaths, treeRows, type TreeFolder,
+} from './fileTree.js'
+
+
+/**
+ * A project path as "the folders above" and "the folder itself", so the row
+ * can shrink the first and keep the second whole. A path with no separator
+ * is all tail.
+ */
+export function splitProjectPath(path: string): { head: string; tail: string } {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const at = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
+  if (at < 0) return { head: '', tail: trimmed }
+  return { head: trimmed.slice(0, at + 1), tail: trimmed.slice(at + 1) }
+}
 
 // ------------------------------------------------------------------ menus --
 
@@ -283,7 +298,11 @@ function ProjectMenu({
           <Glyph icon={Folder} role="row" />
           <span className="grow projectrow">
             <span className="projectrowname">{r.name}</span>
-            <span className="projectrowpath">{r.path}</span>
+            <span className="projectrowpath">
+              {/* The project folder never truncates; the folders above it do. */}
+              <span className="projectrowhead">{splitProjectPath(r.path).head}</span>
+              <span className="projectrowtail">{splitProjectPath(r.path).tail}</span>
+            </span>
           </span>
           {/* Said, not only dimmed: a folder on an offline drive is a fact
               about the entry, and a greyed row alone reads as "disabled". */}
@@ -534,7 +553,7 @@ const ADD_W = 48
 export type RailPanel = 'files' | 'thumbnails' | 'contents' | 'search'
 
 /** Tab order is narrowing: the project, then its sheets, then pictures of them. */
-const TABS: Array<{ id: RailPanel; label: string; icon: LucideIcon }> = [
+const TABS: Array<{ id: RailPanel; label: string; icon: Icon }> = [
   { id: 'files', label: 'Files', icon: Files },
   { id: 'contents', label: 'Contents', icon: Bookmark },
   { id: 'thumbnails', label: 'Thumbnails', icon: Grid2x2 },
@@ -557,11 +576,18 @@ const TABS: Array<{ id: RailPanel; label: string; icon: LucideIcon }> = [
  * the three document views adjacent is what makes the strip scannable.
  */
 export function Sidebar({
-  active, onSelect, onSettings, notes = {}, title, actions, children,
+  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children,
 }: {
   active: RailPanel | null
   onSelect: (p: RailPanel) => void
   onSettings: () => void
+  /**
+   * The project-wide text indexer's progress, while it runs. The Search tab
+   * wears a ring and says how far along it is, so a search that finds
+   * nothing on a half-read set is not the first sign the reading is still
+   * going on.
+   */
+  indexing?: { done: number; total: number; document: string | null } | null
   /**
    * Something a panel wants read, keyed by panel. Marks the tab so a note in a
    * panel you are not looking at is still found; the text goes in the tooltip.
@@ -578,16 +604,22 @@ export function Sidebar({
   actions?: ReactNode
   children?: ReactNode
 }) {
-  const tab = (id: RailPanel, label: string, icon: LucideIcon) => {
-    const note = notes[id]
+  const tab = (id: RailPanel, label: string, icon: Icon) => {
+    const busy = id === 'search' && indexing !== null && indexing.total > 0
+    const progress = busy
+      ? `indexing ${indexing.done} of ${indexing.total} document${indexing.total === 1 ? '' : 's'}`
+        + (indexing.document !== null ? ` — ${indexing.document}` : '')
+      : undefined
+    const note = notes[id] ?? progress
     const on = active === id
     return (
       <button
         key={id}
-        className={on ? 'sidetab on' : 'sidetab'}
+        className={`sidetab${on ? ' on' : ''}${busy ? ' indexing' : ''}`}
         title={note === undefined ? label : `${label} — ${note}`}
         aria-label={note === undefined ? label : `${label}: ${note}`}
         aria-pressed={on}
+        aria-busy={busy || undefined}
         onClick={() => onSelect(id)}
       >
         <Glyph icon={icon} role="card" />
@@ -651,7 +683,7 @@ export interface PanelFolder {
 }
 
 /**
- * The project's documents: a filter, the folders, a count.
+ * The project's documents: a filter, the folder TREE, a count.
  *
  * This IS the document browser now. The browser was a dialog over the drawing
  * holding the one thing this pane lacked — a filter — and the pane was the
@@ -659,12 +691,16 @@ export interface PanelFolder {
  * the tab strip and the app menu lands here with the cursor in the field.
  * Self-contained, like the sheet index: the field and the footer are outside
  * the scroller so a 693-document list cannot roll them off screen.
+ *
+ * The list is the tree the drawings make on disk — every folder, at every
+ * depth, foldable — because that is how an estimator knows a Maxxit set from
+ * "Not Used Yet". See `fileTree.ts` for the flat list it replaced.
  */
 export function FileList({
-  folders, activeId, onOpen, onOpenContext, scanning = false, note = null,
+  files, activeId, onOpen, onOpenContext, scanning = false, note = null,
   openIds = [], focusNonce = 0,
 }: {
-  folders: PanelFolder[]
+  files: PanelFile[]
   activeId: string | null
   onOpen: (id: string) => void
   onOpenContext?: (id: string) => void
@@ -682,23 +718,37 @@ export function FileList({
   focusNonce?: number
 }) {
   const [query, setQuery] = useState('')
+  /** Folder paths the person has closed. Everything opens by default. */
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   const fieldRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => {
     if (focusNonce > 0) { fieldRef.current?.focus(); fieldRef.current?.select() }
   }, [focusNonce])
-  const shown = useMemo(() => filterFolders(folders, query), [folders, query])
-  const total = countFiles(folders)
-  const matched = countFiles(shown)
-  const open = useMemo(() => new Set(openIds), [openIds])
+  const tree = useMemo(() => buildFileTree(files), [files])
+  const shown = useMemo(() => filterFileTree(tree, query), [tree, query])
   const filtering = query.trim() !== ''
+  // A filter opens every folder it kept: a match hidden in a folded folder
+  // is a match the pane claims not to have.
+  const rows = useMemo(() => treeRows(shown, filtering ? new Set() : folded), [shown, folded, filtering])
+  const total = tree.fileCount
+  const matched = shown.fileCount
+  const open = useMemo(() => new Set(openIds), [openIds])
+
+  const toggle = (path: string) => setFolded((cur) => {
+    const next = new Set(cur)
+    if (next.has(path)) next.delete(path); else next.add(path)
+    return next
+  })
+  const foldAll = () => setFolded(new Set(treeFolderPaths(tree)))
+  const unfoldAll = () => setFolded(new Set())
 
   /**
    * Enter opens the only match, which is what a narrowed filter means — the
    * browser dialog did this, and it is the fast path for "open A-101".
    */
   const openSoleMatch = () => {
-    const only = shown.length === 1 && shown[0]!.files.length === 1 ? shown[0]!.files[0] : undefined
-    if (only !== undefined) { onOpen(only.id); setQuery('') }
+    const only = treeFiles(shown)
+    if (only.length === 1) { onOpen(only[0]!.id); setQuery('') }
   }
 
   const field = (
@@ -709,7 +759,7 @@ export function FileList({
         value={query}
         placeholder={total > 1 ? `Filter ${total} documents` : 'Filter documents'}
         aria-label="Filter documents"
-        disabled={folders.length === 0}
+        disabled={files.length === 0}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') setQuery('')
@@ -718,13 +768,21 @@ export function FileList({
       />
     </div>
   )
+  const anyFolders = tree.folders.length > 0
   const foot = (
     <div className="panefoot">
-      {scanning
-        ? 'Reading the folder…'
-        : filtering
-          ? `${matched} of ${total} document${total === 1 ? '' : 's'}`
-          : `${total} document${total === 1 ? '' : 's'}`}
+      <span className="grow">
+        {scanning
+          ? 'Reading the folder…'
+          : filtering
+            ? `${matched} of ${total} document${total === 1 ? '' : 's'}`
+            : `${total} document${total === 1 ? '' : 's'}`}
+      </span>
+      {anyFolders && !filtering && (
+        folded.size === 0
+          ? <button className="hlink" onClick={foldAll}>Collapse all</button>
+          : <button className="hlink" onClick={unfoldAll}>Expand all</button>
+      )}
     </div>
   )
 
@@ -736,7 +794,7 @@ export function FileList({
    * and for all of it the pane stated, as a fact, that the project was empty.
    * It says what it is doing instead, and why it might be a while.
    */
-  if (folders.length === 0 && scanning) {
+  if (files.length === 0 && scanning) {
     return (
       <>
         {field}
@@ -759,7 +817,7 @@ export function FileList({
       <span>{note}</span>
     </div>
   )
-  if (folders.length === 0) {
+  if (files.length === 0) {
     return (
       <>
         {field}
@@ -772,7 +830,7 @@ export function FileList({
             {note === null && <div>No PDFs in this project folder.</div>}
             <div className="panehint">
               Drop the drawing set into the folder, or press + in the tab strip
-              to add one. Subfolders are listed as groups.
+              to add one. Subfolders are listed as they are on disk.
             </div>
           </div>
         </div>
@@ -780,71 +838,79 @@ export function FileList({
       </>
     )
   }
+  const folderRow = (folder: TreeFolder, openNow: boolean) => (
+    <button
+      key={`d:${folder.path}`}
+      className="sheetgrouphead treefolder"
+      style={{ '--tree-depth': folder.depth } as CSSProperties}
+      aria-expanded={openNow}
+      title={folder.path}
+      onClick={() => toggle(folder.path)}
+    >
+      <Glyph icon={ChevronDown} role="small" />
+      <Glyph icon={Folder} role="small" />
+      <span className="grow">{folder.name}</span>
+      <span className="treecount">{folder.fileCount}</span>
+    </button>
+  )
+  /*
+    ONE LINE PER FILE, AND THE NAME IS NEVER WHAT TRUNCATES.
+
+    The row is a grid whose name track grows to its content before the
+    detail track gets anything — so at a narrow pane the qualifier
+    ("12 pages") shrinks and then vanishes, and the file name is whole
+    for as long as the pane can hold it at all. The first one-line
+    version of this row had it the other way round: the name ellipsed
+    at 300px to keep a page count intact, which is the one trade a
+    file list must not make.
+  */
+  const fileRow = (file: PanelFile, depth: number) => (
+    <button
+      key={file.id}
+      className={`filerow treefile${file.id === activeId ? ' active' : ''}${file.missing === true ? ' missing' : ''}`}
+      style={{ '--tree-depth': depth } as CSSProperties}
+      onClick={() => onOpen(file.id)}
+      title={file.detail === '' ? file.relativePath : `${file.relativePath} — ${file.detail}`}
+    >
+      <Glyph icon={FileText} role="small" />
+      <span className="filename">{file.name}</span>
+      {/* Two elements, because a container query can only style what
+          is INSIDE the container — see `.filedetail` for why it hides. */}
+      <span className="filedetail">
+        <span>
+          {/* A document with a tab says so: opening it again only
+              focuses the tab, and the list should not promise more. */}
+          {open.has(file.id) && file.id !== activeId && <span className="fileopen">open · </span>}
+          {file.detail}
+        </span>
+      </span>
+      {file.id === activeId && onOpenContext
+        ? (
+          <span
+            role="button"
+            tabIndex={0}
+            className="fileact"
+            title="Open in context window"
+            onClick={(e) => { e.stopPropagation(); onOpenContext(file.id) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation(); e.preventDefault(); onOpenContext(file.id)
+              }
+            }}
+          ><Glyph icon={ExternalLink} role="small" /></span>
+          )
+        : null}
+    </button>
+  )
   return (
     <>
       {field}
-      <div className="panebody">
+      <div className="panebody" role="tree" aria-label="Project documents">
       {notice}
-      {shown.length === 0 && (
+      {rows.length === 0 && (
         <div className="paneempty">No document matches “{query.trim()}”.</div>
       )}
-      {shown.map((f) => (
-        <section key={f.name}>
-          <div className="sheetgrouphead" role="presentation">
-            <Glyph icon={Folder} role="small" />
-            <span className="grow">{f.name}</span>
-            <span>{f.detail}</span>
-          </div>
-          {/*
-            ONE LINE PER FILE, AND THE NAME IS NEVER WHAT TRUNCATES.
-
-            The row is a grid whose name track grows to its content before the
-            detail track gets anything — so at a narrow pane the qualifier
-            ("12 pages") shrinks and then vanishes, and the file name is whole
-            for as long as the pane can hold it at all. The first one-line
-            version of this row had it the other way round: the name ellipsed
-            at 300px to keep a page count intact, which is the one trade a
-            file list must not make.
-          */}
-          {f.files.map((file) => (
-            <button
-              key={file.id}
-              className={`filerow${file.id === activeId ? ' active' : ''}${file.missing === true ? ' missing' : ''}`}
-              onClick={() => onOpen(file.id)}
-              title={file.detail === '' ? file.relativePath : `${file.relativePath} — ${file.detail}`}
-            >
-              <Glyph icon={FileText} role="small" />
-              <span className="filename">{file.name}</span>
-              {/* Two elements, because a container query can only style what
-                  is INSIDE the container — see `.filedetail` for why it hides. */}
-              <span className="filedetail">
-                <span>
-                  {/* A document with a tab says so: opening it again only
-                      focuses the tab, and the list should not promise more. */}
-                  {open.has(file.id) && file.id !== activeId && <span className="fileopen">open · </span>}
-                  {file.detail}
-                </span>
-              </span>
-              {file.id === activeId && onOpenContext
-                ? (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="fileact"
-                    title="Open in context window"
-                    onClick={(e) => { e.stopPropagation(); onOpenContext(file.id) }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.stopPropagation(); e.preventDefault(); onOpenContext(file.id)
-                      }
-                    }}
-                  ><Glyph icon={ExternalLink} role="small" /></span>
-                  )
-                : null}
-            </button>
-          ))}
-        </section>
-      ))}
+      {rows.map((r) => (r.kind === 'folder' ? folderRow(r.folder, r.open) : fileRow(r.file, r.depth)))}
       </div>
       {foot}
     </>

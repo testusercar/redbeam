@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildBom, type Scope, type ScopePieces } from '@redbeam/domain'
-import { bomSummary, entriesForRound, groupBom, reportFileName } from './bomRows.js'
+import { entriesForRound, reportFileName } from './bomRows.js'
 
 const scope = (id: string, color = '#123456'): Scope => ({
   id, label: id.toUpperCase(), scopeType: 'area', color, specifications: { productType: 'panels' },
@@ -29,43 +29,6 @@ describe('entriesForRound', () => {
    */
   it('is the whole project when no round is open', () => {
     expect(entriesForRound([a, b], null)).toHaveLength(2)
-  })
-})
-
-describe('groupBom', () => {
-  it('puts every line under its own scope, in entry order, with its colour', () => {
-    const entries = [
-      pieces(scope('b', '#00ff00'), [{ itemKey: 'panel_count', quantity: 20 }]),
-      pieces(scope('a', '#ff0000'), [{ itemKey: 'panel_count', quantity: 10 }, { itemKey: 'trim_pieces', quantity: 4 }]),
-    ]
-    const groups = groupBom(buildBom(entries), entries)
-    expect(groups.map((g) => g.scopeId)).toEqual(['b', 'a'])
-    expect(groups[1]?.lines.map((l) => l.itemKey)).toEqual(['panel_count', 'trim_pieces'])
-    expect(groups[0]?.color).toBe('#00ff00')
-  })
-
-  /** A scope with nothing to order has no group — not an empty heading. */
-  it('drops a scope with no lines', () => {
-    const entries = [pieces(scope('a'), [])]
-    expect(groupBom(buildBom(entries), entries)).toEqual([])
-  })
-
-  it('carries a blocked scope as its one blocked line', () => {
-    const entries = [pieces(scope('a'), [], ['Panel W'])]
-    const groups = groupBom(buildBom(entries), entries)
-    expect(groups).toHaveLength(1)
-    expect(groups[0]?.lines[0]?.confidence).toBe('blocked')
-    expect(groups[0]?.lines[0]?.quantity).toBeNull()
-  })
-})
-
-describe('bomSummary', () => {
-  it('counts the lines and the ones that need attention', () => {
-    const entries = [
-      pieces(scope('a'), [{ itemKey: 'panel_count', quantity: 10 }]),
-      pieces(scope('b'), [], ['Panel W']),
-    ]
-    expect(bomSummary(entries)).toEqual({ lines: 2, attention: 1 })
   })
 })
 

@@ -15,6 +15,7 @@
  * would take the whole settings page down outside the desktop build.
  */
 import { useState } from 'react'
+import { Glyph, Info } from '../shell/icons.js'
 import {
   APP_VERSION, UPDATES_CONFIGURED, updateAction, updateMessage, updateNeedsAttention,
   type UpdateState,
@@ -83,6 +84,7 @@ export function UpdateRow({ desktop }: { desktop: boolean }) {
 
   return (
     <div className={`prefs-card${updateNeedsAttention(state) ? ' attention' : ''}`}>
+      <span className="prefs-cardicon"><Glyph icon={Info} role="card" /></span>
       <div className="prefs-cardtext">
         <div className="prefs-cardtitle">REDBEAM {APP_VERSION}</div>
         <div className="prefs-cardnote">{updateMessage(state)}</div>

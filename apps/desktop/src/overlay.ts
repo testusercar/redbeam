@@ -22,13 +22,17 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
         fill: color,
         stroke: color,
         // cutouts read as openings: no fill, dashed edge
-        // A shape is annotation, not measured material: outline-weighted so it
-        // never reads as area someone is being billed for.
-        fillOpacity: m.kind === 'cutout' ? 0 : m.kind === 'shape' ? 0.08 : 0.16,
-        strokeOpacity: 0.9,
+        // A shape is the HIGHLIGHT tool. It is annotation, not measured
+        // material, and it reaches no quantity — but at 8% it could not be
+        // seen on a white sheet at all, so "Highlight" looked like a tool that
+        // did nothing. The Qt build painted highlights at 0.35 with a multiply
+        // blend; a 0.32 fill and no stroke is the nearest the overlay draws,
+        // and it reads as marker rather than as billed area precisely because
+        // it has no edge.
+        fillOpacity: m.kind === 'cutout' ? 0 : m.kind === 'shape' ? 0.32 : 0.16,
+        strokeOpacity: m.kind === 'shape' ? 0 : 0.9,
         strokeWidth: 1.4,
         dashed: m.kind === 'cutout',
-        ...(m.kind === 'shape' ? { strokeWidth: 1.8 } : {}),
         cx,
         cy,
       })

@@ -222,16 +222,25 @@ const tools = [
       'choose — write the string yourself if you want a file. `marked-pdf` is ' +
       'the exception: it writes the OPEN drawing with its markups on it and ' +
       'lands in the user\'s downloads, so it reports only whether it was ' +
-      'written, and it covers one document, not the project. Needs a window.',
+      'written, and it covers one document, not the project. Needs a window. ' +
+      'The ESTIMATE exports — `csv`, `estimate-tsv` and `pdf` — cover one ' +
+      'round: every scope with its measured quantity and its components. csv ' +
+      'and estimate-tsv return content; pdf renders the branded document with ' +
+      'a picture of every sheet that carries takeoff and saves it to downloads.',
     inputSchema: {
       type: 'object',
       properties: {
         what: {
           type: 'string',
-          enum: ['tsv', 'report', 'marked-pdf'],
+          enum: ['tsv', 'report', 'marked-pdf', 'csv', 'estimate-tsv', 'pdf'],
           description:
-            'tsv and report return content; marked-pdf saves a file to the ' +
-            "user's downloads and returns {saved:true}.",
+            'tsv, report, csv and estimate-tsv return content; marked-pdf and ' +
+            "pdf save a file to the user's downloads and return {saved:true}.",
+        },
+        estimateId: {
+          type: 'string',
+          description:
+            'For csv, estimate-tsv and pdf: which round. Defaults to the open one.',
         },
       },
       required: ['what'],
@@ -295,7 +304,11 @@ const tools = [
         },
         what: {
           type: 'string',
-          description: 'For export: tsv, report or marked-pdf. See redbeam_export.',
+          description: 'For export: tsv, report, marked-pdf, csv, estimate-tsv or pdf. See redbeam_export.',
+        },
+        estimateId: {
+          type: 'string',
+          description: 'For export csv, estimate-tsv and pdf: which round. Defaults to the open one.',
         },
         label: {
           type: 'string',

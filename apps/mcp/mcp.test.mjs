@@ -96,7 +96,10 @@ test('export says where its output goes', () => {
   const t = tools.find((x) => x.name === 'redbeam_export')
   assert.match(t.description, /text/i)
   assert.match(t.description, /download/i)
-  assert.deepEqual(t.inputSchema.properties.what.enum, ['tsv', 'report', 'marked-pdf'])
+  assert.deepEqual(
+    t.inputSchema.properties.what.enum,
+    ['tsv', 'report', 'marked-pdf', 'csv', 'estimate-tsv', 'pdf'],
+  )
 })
 
 test('a scale can be set by name, and the names are discoverable', () => {

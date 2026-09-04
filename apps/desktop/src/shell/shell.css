@@ -271,9 +271,10 @@
   max-height: 60vh;
   overflow-y: auto;
   padding: var(--ads-sp-1);
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
   box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
 }
 .tabmenurow { display: flex; align-items: center; border-radius: var(--ads-radius-s); }
@@ -381,7 +382,7 @@
   border-radius: 2px;
   background: var(--rb-accent);
 }
-.sidetablabel { white-space: nowrap; font-size: var(--ads-text-base); }
+.sidetablabel { white-space: nowrap; font-size: var(--rb-text-body); }
 /* An unlabelled tab is a square hit target, not a padded pill. */
 .sidetab:not(.on) { padding-inline: 0; width: var(--rb-rail-btn); }
 
@@ -407,7 +408,7 @@
   border-radius: 0;
 }
 .sidesettings:hover { background: var(--ads-inset); color: var(--ads-ink); }
-.sidesettings > span { font-size: var(--ads-text-base); }
+.sidesettings > span { font-size: var(--rb-text-body); }
 
 /* Icons only when collapsed. */
 .shellapp[data-pane="closed"] .sidetabs { flex-direction: column; }
@@ -442,13 +443,10 @@
 .panetitle {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ads-ink-3);
+  font-weight: 600;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -633,12 +631,8 @@
   border: 0;
   background: transparent;
   color: var(--ads-ink-3);
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -752,6 +746,7 @@
 }
 
 .dockbtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--ads-sp-2);
@@ -773,7 +768,18 @@
 .dockbtn[aria-pressed="true"] {
   background: var(--ads-inset);
   color: var(--ads-ink);
-  box-shadow: inset 0 -2px 0 var(--rb-accent);
+}
+/* The 16x3 pill NavigationView draws under a selected top-mode item. */
+.dockbtn[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: 16px;
+  height: 3px;
+  margin-left: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
 }
 .dockbtn:disabled { color: var(--ads-ink-3); cursor: default; }
 .dockbtn:disabled:hover { background: transparent; }
@@ -844,8 +850,9 @@
   max-width: 60ch;
   padding: var(--ads-sp-2) var(--ads-sp-3);
   border-radius: var(--ads-radius-s);
-  background: color-mix(in srgb, var(--ads-warn) 12%, var(--ads-bg));
-  color: var(--ads-warn);
+  background: var(--rb-warn-bg);
+  box-shadow: inset 3px 0 0 var(--rb-warn);
+  color: var(--rb-ink);
   font-size: var(--ads-text-xs);
   line-height: var(--ads-leading-xs);
 }
@@ -875,15 +882,18 @@
   max-height: 60vh;
   overflow-y: auto;
   padding: var(--ads-sp-1);
-  border: 1px solid var(--ads-line-2);
+  /* In-app acrylic with SurfaceStroke: the one flyout recipe, Fluent's. */
+  border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--ads-radius-l);
-  background: var(--ads-surface);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .42);
 }
 .dockmenu.right { right: 0; }
 .dockmenu.left { left: 0; }
 
 .menuitem {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--ads-sp-2);
@@ -900,7 +910,18 @@
   cursor: pointer;
 }
 .menuitem:hover { background: var(--ads-inset); color: var(--ads-ink); }
-.menuitem[aria-checked="true"] { color: var(--rb-ink); box-shadow: inset 2px 0 0 var(--rb-accent); }
+.menuitem[aria-checked="true"] { color: var(--rb-ink); }
+.menuitem[aria-checked="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
+}
 .menuitem .grow { flex: 1 1 auto; }
 .menuitem .hint {
   font-family: var(--ads-mono);
@@ -909,14 +930,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A group header is Caption in sentence case — Fluent has no mono-caps voice. */
 .menuhead {
   padding: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-1);
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
   color: var(--ads-ink-3);
 }
 .menusep { height: 1px; margin: var(--ads-sp-1) 0; background: var(--ads-line); }
@@ -1107,12 +1125,15 @@
   gap: var(--ads-sp-2);
   padding: var(--ads-sp-2) var(--ads-sp-3);
   border-radius: var(--ads-radius-s);
-  background: color-mix(in srgb, var(--ads-warn) 12%, transparent);
-  color: var(--ads-warn);
+  /* InfoBar, Caution: the severity ground, a 3px severity bar, the glyph in
+     the severity colour, and the words in primary ink — never colour alone. */
+  background: var(--rb-warn-bg);
+  box-shadow: inset 3px 0 0 var(--rb-warn);
+  color: var(--rb-ink);
   font-size: var(--ads-text-xs);
   line-height: var(--ads-leading-xs);
 }
-.wswarn > svg { flex: none; margin-top: 2px; }
+.wswarn > svg { flex: none; margin-top: 2px; color: var(--rb-warn); }
 
 /* ------------------------------------------------------------ buttons -- */
 
@@ -1188,7 +1209,17 @@
 .primarybtn:disabled { background: var(--ads-inset); color: var(--ads-ink-3); cursor: default; }
 
 /* Focus is red — the fourth and last place the foundations frame allows it. */
-.shellapp :focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+/*
+ * Fluent's focus visual: a 2px outer ring in FocusStrokeColorOuter (white on a
+ * dark ground) and a 1px inner ring in FocusStrokeColorInner (black), so the
+ * ring reads on every fill including the accent. It was the accent, which
+ * vanishes on the one control that is already accent-filled.
+ */
+.shellapp :focus-visible {
+  outline: 2px solid var(--rb-focus-outer);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--rb-focus-inner);
+}
 
 /*
  * The takeoff action.
@@ -1211,15 +1242,15 @@
   padding-inline: var(--ads-sp-3);
   border: 0;
   border-radius: var(--rb-dock-btn-r);
-  background: var(--rb-action);
-  color: var(--rb-action-ink);
+  background: var(--rb-accent);
+  color: var(--rb-accent-ink);
   font: inherit;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
 }
-.docktakeoff:hover:not(:disabled) { background: #fff; }
+.docktakeoff:hover:not(:disabled) { background: var(--rb-accent-2); }
 .docktakeoff:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); cursor: default; }
 
 /* ------------------------------------------------- right sidebar: estimates -- */
@@ -1548,15 +1579,21 @@
 
 /* Thumbnails, in the left pane: a vertical grid rather than a horizontal strip. */
 /* The strip is the pane's body now — the frame no longer wraps one around it. */
-.pane .pagestrip { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.pane .pagestrip .pagenav { display: none; }
-.pane .pagestrip .thumbs {
+/*
+ * `.side`, not `.pane`. The icon rail and the pane became one `.side` when
+ * they merged, and these three rules kept naming the container that no
+ * longer existed — so the strip fell back to styles.css's horizontal row
+ * with a scrollbar and a visible page-number field. Aaron sent the picture.
+ */
+.side .pagestrip { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.side .pagestrip .pagenav { display: none; }
+.side .pagestrip .thumbs {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--ads-sp-3);
-  padding: var(--ads-sp-3);
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--ads-sp-1);
+  padding: var(--ads-sp-1);
   overflow-y: auto;
 }
 
@@ -1570,15 +1607,15 @@
   height: var(--ads-sp-7);
   min-width: 0;
   padding-inline: var(--ads-sp-3);
-  border: 1px solid var(--rb-line-2);
+  border: 1px solid var(--rb-line);
   border-radius: var(--ads-radius-s);
-  background: transparent;
+  background: var(--rb-hover);
   color: var(--rb-ink);
   font: inherit;
   line-height: 1;
   cursor: pointer;
 }
-.dockscope:hover { background: var(--rb-hover); }
+.dockscope:hover { background: var(--rb-selected); }
 .dockscopetext { min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
 .dockscopename {
   min-width: 0;
@@ -1588,11 +1625,8 @@
   font-weight: 500;
 }
 .dockscopestate {
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
+  font-size: var(--ads-text-xs);
   line-height: 1;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--rb-ink-3);
 }
 
@@ -1684,10 +1718,11 @@
   gap: var(--ads-sp-3);
   max-width: 68ch;
   padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid color-mix(in srgb, var(--rb-warn) 40%, transparent);
+  border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
-  color: var(--rb-warn);
+  background: var(--rb-flyout);
+  box-shadow: inset 3px 0 0 var(--rb-warn);
+  color: var(--rb-ink);
   font-size: var(--ads-text-xs);
   line-height: var(--ads-leading-xs);
   white-space: nowrap;
@@ -1778,6 +1813,7 @@
  * density change to one had to be checked against the other.
  */
 .filerow {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
   align-items: center;
@@ -1793,7 +1829,18 @@
   cursor: pointer;
 }
 .filerow:hover { background: var(--rb-hover); }
-.filerow.active { background: var(--rb-selected); box-shadow: inset 2px 0 0 var(--rb-accent); }
+.filerow.active { background: var(--rb-selected); }
+.filerow.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
+}
 .filerow > svg { color: var(--rb-ink-4); }
 /* The open document's icon is red, the same mark its tab carries. */
 .filerow.active > svg { color: var(--rb-accent); }
@@ -1830,7 +1877,7 @@
 .filerow.missing .filename, .filerow.missing > svg { color: var(--rb-bad); }
 
 /* ---- right sidebar ---- */
-.wshead-bar { height: var(--rb-topbar-h); padding: 0 var(--rb-pad-row); }
+.wshead-bar { height: var(--rb-pane-head); padding: 0 var(--rb-pad-row); }
 .crumbs { padding: var(--ads-sp-1) var(--rb-pad-row); }
 .wshead h2 { font-size: var(--ads-text-lg); line-height: var(--ads-leading-lg); }
 
@@ -1871,11 +1918,9 @@
   min-height: var(--rb-head);
   padding: 0 var(--rb-pad-row);
   background: var(--rb-chrome);
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--rb-ink-3);
+  font-size: var(--ads-text-base);
+  font-weight: 600;
+  color: var(--rb-ink);
 }
 .wssection > .wsmuted, .wssection > .wswarn { padding: var(--ads-sp-2) var(--rb-pad-row); }
 
@@ -1889,7 +1934,7 @@
 }
 .kvcontrol:focus-visible, .kvedit input:focus-visible { border-bottom-color: var(--rb-accent); }
 
-.estrow { min-height: var(--rb-row); padding: var(--ads-sp-2) var(--rb-pad-row); gap: var(--ads-sp-2); }
+.estrow { min-height: var(--rb-row-2); padding: var(--ads-sp-1) var(--rb-pad-row); gap: var(--ads-sp-2); }
 .markuprow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
 .mgrouphead { padding: var(--ads-sp-1) var(--rb-pad-row); }
 
@@ -1929,7 +1974,7 @@
 }
 
 /* ---- menus ---- */
-.menuitem { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--ads-sp-2); }
+.menuitem { min-height: var(--rb-menu-item); padding: 0 var(--ads-sp-2); font-size: var(--rb-text-body); }
 .menuhead { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1); }
 .scopemenuhead { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1); }
 .scalechip { padding: var(--ads-sp-1) var(--ads-sp-2); }
@@ -2019,9 +2064,10 @@
   max-height: 70vh;
   overflow-y: auto;
   padding: var(--ads-sp-1);
-  border: 1px solid var(--rb-line-2);
+  border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--rb-dock-r);
-  background: var(--rb-raised);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
   box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
 }
 .projectmenu { min-width: 340px; }
@@ -2035,10 +2081,15 @@
   font-size: var(--ads-text-2xs);
   line-height: var(--ads-leading-2xs);
   color: var(--rb-ink-4);
-  direction: rtl;             /* elide the START of a path, not the end */
+  /* Two spans (see `.projectrowhead` / `.projectrowtail` at the foot of this
+     sheet): the folders above shrink and ellipse, the project folder never
+     does. The right-to-left trick that elided the start of the path
+     re-ordered the punctuation of left-to-right text. */
+  display: flex;
+  min-width: 0;
+  direction: ltr;
   text-align: left;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .menuitem.missing, .menuitem:disabled { color: var(--rb-ink-dim); cursor: default; }
@@ -2196,7 +2247,7 @@
   font: inherit;
   font-size: var(--ads-text-xs);
 }
-.settings-search input:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 1px; }
+.settings-search input:focus-visible { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner); }
 .settings-close {
   display: grid;
   place-items: center;
@@ -2438,12 +2489,15 @@
   color: var(--rb-ink-4);
   font-size: var(--ads-text-2xs);
   line-height: var(--ads-leading-2xs);
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  font-family: var(--ads-mono);
 }
 .speccell .specpair > .kvcontrol:first-child { min-width: 0; }
-.speccell .specpair > select.kvcontrol { max-width: 5.5ch; padding-inline: 2px; }
+/*
+ * The UNIT select only — the one that follows a measure's input. This
+ * matched every select in a pair, so Product, Counts, Yield and Seams were
+ * squeezed to "B.", "a..", "fu", "fre". Aaron sent the picture.
+ */
+.speccell .specpair > .kvcontrol + select.kvcontrol { max-width: 5.5ch; padding-inline: 2px; }
+.speccell .specpair > select.kvcontrol:first-child { max-width: none; flex: 1 1 auto; }
 /* An odd last cell spans, so the grid never ends on a gap. */
 .speccell:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
@@ -2475,10 +2529,10 @@
 .takeoffbtn {
   height: var(--rb-control);
   padding-inline: var(--ads-sp-3);
-  background: var(--rb-action);
-  color: var(--rb-action-ink);
+  background: var(--rb-accent);
+  color: var(--rb-accent-ink);
 }
-.takeoffbtn:hover { background: #fff; filter: none; }
+.takeoffbtn:hover { background: var(--rb-accent-2); filter: none; }
 
 /* ---- the switch ---- */
 /*
@@ -2497,7 +2551,7 @@
 .swtoggle {
   position: relative;
   flex: none;
-  width: 30px;
+  width: 40px;
   height: var(--rb-control);
   padding: 0;
   border: 0;
@@ -2510,26 +2564,28 @@
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 30px;
-  height: 17px;
+  width: 40px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .5442);   /* ControlStrongStrokeColorDefault */
   border-radius: 999px;
-  background: var(--rb-selected);
-  transition: background 120ms ease;
+  background: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .swtoggle > span {
   position: absolute;
   top: 50%;
-  left: 2px;
-  width: 13px;
-  height: 13px;
-  margin-top: -6.5px;
+  left: 4px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
   border-radius: 999px;
-  background: var(--rb-ink-3);
+  background: var(--rb-ink-2);
   transition: left 120ms ease, background 120ms ease;
 }
-.swtoggle.on::before { background: var(--rb-accent); }
-.swtoggle.on > span { left: 15px; background: var(--rb-canvas); }
-.swtoggle:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+.swtoggle.on::before { background: var(--rb-accent); border-color: var(--rb-accent); }
+.swtoggle.on > span { left: 24px; background: var(--rb-accent-ink); }
+.swtoggle:focus-visible { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner); }
 
 /* Settings' own controls, matching the sidebar's. */
 .settings-search { flex: 0 1 280px; margin-left: auto; }
@@ -2671,7 +2727,13 @@
 @container viewport (max-width: 559px) {
   .dock [data-collapse="fit"] { display: none; }
   /* The dock's own margins are the cheapest 16px left to reclaim. */
-  .dock { left: var(--ads-sp-2); right: var(--ads-sp-2); gap: var(--ads-sp-2); }
+  /*
+   * Pinned to both edges, so the centring transform has to go with the
+   * centring `left`: `translateX(-50%)` on a dock that is already at the
+   * left edge pushed half of it under the pane, and the first control on
+   * each wrapped row — Take off, the sheet arrows — was out of reach.
+   */
+  .dock { left: var(--ads-sp-2); right: var(--ads-sp-2); transform: none; max-width: none; gap: var(--ads-sp-2); }
   .dockgroup > .dockscalewrap { min-width: var(--rb-dock-btn); }
   /*
    * AND THEN IT WRAPS.
@@ -2813,21 +2875,27 @@
  * screen until the window comes back to a width the design covers.
  */
 @media (max-width: 959px) {
+  /*
+   * THREE tracks, the same three the areas name. This block used to declare
+   * four — a rail column from before the sidebar became the pane's collapsed
+   * form — and a fourth track against three named areas put the pane in a
+   * 48px column and the drawing where the pane should be, at exactly the
+   * widths this block exists to rescue.
+   */
   .shellapp {
     grid-template-columns:
-      var(--rail-w)
       minmax(180px, var(--pane-w))
       minmax(280px, 1fr)
       minmax(240px, var(--work-w));
   }
   .shellapp[data-pane="closed"] {
-    grid-template-columns: var(--rail-w) 0 minmax(280px, 1fr) minmax(240px, var(--work-w));
+    grid-template-columns: var(--rail-w) minmax(280px, 1fr) minmax(240px, var(--work-w));
   }
   .shellapp[data-work="closed"] {
-    grid-template-columns: var(--rail-w) minmax(180px, var(--pane-w)) minmax(280px, 1fr) 0;
+    grid-template-columns: minmax(180px, var(--pane-w)) minmax(280px, 1fr) 0;
   }
   .shellapp[data-pane="closed"][data-work="closed"] {
-    grid-template-columns: var(--rail-w) 0 minmax(280px, 1fr) 0;
+    grid-template-columns: var(--rail-w) minmax(280px, 1fr) 0;
   }
 }
 
@@ -2920,14 +2988,15 @@
 .searchnote {
   padding: var(--ads-sp-2) var(--rb-pad-row);
   border-bottom: 1px solid var(--rb-line);
-  color: var(--rb-warn);
+  background: var(--rb-attention-bg);
+  color: var(--rb-ink-2);
   font-size: var(--ads-text-2xs);
   line-height: var(--ads-leading-xs);
 }
-.searchnote strong { display: block; color: var(--rb-ink-2); }
+.searchnote strong { display: block; color: var(--rb-ink); }
 .searchnote ul { margin: var(--ads-sp-1) 0 0; padding-left: var(--ads-sp-4); }
 .searchnotehead { display: flex; align-items: center; justify-content: space-between; gap: var(--ads-sp-2); }
-.searchnotehead > .hlink { color: var(--rb-warn); }
+.searchnotehead > .hlink { color: var(--rb-accent); }
 
 /*
  * A pane footer is one line. It is a count, not a paragraph, and at the
@@ -2978,7 +3047,7 @@
 .hittext mark {
   padding: 0 1px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--rb-warn) 30%, transparent);
+  background: color-mix(in srgb, var(--rb-accent) 28%, transparent);
   color: var(--rb-ink);
 }
 
@@ -3010,7 +3079,7 @@
   display: flex;
   align-items: center;
   gap: var(--ads-sp-3);
-  padding: var(--ads-sp-2) var(--rb-pad-row);
+  padding: var(--ads-sp-1) var(--rb-pad-row);
   border: 0;
   background: transparent;
   color: inherit;
@@ -3027,8 +3096,8 @@
    from `active`: the sheet you are LOOKING at and the sheets you are about to
    act on are different things, and conflating them is how somebody sets a
    scale on forty drawings believing they set it on one. */
-.sheetrow.picked { background: color-mix(in srgb, var(--rb-action) 16%, transparent); box-shadow: inset 2px 0 0 var(--rb-action) }
-.sheetrow.picked.active { background: color-mix(in srgb, var(--rb-action) 16%, transparent) }
+.sheetrow.picked { background: color-mix(in srgb, var(--rb-accent) 16%, transparent); }
+.sheetrow.picked.active { background: color-mix(in srgb, var(--rb-accent) 16%, transparent); }
 /*
  * Everything that trails a sheet row shares one grid cell — see the row in
  * SheetIndex.tsx for why a fourth child wrapped the page number onto its own
@@ -3036,13 +3105,24 @@
  * colour, and never alone: it carries its words.
  */
 .sheettrail { display: inline-flex; align-items: center; gap: var(--ads-sp-2); justify-self: end; }
+/*
+ * At the pane's minimum, a row that carries the badge AND a scope cluster
+ * AND a page number is wider than the row: the trail rode over the sheet
+ * number. The number is the identifier and the badge is the fact that
+ * matters; the dots are the thing to give up. Sized by the row itself, so a
+ * wide pane keeps every mark.
+ */
+.sheetrow { container-type: inline-size; }
+@container (max-width: 220px) {
+  .sheetrow:has(.sheetunscaled) .sheetscopes { display: none; }
+}
 .sheetunscaled {
   flex: none;
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--rb-warn) 35%, transparent);
+  border-radius: 3px;
+  font-size: var(--ads-text-xs);
+  line-height: 16px;
   color: var(--rb-warn);
 }
 /*
@@ -3190,12 +3270,13 @@
   gap: var(--ads-sp-2);
   padding: var(--ads-sp-2) var(--rb-pad-row);
   border-bottom: 1px solid var(--rb-line);
-  background: color-mix(in srgb, var(--rb-warn) 10%, transparent);
-  color: var(--rb-warn);
+  background: var(--rb-warn-bg);
+  box-shadow: inset 3px 0 0 var(--rb-warn);
+  color: var(--rb-ink);
   font-size: var(--ads-text-xs);
   line-height: var(--ads-leading-xs);
 }
-.panenote > svg { flex: none; margin-top: 1px; }
+.panenote > svg { flex: none; margin-top: 1px; color: var(--rb-warn); }
 
 /* A rail button with something to read behind it. */
 .railflag {
@@ -3227,9 +3308,10 @@
   gap: var(--ads-sp-2);
   max-width: min(64ch, calc(100% - var(--ads-sp-8)));
   padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid var(--rb-line-2);
+  border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--ads-radius-l);
-  background: var(--rb-raised);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
   color: var(--rb-ink-2);
   font-size: var(--ads-text-xs);
   line-height: var(--ads-leading-xs);
@@ -3239,7 +3321,11 @@
 }
 .statustoast > svg { flex: none; }
 /* A refusal: the warn colour and its glyph, never the colour alone. */
-.statustoast.problem { color: var(--rb-warn); border-color: color-mix(in srgb, var(--rb-warn) 40%, transparent); }
+.statustoast.problem {
+  color: var(--rb-ink);
+  box-shadow: inset 3px 0 0 var(--rb-warn), 0 8px 28px rgba(0, 0, 0, .45);
+}
+.statustoast.problem > svg { color: var(--rb-warn); }
 .statustoast.problem > span { color: var(--rb-ink); }
 .statustoast > span { pointer-events: auto; }
 @keyframes toastin {
@@ -3470,12 +3556,8 @@
   grid-column: 1 / -1;
   margin: 0;
   padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1);
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
   color: var(--rb-ink-3);
 }
 .scalepickoption {
@@ -3518,10 +3600,7 @@
 /* Confidence is a word beside the line, in the status colour: a tinted row
    alone is a legend nobody has. */
 .bomconf {
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: var(--ads-text-xs);
 }
 .bomconf.unverified { color: var(--rb-warn); }
 .bomconf.blocked { color: var(--rb-bad); }
@@ -3560,6 +3639,233 @@ html[data-backdrop="tabbed"] .startscreen {
 }
 
 html[data-backdrop="tabbed"] .side,
-html[data-backdrop="tabbed"] .workspace {
+html[data-backdrop="tabbed"] .workspace,
+html[data-backdrop="tabbed"] .prefs {
   background: transparent;
 }
+/*
+ * NOT `.settingsview`. The panes sit on the window and can let Mica through;
+ * settings is a fixed layer OVER the drawing and the panes, and a transparent
+ * ground there showed the takeoff through the settings page. It keeps the
+ * canvas colour whatever the backdrop is; the `.prefs` page inside it may
+ * still be see-through onto that.
+ */
+
+/* ================================================ the scope pane, rebuilt == */
+/*
+ * A scope answers three questions that used to share one long column: what
+ * do I order, how is it configured, and what did I draw. Each is a page of a
+ * SelectorBar under a header that never scrolls away — the scope, its Take
+ * off, and the quantity it produces with one status line beneath it.
+ */
+
+/* The quantity is the header: two measures side by side in Subtitle tabular
+   figures, and the status line under them. */
+.scopehero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--rb-pad-row) var(--ads-sp-1);
+  border-bottom: 1px solid var(--rb-line);
+}
+.herov {
+  font-family: var(--ads-mono);
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--rb-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.herov > small {
+  margin-left: var(--ads-sp-1);
+  font-family: var(--ads-sans);
+  font-size: var(--ads-text-sm);
+  font-weight: 400;
+  color: var(--rb-ink-3);
+}
+.herov.unset { color: var(--rb-ink-4); }
+.herol {
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--rb-ink-3);
+}
+.herostatus {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  margin-top: var(--ads-sp-1);
+  min-height: var(--rb-row-sm);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--rb-ink-2);
+}
+.herostatus > svg { flex: none; }
+.herostatus > .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.herostatus > .hlink { flex: none; color: var(--rb-accent); }
+.herostatus.caution > svg { color: var(--rb-warn); }
+.herostatus.good > svg { color: var(--rb-good); }
+.herostatus.note > svg { color: var(--rb-attention); }
+
+/*
+ * SelectorBar: 32px items at Body 14, and the 16x3 accent pill under the
+ * selected one — the same indicator NavigationView draws in top mode.
+ */
+.selbar {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--ads-sp-2);
+  border-bottom: 1px solid var(--rb-line);
+}
+.selitem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: var(--rb-rail-btn);
+  padding: 0 var(--ads-sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  font-size: var(--rb-text-body);
+  cursor: pointer;
+}
+.selitem:hover { color: var(--rb-ink-2); }
+.selitem[aria-selected="true"] { color: var(--rb-ink); }
+.selitem[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: var(--ads-sp-3);
+  right: var(--ads-sp-3);
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--rb-accent);
+}
+.selcount {
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--rb-ink-4);
+}
+
+/* A row holding a switch and its words. */
+.swrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  min-height: var(--rb-row-2);
+  padding: var(--ads-sp-1) var(--rb-pad-row);
+  border-top: 1px solid var(--rb-line);
+  font-size: var(--ads-text-sm);
+  color: var(--rb-ink-2);
+}
+.swrow > .grow { flex: 1 1 auto; min-width: 0; }
+.swrow.off { color: var(--rb-ink-4); }
+
+/* Since the commit: what moved, on one line. */
+.partsdelta {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: var(--rb-row-sm);
+  padding: 0 var(--rb-pad-row);
+  border-top: 1px solid var(--rb-line);
+  font-size: var(--ads-text-sm);
+  color: var(--rb-ink-3);
+}
+.partsdelta > .grow { flex: 1 1 auto; min-width: 0; text-align: right; font-family: var(--ads-mono); font-variant-numeric: tabular-nums; color: var(--rb-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Direction: the value, and the one action that sets it. */
+.dirrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: var(--rb-row-2);
+  padding: var(--ads-sp-1) var(--rb-pad-row);
+  border-top: 1px solid var(--rb-line);
+  font-size: var(--ads-text-sm);
+}
+.dirrow > .kvlabel { flex: none; width: 72px; }
+.dirrow > .grow { flex: 1 1 auto; min-width: 0; color: var(--rb-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dirrow > .grow.unset { color: var(--rb-warn); }
+
+/* Parts that cannot be counted yet: the InfoBar, then the parts it would list, dimmed. */
+.partsblocked { margin: var(--ads-sp-2) var(--rb-pad-row); border-radius: var(--ads-radius-s); }
+.partsrow.pending, .partsrow.pending > .num { color: var(--rb-ink-4); }
+
+/* What can be done TO the scope, last. */
+.scopefoot {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  margin-top: auto;
+  padding: var(--ads-sp-1) var(--rb-pad-row);
+  border-top: 1px solid var(--rb-line);
+}
+.scopefoot > .grow { flex: 1 1 auto; }
+
+/* Setup: two controls per line, positional pairing. */
+.setupgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rb-line);
+}
+.setupgrid > .speccell:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* One total per scope in the round's list, set to be compared down the column. */
+.esttotal {
+  flex: none;
+  font-family: var(--ads-mono);
+  font-size: var(--ads-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--rb-ink-2);
+  white-space: nowrap;
+}
+
+/* The round's menu, hanging off the head. */
+.wshead { position: relative; }
+.roundmenu { position: absolute; top: 100%; right: var(--rb-pad-row); bottom: auto; z-index: 120; min-width: 232px; }
+.menuitem.grow { flex: 1 1 auto; }
+
+/* ---- rows never wrap ----
+   Aaron: "I want you to disallow wrapping." A row in a list, a menu, a tab
+   strip or a breadcrumb is scanned, not read; when it wraps, the column
+   beneath it moves and the eye loses its place. Rows truncate with an
+   ellipsis and carry the full text in their title. Prose (notes, empty
+   states, warnings, help) is exempt and keeps wrapping. */
+.menuitem > .grow, .menuitem > .hint,
+.estname, .estrow .wsmuted, .esttext > span,
+.crumb, .crumbs .current,
+.tab .tabname, .tab > span,
+.projectrowname,
+.sheetgrouphead .grow, .sheettitle > span, .sheetnum,
+.filename,
+.dockscopename, .dockmenu .menuitem > .grow,
+.markuprow .mkind, .markuprow .mvalue,
+.wshead h2, .wshead .wsmuted,
+.exportline > .grow, .exportscopehead input,
+.palette-row .palette-title, .palette-row .palette-detail,
+.scopemenuname {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* A flex row can only ellipse its children when it may itself shrink. */
+.menuitem, .estrow, .estopen, .esttext, .projectrow, .markuprow, .crumbs { min-width: 0 }
+
+/* ---- project switcher paths ----
+   The path is two spans: the folders before the project (which shrink and
+   ellipse) and the project folder itself (which never does). The old
+   right-to-left trick that elided the START of a path re-ordered the
+   punctuation of left-to-right text, so a drive letter came out at the end. */
+.projectrowhead { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.projectrowtail { flex: none; white-space: nowrap }
+

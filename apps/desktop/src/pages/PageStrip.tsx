@@ -34,7 +34,7 @@ export function PageStrip({
   requestThumbnail,
   onGoTo,
   labels,
-  thumbWidth = 96,
+  thumbWidth = 80,
   eagerRadius = 6,
   empty,
 }: PageStripProps) {

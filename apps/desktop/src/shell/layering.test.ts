@@ -66,7 +66,11 @@ describe('surfaces', () => {
     expect(pill).toContain('pendingRegion: {')
     expect(workspace).not.toContain('<RegionList')
     const down = workspace.slice(workspace.indexOf('const onPointerDown = '), workspace.indexOf("if (tool === 'pan')"))
-    expect(down).toContain('if (pendingCal !== null || pendingRegion !== null) return')
+    // The REFS: the state form let a third click land before React had
+    // re-rendered with the pending question, and a two-point line grew a
+    // third point behind the form asking about it.
+    expect(down).toContain('if (pendingCalRef.current !== null || pendingRegionRef.current !== null) return')
+    expect(down).not.toContain('if (pendingCal !== null || pendingRegion !== null) return')
   })
 
   /**
@@ -92,7 +96,7 @@ describe('surfaces', () => {
 
   it('gives the sidebar the bill and the scope management', () => {
     const panel = workspace.slice(workspace.indexOf('<EstimatesPanel'), workspace.indexOf('/>', workspace.indexOf('<EstimatesPanel')))
-    for (const prop of ['bom={{', 'bomOpen={bomOpen}', 'onCreateScope=', 'addScopeRequest=', 'onDuplicateScope=', 'onRestoreScope=', 'archived=']) {
+    for (const prop of ['bill={{', 'scopePage={scopePage}', 'onCreateScope=', 'addScopeRequest=', 'onDuplicateScope=', 'onRestoreScope=', 'archived=']) {
       expect(panel, `${prop} is not passed`).toContain(prop)
     }
   })
@@ -247,7 +251,7 @@ describe('window minimums', () => {
  * settings, the one full-screen place a pane can be hidden behind.
  */
 describe('opening a surface', () => {
-  const openers = { openBom: 'bom', openBrowser: 'browser', openScopeEditor: 'scope' } as const
+  const openers = { openParts: 'bom', openBrowser: 'browser', openScopeEditor: 'scope' } as const
 
   it('leaves settings and goes to the surface', () => {
     const declaration = workspace.indexOf('const only = useCallback(')
@@ -256,7 +260,7 @@ describe('opening a surface', () => {
     expect(body).toContain('setSettingsOpen(false)')
     // The bill: the estimates panel, shown. The browser: the Files pane, with
     // the cursor in its filter. A scope: the round's own naming row.
-    expect(body).toContain('setWorkOpen(true); setBomOpen(true)')
+    expect(body).toContain("setWorkOpen(true); setScopePage('parts')")
     expect(body).toContain("setRailPanel('files'); setFilesFocus(")
     expect(body).toContain('setAddScopeRequest(')
   })
@@ -267,9 +271,9 @@ describe('opening a surface', () => {
     })
   }
 
-  it('opens the bill nowhere else', () => {
-    // One `setBomOpen(true)` — inside `only`.
-    expect(workspace.split('setBomOpen(true)').length - 1).toBe(1)
+  it('opens the parts page nowhere else', () => {
+    // One `setScopePage('parts')` — inside `only`; the dock and the palette route through it.
+    expect(workspace.split("setScopePage('parts')").length - 1).toBe(1)
   })
 
   /**

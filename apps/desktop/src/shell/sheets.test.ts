@@ -114,6 +114,19 @@ describe('buildSheetIndex — per-sheet outlines', () => {
     expect(rows[1]).toEqual({ page: 1, number: 'A-102', title: '', hasTakeoff: false, scopes: [] })
   })
 
+  it('splits a fallback label into number and title like a bookmark', () => {
+    const groups = buildSheetIndex(base({
+      pageCount: 2, shape: 'per-sheet',
+      outline: [{ title: 'G-003 GRAPHIC SYMBOLS', page: 0, children: [] }],
+      labels: ['G-003 - GRAPHIC SYMBOLS', 'G-004 - FEMA FLOOD MAPS'],
+    }))
+    const rows = groups[0]!.rows
+    expect([rows[1]!.number, rows[1]!.title]).toEqual(['G-004', 'FEMA FLOOD MAPS'])
+    // A label that is only a name stays whole in the number column, as before.
+    const named = buildSheetIndex(base({ pageCount: 1, shape: 'none', labels: ['Cover Sheet'] }))
+    expect([named[0]!.rows[0]!.number, named[0]!.rows[0]!.title]).toEqual(['Cover Sheet', ''])
+  })
+
   it('falls back to an ordinal when there is no label either', () => {
     const groups = buildSheetIndex(base({ pageCount: 2, shape: 'per-sheet', outline: [] }))
     expect(groups[0]!.rows.map((r) => r.number)).toEqual(['Page 1', 'Page 2'])

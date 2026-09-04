@@ -123,13 +123,25 @@ function markingsOf(page: number, input: SheetIndexInput): Pick<SheetRow, 'hasTa
 
 function fallbackRow(page: number, input: SheetIndexInput): SheetRow {
   const label = input.labels[page] ?? null
+  // A page label is the publisher's own name for the page and beats our
+  // ordinal. When there is none, `Page 40` is honest — inventing `A-040`
+  // would look like a sheet number that nothing in the document supports.
+  if (label === null || label.trim() === '') {
+    return { page, number: `Page ${page + 1}`, title: '', ...markingsOf(page, input) }
+  }
+  /*
+   * Split the label the way a bookmark title is split. It went into the
+   * number column whole, so a page the outline skipped read as
+   * "G-004 - FEMA FLOOD MAPS" in bold in the number column with an empty
+   * title, beside rows that read "G-003 | GRAPHIC SYMBOLS" — which on a set
+   * with a dozen unbookmarked sheets looked like a different index. A label
+   * that is not code-then-name stays whole, as before.
+   */
+  const split = splitSheetTitle(label)
   return {
     page,
-    // A page label is the publisher's own name for the page and beats our
-    // ordinal. When there is none, `Page 40` is honest — inventing `A-040`
-    // would look like a sheet number that nothing in the document supports.
-    number: label !== null && label.trim() !== '' ? label.trim() : `Page ${page + 1}`,
-    title: '',
+    number: split.number === '' ? label.trim() : split.number,
+    title: split.title,
     ...markingsOf(page, input),
   }
 }

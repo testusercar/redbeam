@@ -429,6 +429,14 @@ export interface UndoStackOptions {
   mode?: UndoMode
   /** Override the IPC transport. Injectable so tests need no Tauri runtime. */
   invoke?: TauriInvokeFn
+  /**
+   * The project this stack belongs to — the folder or `.db` path `db_open`
+   * was given. Sent with every core call, because the core keeps one
+   * connection PER PROJECT and an unaddressed undo would act on whichever
+   * project was opened last: a second window on another project would undo
+   * this one's work. Omitted only where no project is open (tests).
+   */
+  projectPath?: string
 }
 
 const defaultInvoke: TauriInvokeFn = (cmd, args) => tauriInvoke(cmd, args ?? {})
@@ -461,6 +469,14 @@ export class UndoStack {
     const mode = opts.mode ?? 'auto'
     this.core = mode === 'core' || (mode === 'auto' && isTauriAvailable())
     this.invoke = opts.invoke ?? defaultInvoke
+    this.projectPath = opts.projectPath ?? null
+  }
+
+  private readonly projectPath: string | null
+
+  /** The arguments every core call carries: which project it is about. */
+  private addressed(args: Record<string, unknown> = {}): Record<string, unknown> {
+    return this.projectPath === null ? args : { ...args, projectPath: this.projectPath }
   }
 
   /** Is this stack the core's, shared with every other window on the project? */
@@ -476,11 +492,11 @@ export class UndoStack {
       // has to be read in the same lock hold as the write it describes, and
       // D1 wants the mutation in the core rather than in a window's local state.
       this.cached = readState(
-        await this.invoke('undo_record', {
+        await this.invoke('undo_record', this.addressed({
           record: cmd.record,
           apply: true,
           limit: this.limit,
-        }),
+        })),
       )
       return
     }
@@ -492,11 +508,11 @@ export class UndoStack {
   async push(cmd: Command): Promise<void> {
     if (this.core) {
       this.cached = readState(
-        await this.invoke('undo_record', {
+        await this.invoke('undo_record', this.addressed({
           record: cmd.record,
           apply: false,
           limit: this.limit,
-        }),
+        })),
       )
       return
     }
@@ -532,7 +548,7 @@ export class UndoStack {
   async clear(): Promise<void> {
     this.done = []
     this.undone = []
-    if (this.core) this.cached = readState(await this.invoke('undo_clear', {}))
+    if (this.core) this.cached = readState(await this.invoke('undo_clear', this.addressed()))
     else this.cached = EMPTY_STATE
   }
 
@@ -544,7 +560,7 @@ export class UndoStack {
    * stale label. Call this when a project-change broadcast arrives.
    */
   async fetchState(): Promise<UndoState> {
-    if (this.core) this.cached = readState(await this.invoke('undo_state', {}))
+    if (this.core) this.cached = readState(await this.invoke('undo_state', this.addressed()))
     return this.state
   }
 
@@ -573,7 +589,7 @@ export class UndoStack {
   // ------------------------------------------------------------- internals ---
 
   private async step(command: 'undo_apply' | 'undo_redo'): Promise<UndoOutcome | null> {
-    const raw = (await this.invoke<Record<string, unknown>>(command, {})) ?? {}
+    const raw = (await this.invoke<Record<string, unknown>>(command, this.addressed())) ?? {}
     this.cached = readState(raw.status ?? raw)
     if (!raw.ok) return null
     return {

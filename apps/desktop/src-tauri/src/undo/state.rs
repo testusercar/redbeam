@@ -17,6 +17,7 @@
 //! and the first thing that copy would do is disagree with a peer window. The
 //! stack lives in `undo_log`; this struct holds a session id and a limit.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde_json::Value as Json;
@@ -28,23 +29,24 @@ use super::apply;
 use super::log::{self, UndoOutcome, UndoStatus, DEFAULT_LIMIT};
 use super::record::{UndoError, UndoRecord, UndoTarget};
 
-/// Which project is adopted, and the id that scopes its stack to this run.
-struct Session {
-    db_path: String,
-    id: String,
-}
+/// The id that scopes a project's stack to this run, keyed by its database
+/// path. One entry per open project: the store keeps one connection per
+/// project now, so the undo session has to be per project too, or opening a
+/// second project would re-adopt on every alternate call and purge the other
+/// project's stack each time.
+type Sessions = HashMap<String, String>;
 
 /// Process-wide undo handle. Register once with `.manage(UndoState::new())`.
 #[derive(Default)]
 pub struct UndoState {
-    inner: Mutex<Option<Session>>,
+    inner: Mutex<Sessions>,
     limit: Mutex<usize>,
 }
 
 impl UndoState {
     pub fn new() -> Self {
         UndoState {
-            inner: Mutex::new(None),
+            inner: Mutex::new(HashMap::new()),
             limit: Mutex::new(DEFAULT_LIMIT),
         }
     }
@@ -53,7 +55,7 @@ impl UndoState {
     #[cfg(test)]
     pub fn with_limit(limit: usize) -> Self {
         UndoState {
-            inner: Mutex::new(None),
+            inner: Mutex::new(HashMap::new()),
             limit: Mutex::new(limit.max(1)),
         }
     }
@@ -72,6 +74,7 @@ impl UndoState {
     pub fn record(
         &self,
         store: &StoreState,
+        project: Option<&str>,
         record: UndoRecord,
         apply_now: bool,
         limit: Option<usize>,
@@ -80,7 +83,7 @@ impl UndoState {
         // presses Ctrl+Z an hour later.
         record.kind()?;
         let limit = limit.filter(|n| *n > 0).unwrap_or_else(|| self.limit());
-        self.in_store(store, move |s, session| {
+        self.in_store(store, project, move |s, session| {
             transact(s, |s| {
                 if apply_now {
                     apply::apply(s, &record)?;
@@ -94,8 +97,8 @@ impl UndoState {
     }
 
     /// Undo the most recent user command anywhere in the project.
-    pub fn undo(&self, store: &StoreState) -> Result<UndoOutcome, UndoError> {
-        self.in_store(store, |s, session| {
+    pub fn undo(&self, store: &StoreState, project: Option<&str>) -> Result<UndoOutcome, UndoError> {
+        self.in_store(store, project, |s, session| {
             transact(s, |s| {
                 let Some(entry) = log::top_done(s, session)? else {
                     return Ok(nothing(log::status(s, session)?));
@@ -122,8 +125,8 @@ impl UndoState {
     }
 
     /// Redo the most recently undone user command.
-    pub fn redo(&self, store: &StoreState) -> Result<UndoOutcome, UndoError> {
-        self.in_store(store, |s, session| {
+    pub fn redo(&self, store: &StoreState, project: Option<&str>) -> Result<UndoOutcome, UndoError> {
+        self.in_store(store, project, |s, session| {
             transact(s, |s| {
                 let Some(entry) = log::top_undone(s, session)? else {
                     return Ok(nothing(log::status(s, session)?));
@@ -146,13 +149,13 @@ impl UndoState {
     }
 
     /// What the toolbar should say, for every window on this project.
-    pub fn status(&self, store: &StoreState) -> Result<UndoStatus, UndoError> {
-        self.in_store(store, |s, session| log::status(s, session))
+    pub fn status(&self, store: &StoreState, project: Option<&str>) -> Result<UndoStatus, UndoError> {
+        self.in_store(store, project, |s, session| log::status(s, session))
     }
 
     /// Throw the stack away without reverting anything.
-    pub fn clear(&self, store: &StoreState) -> Result<UndoStatus, UndoError> {
-        self.in_store(store, |s, session| {
+    pub fn clear(&self, store: &StoreState, project: Option<&str>) -> Result<UndoStatus, UndoError> {
+        self.in_store(store, project, |s, session| {
             transact(s, |s| {
                 log::clear(s, session)?;
                 log::status(s, session)
@@ -166,7 +169,11 @@ impl UndoState {
         *self.limit.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Run `f` against the open store, with this project's session id.
+    /// Run `f` against the project's store, with that project's session id.
+    ///
+    /// `project` is the path the window addressed (folder or `.db`), resolved
+    /// exactly as `db_open` resolves it; `None` means the most recently opened
+    /// project, for callers that have no project of their own.
     ///
     /// The whole body — session adoption, schema check and the operation — runs
     /// inside one `StoreState::with`, i.e. one hold of the store lock.
@@ -178,12 +185,13 @@ impl UndoState {
     fn in_store<T>(
         &self,
         store: &StoreState,
+        project: Option<&str>,
         f: impl FnOnce(&Store, &str) -> Result<T, UndoError>,
     ) -> Result<T, UndoError> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let slot = &mut *guard;
+        let sessions = &mut *guard;
 
-        let outcome = store.with(move |s| {
+        let body = move |s: &Store| {
             Ok((move || -> Result<T, UndoError> {
                 // Cheap when already applied: one indexed SELECT against
                 // schema_migrations. Run unconditionally rather than only on
@@ -192,18 +200,21 @@ impl UndoState {
                 log::ensure_schema(s)?;
 
                 let db_path = s.db_path().display().to_string();
-                let adopted = slot.as_ref().is_some_and(|x| x.db_path == db_path);
-                if !adopted {
+                if !sessions.contains_key(&db_path) {
                     let id = new_session_id(s)?;
                     // D1: the stack is not replayed across restarts.
                     log::purge_other_sessions(s, &id)?;
-                    *slot = Some(Session { db_path, id });
+                    sessions.insert(db_path.clone(), id);
                 }
-                let session = slot.as_ref().expect("session was just adopted").id.clone();
+                let session = sessions.get(&db_path).expect("session was just adopted").clone();
 
                 f(s, &session)
             })())
-        });
+        };
+        let outcome = match project {
+            Some(path) => store.with_project(path, body),
+            None => store.with(body),
+        };
 
         match outcome {
             Ok(inner) => inner,

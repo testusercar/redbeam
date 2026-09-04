@@ -144,14 +144,14 @@ fn activity_events(store: &StoreState) -> Vec<String> {
 fn creates_undoes_and_redoes_a_markup_keeping_its_id() {
     let (store, undo) = project();
 
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("record");
     assert_eq!(live_markups(&store).len(), 1);
 
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
     assert_eq!(live_markups(&store).len(), 0, "undo must remove it");
 
-    let out = undo.redo(&store).expect("redo");
+    let out = undo.redo(&store, None).expect("redo");
     assert!(out.ok);
     let after = live_markups(&store);
     assert_eq!(after.len(), 1);
@@ -164,9 +164,9 @@ fn creates_undoes_and_redoes_a_markup_keeping_its_id() {
 #[test]
 fn undoing_a_create_soft_deletes_rather_than_dropping_the_row() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("record");
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
 
     let all = store
         .with(|s| s.all("SELECT id, deleted_at FROM markups", &[]))
@@ -178,44 +178,44 @@ fn undoing_a_create_soft_deletes_rather_than_dropping_the_row() {
 #[test]
 fn unwinds_a_chain_of_edits_one_step_at_a_time() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit 1");
-    undo.record(&store, edit_geometry("m1", RING_B, RING_C), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_B, RING_C), true, None)
         .expect("edit 2");
     assert_eq!(geometry_of(&store, "m1"), rings(RING_C));
 
-    undo.undo(&store).expect("undo 1");
+    undo.undo(&store, None).expect("undo 1");
     assert_eq!(geometry_of(&store, "m1"), rings(RING_B));
-    undo.undo(&store).expect("undo 2");
+    undo.undo(&store, None).expect("undo 2");
     assert_eq!(geometry_of(&store, "m1"), rings(RING_A));
-    undo.undo(&store).expect("undo 3");
+    undo.undo(&store, None).expect("undo 3");
     assert_eq!(live_markups(&store).len(), 0);
 }
 
 #[test]
 fn nothing_to_undo_is_not_an_error() {
     let (store, undo) = project();
-    let out = undo.undo(&store).expect("undo");
+    let out = undo.undo(&store, None).expect("undo");
     assert!(!out.ok);
     assert!(!out.status.can_undo);
-    let out = undo.redo(&store).expect("redo");
+    let out = undo.redo(&store, None).expect("redo");
     assert!(!out.ok);
 }
 
 #[test]
 fn a_new_command_clears_the_redo_branch_for_everyone() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("a", "user"), true, None)
+    undo.record(&store, None, create_markup("a", "user"), true, None)
         .expect("a");
-    undo.undo(&store).expect("undo");
-    assert!(undo.status(&store).expect("status").can_redo);
+    undo.undo(&store, None).expect("undo");
+    assert!(undo.status(&store, None).expect("status").can_redo);
 
-    undo.record(&store, create_markup("b", "user"), true, None)
+    undo.record(&store, None, create_markup("b", "user"), true, None)
         .expect("b");
     assert!(
-        !undo.status(&store).expect("status").can_redo,
+        !undo.status(&store, None).expect("status").can_redo,
         "once you diverge, the old future is gone"
     );
 }
@@ -224,18 +224,18 @@ fn a_new_command_clears_the_redo_branch_for_everyone() {
 fn drops_the_oldest_command_past_the_limit() {
     let (store, undo) = project_with_limit(3);
     for id in ["a", "b", "c", "d", "e"] {
-        undo.record(&store, create_markup(id, "user"), true, None)
+        undo.record(&store, None, create_markup(id, "user"), true, None)
             .expect("create");
     }
-    assert_eq!(undo.status(&store).expect("status").depth, 3);
+    assert_eq!(undo.status(&store, None).expect("status").depth, 3);
 }
 
 #[test]
 fn clear_drops_the_stack_without_reverting_anything() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    let status = undo.clear(&store).expect("clear");
+    let status = undo.clear(&store, None).expect("clear");
     assert!(!status.can_undo);
     assert_eq!(status.depth, 0);
     assert_eq!(live_markups(&store).len(), 1, "the markup stays");
@@ -246,12 +246,12 @@ fn clear_drops_the_stack_without_reverting_anything() {
 #[test]
 fn status_names_and_locates_what_it_will_undo() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit");
 
-    let status = undo.status(&store).expect("status");
+    let status = undo.status(&store, None).expect("status");
     assert!(status.can_undo);
     assert!(!status.can_redo);
     // D1: "Not 'Undo' but 'Undo move markup — sheet A-514A.00'."
@@ -266,9 +266,9 @@ fn status_names_and_locates_what_it_will_undo() {
 #[test]
 fn status_serializes_camel_case_for_the_typescript_client() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    let json = serde_json::to_value(undo.status(&store).expect("status")).expect("serialize");
+    let json = serde_json::to_value(undo.status(&store, None).expect("status")).expect("serialize");
     for key in [
         "canUndo",
         "canRedo",
@@ -287,9 +287,9 @@ fn status_serializes_camel_case_for_the_typescript_client() {
 #[test]
 fn undo_refuses_when_a_peer_reshaped_the_markup() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit");
 
     // A peer window drags the same markup somewhere else. This is a direct
@@ -304,7 +304,7 @@ fn undo_refuses_when_a_peer_reshaped_the_markup() {
         })
         .expect("peer edit");
 
-    let err = undo.undo(&store).expect_err("must refuse");
+    let err = undo.undo(&store, None).expect_err("must refuse");
     match &err {
         UndoError::Conflict { label, .. } => assert_eq!(label, "move markup"),
         other => panic!("expected a conflict, got {other:?}"),
@@ -316,15 +316,15 @@ fn undo_refuses_when_a_peer_reshaped_the_markup() {
     // The peer's work survives, which is the entire point.
     assert_eq!(geometry_of(&store, "m1"), rings(RING_C));
     // And the entry is still undoable: nothing was consumed by the refusal.
-    assert!(undo.status(&store).expect("status").can_undo);
+    assert!(undo.status(&store, None).expect("status").can_undo);
 }
 
 #[test]
 fn the_guard_still_bites_when_the_timestamps_collide() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit");
 
     // Same millisecond, different geometry: `updated_at` alone would wave this
@@ -345,7 +345,7 @@ fn the_guard_still_bites_when_the_timestamps_collide() {
         .expect("peer edit");
 
     assert!(matches!(
-        undo.undo(&store),
+        undo.undo(&store, None),
         Err(UndoError::Conflict { .. })
     ));
     assert_eq!(geometry_of(&store, "m1"), rings(RING_C));
@@ -354,9 +354,9 @@ fn the_guard_still_bites_when_the_timestamps_collide() {
 #[test]
 fn a_refused_undo_leaves_no_partial_write() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit");
     let before_events = activity_events(&store).len();
 
@@ -370,7 +370,7 @@ fn a_refused_undo_leaves_no_partial_write() {
         })
         .expect("peer edit");
 
-    assert!(undo.undo(&store).is_err());
+    assert!(undo.undo(&store, None).is_err());
     assert_eq!(
         activity_events(&store).len(),
         before_events,
@@ -381,18 +381,18 @@ fn a_refused_undo_leaves_no_partial_write() {
 #[test]
 fn redo_restamps_the_guard_so_the_next_undo_is_not_a_false_conflict() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.record(&store, edit_geometry("m1", RING_A, RING_B), true, None)
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None)
         .expect("edit");
 
-    undo.undo(&store).expect("undo");
-    undo.redo(&store).expect("redo");
+    undo.undo(&store, None).expect("undo");
+    undo.redo(&store, None).expect("redo");
     assert_eq!(geometry_of(&store, "m1"), rings(RING_B));
 
     // Re-applying wrote a fresh updated_at. If it were not re-recorded, this
     // second undo would refuse itself.
-    undo.undo(&store).expect("undo again");
+    undo.undo(&store, None).expect("undo again");
     assert_eq!(geometry_of(&store, "m1"), rings(RING_A));
 }
 
@@ -403,7 +403,7 @@ fn agent_origin_commands_never_enter_the_user_stack() {
     let (store, undo) = project();
 
     let status = undo
-        .record(&store, create_markup("agent-1", "agent"), true, None)
+        .record(&store, None, create_markup("agent-1", "agent"), true, None)
         .expect("record");
     assert!(
         !status.can_undo,
@@ -423,12 +423,12 @@ fn agent_origin_commands_never_enter_the_user_stack() {
 #[test]
 fn undo_skips_past_an_agent_command_to_the_users_own() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("mine", "user"), true, None)
+    undo.record(&store, None, create_markup("mine", "user"), true, None)
         .expect("user");
-    undo.record(&store, create_markup("theirs", "agent"), true, None)
+    undo.record(&store, None, create_markup("theirs", "agent"), true, None)
         .expect("agent");
 
-    let out = undo.undo(&store).expect("undo");
+    let out = undo.undo(&store, None).expect("undo");
     assert_eq!(out.target.expect("target").entity_id.as_deref(), Some("mine"));
     let live: Vec<String> = live_markups(&store).into_iter().map(|(id, _)| id).collect();
     assert_eq!(live, vec!["theirs".to_string()]);
@@ -439,10 +439,11 @@ fn undo_skips_past_an_agent_command_to_the_users_own() {
 #[test]
 fn reverts_a_scope_reassignment() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
     undo.record(
         &store,
+        None,
         record(json!({
             "op": "reassign_scope", "label": "change scope", "entityType": "markup",
             "entityId": "m1", "documentId": "doc-1", "pageId": "page-1",
@@ -458,7 +459,7 @@ fn reverts_a_scope_reassignment() {
         .expect("scope");
     assert_eq!(scope[0]["scope_id"], json!("s1"));
 
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
     let scope = store
         .with(|s| s.all("SELECT scope_id FROM markups WHERE id='m1'", &[]))
         .expect("scope");
@@ -470,6 +471,7 @@ fn undoing_a_first_calibration_removes_it_entirely() {
     let (store, undo) = project();
     undo.record(
         &store,
+        None,
         record(json!({
             "op": "set_calibration", "label": "calibrate page", "entityType": "page",
             "entityId": "page-1", "documentId": "doc-1", "pageId": "page-1",
@@ -486,7 +488,7 @@ fn undoing_a_first_calibration_removes_it_entirely() {
         .expect("cal");
     assert_eq!(rows[0]["feet_per_pdf_point"], json!(0.5));
 
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
     // Back to uncalibrated, NOT to zero — CHECK(feet_per_pdf_point > 0) would
     // reject that, and a zero scale would silently produce nonsense quantities.
     let rows = store
@@ -507,13 +509,13 @@ fn a_batch_applies_and_reverts_as_one_unit_in_reverse_order() {
         "origin": "user",
     }));
 
-    undo.record(&store, batch, true, None).expect("batch");
+    undo.record(&store, None, batch, true, None).expect("batch");
     assert_eq!(live_markups(&store).len(), 2);
-    assert_eq!(undo.status(&store).expect("status").depth, 1, "one entry");
+    assert_eq!(undo.status(&store, None).expect("status").depth, 1, "one entry");
 
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
     assert_eq!(live_markups(&store).len(), 0);
-    undo.redo(&store).expect("redo");
+    undo.redo(&store, None).expect("redo");
     assert_eq!(live_markups(&store).len(), 2);
 }
 
@@ -534,7 +536,7 @@ fn record_without_applying_only_logs() {
         .expect("pre-applied");
 
     let status = undo
-        .record(&store, create_markup("m1", "user"), false, None)
+        .record(&store, None, create_markup("m1", "user"), false, None)
         .expect("record");
     assert_eq!(status.depth, 1);
     assert_eq!(live_markups(&store).len(), 1, "no second row");
@@ -545,9 +547,9 @@ fn record_without_applying_only_logs() {
 #[test]
 fn writes_the_activity_trail_and_never_the_review_queue() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    undo.undo(&store).expect("undo");
+    undo.undo(&store, None).expect("undo");
 
     let events = activity_events(&store);
     assert!(events.iter().any(|e| e == "markup.created"), "{events:?}");
@@ -569,21 +571,21 @@ fn writes_the_activity_trail_and_never_the_review_queue() {
 fn an_undo_before_the_project_is_open_says_so() {
     let undo = UndoState::new();
     let store = StoreState::new();
-    let err = undo.status(&store).expect_err("no project");
+    let err = undo.status(&store, None).expect_err("no project");
     assert!(err.to_string().contains("db_open"), "{err}");
 }
 
 #[test]
 fn rows_from_an_earlier_session_are_not_undoable() {
     let (store, undo) = project();
-    undo.record(&store, create_markup("m1", "user"), true, None)
+    undo.record(&store, None, create_markup("m1", "user"), true, None)
         .expect("create");
-    assert!(undo.status(&store).expect("status").can_undo);
+    assert!(undo.status(&store, None).expect("status").can_undo);
 
     // A second handle is a second run of the process against the same project.
     // D1: the stack is not replayed across restarts.
     let restarted = UndoState::new();
-    assert!(!restarted.status(&store).expect("status").can_undo);
+    assert!(!restarted.status(&store, None).expect("status").can_undo);
     let rows = store
         .with(|s| s.all("SELECT seq FROM undo_log", &[]))
         .expect("log");
@@ -593,12 +595,12 @@ fn rows_from_an_earlier_session_are_not_undoable() {
 #[test]
 fn an_unknown_op_is_rejected_at_the_boundary() {
     let (store, undo) = project();
-    undo.status(&store).expect("adopt the project first");
+    undo.status(&store, None).expect("adopt the project first");
     let bad = record(json!({
         "op": "reticulate_splines", "label": "?", "entityType": "markup",
         "entityId": "m1", "origin": "user",
     }));
-    let err = undo.record(&store, bad, true, None).expect_err("must reject");
+    let err = undo.record(&store, None, bad, true, None).expect_err("must reject");
     assert!(err.to_string().contains("reticulate_splines"), "{err}");
     let rows = store
         .with(|s| s.all("SELECT seq FROM undo_log", &[]))
@@ -609,7 +611,7 @@ fn an_unknown_op_is_rejected_at_the_boundary() {
 #[test]
 fn migration_seven_registers_its_version() {
     let (store, undo) = project();
-    undo.status(&store).expect("status");
+    undo.status(&store, None).expect("status");
     let rows = store
         .with(|s| {
             s.all(

@@ -116,6 +116,11 @@ pub struct ProjectInfo {
     /// True when `db_path` already existed — i.e. this is a reopen, not a
     /// first open. The UI uses it to decide whether to offer an ingest.
     pub has_database: bool,
+    /// The folder that was asked for, when the project opened is one of its
+    /// ancestors instead. See [`outermost_project_root`]. `None` when the
+    /// folder asked for is the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirected_from: Option<String>,
 }
 
 /// One entry in the recent-projects list.
@@ -234,9 +239,17 @@ pub fn normalized_relative_path(root: &Path, absolute: &Path) -> Option<String> 
     }
 }
 
+/// Is this path inside a `.redbeam/` directory — at ANY depth?
+///
+/// It used to test the root only. A subfolder that had once been opened as a
+/// project of its own carries its own `.redbeam/` and `redbeam.db`, and when
+/// the parent folder is opened as the project those must be ignored, not
+/// cataloged: the parent is the project, and the subfolder's bookkeeping is
+/// stale bookkeeping about a project that no longer exists.
 fn is_internal(relative_path: &str) -> bool {
-    let lower = relative_path.to_ascii_lowercase();
-    lower == INTERNAL_DIR || lower.starts_with(&format!("{INTERNAL_DIR}/"))
+    relative_path
+        .split('/')
+        .any(|segment| segment.eq_ignore_ascii_case(INTERNAL_DIR))
 }
 
 /// The `redbeam.db` file, and any journal SQLite keeps beside it, are the
@@ -865,10 +878,16 @@ pub fn resolve_project(path: &str, create: bool) -> Result<ProjectInfo, String> 
         created = true;
     }
 
-    let root = canonical_project_root(&requested);
-    if !root.is_dir() {
-        return Err(format!("{} is a file, not a project folder", root.display()));
+    let asked = canonical_project_root(&requested);
+    if !asked.is_dir() {
+        return Err(format!("{} is a file, not a project folder", asked.display()));
     }
+    let root = outermost_project_root(&asked);
+    let redirected_from = if root == asked {
+        None
+    } else {
+        Some(asked.display().to_string())
+    };
 
     let db_path = resolve_db_path(&root.display().to_string());
     let name = root
@@ -882,7 +901,33 @@ pub fn resolve_project(path: &str, create: bool) -> Result<ProjectInfo, String> 
         db_path: db_path.display().to_string(),
         created,
         has_database: db_path.is_file(),
+        redirected_from,
     })
+}
+
+/// The project a folder actually belongs to: the OUTERMOST ancestor that
+/// already carries a `redbeam.db`, or the folder itself when none does.
+///
+/// Opening a drawing makes its folder the project, and the drawing is usually
+/// three levels down in the bid package — so the next thing that happens is
+/// the bid package's own folder being opened as a project too. That gave two
+/// projects nested one inside the other, each with its own database and its
+/// own idea of which documents exist, and the one opened second showed the
+/// first's `.redbeam/` cache and none of its takeoff. Aaron: "It should
+/// prioritize the parent file over the subfolder and ignore the subfolder
+/// redbeam config file."
+///
+/// So a folder inside an existing project IS that project. Outermost rather
+/// than nearest so that three nested databases resolve to one answer rather
+/// than to whichever was asked for.
+pub fn outermost_project_root(folder: &Path) -> PathBuf {
+    let mut root = folder.to_path_buf();
+    for ancestor in folder.ancestors().skip(1) {
+        if ancestor.join(crate::store::db::DB_FILE_NAME).is_file() {
+            root = ancestor.to_path_buf();
+        }
+    }
+    root
 }
 
 // -------------------------------------------------------------- commands --
@@ -961,6 +1006,39 @@ fn pick_drawing_native(app: &AppHandle) -> Result<Option<PathBuf>, String> {
         .add_filter("PDF drawings", &["pdf"])
         .blocking_pick_file();
     Ok(picked.and_then(|p| p.into_path().ok()))
+}
+
+/// Where an export goes: a native Save As, then the bytes written there.
+///
+/// Every export used to hand a blob to the webview's downloader, which put
+/// it in the Downloads folder under a name nobody chose. Aaron: "it should
+/// prompt you where to save it by default". The dialog runs from Rust for the
+/// same reason the pickers do — no ACL grant to the webview — and it blocks,
+/// so the command is `async` and Tauri runs it off the main thread.
+///
+/// `None` means the person cancelled; that is not an error.
+#[tauri::command]
+pub async fn project_save_file(
+    app: AppHandle,
+    default_name: String,
+    bytes: Vec<u8>,
+    filter_name: Option<String>,
+    extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file().set_file_name(&default_name).set_title("Save");
+    if let (Some(name), Some(exts)) = (filter_name.as_deref(), extensions.as_deref()) {
+        let refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter(name, &refs);
+    }
+    let Some(picked) = dialog.blocking_save_file() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| format!("the chosen location is not a file path: {e}"))?;
+    fs::write(&path, &bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
 }
 
 /// Open a PDF, and let the project be wherever that PDF lives.
@@ -1379,10 +1457,62 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_folder_opens_its_outermost_project() {
+        let dir = temp_dir("nested");
+        let outer = dir.join("Bid Package");
+        let inner = outer.join("1 Data").join("Drawings");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(outer.join("redbeam.db"), b"").unwrap();
+        // The drawings folder was once opened as a project of its own.
+        fs::write(inner.join("redbeam.db"), b"").unwrap();
+
+        let info = resolve_project(&inner.display().to_string(), false).unwrap();
+        assert_eq!(info.path, canonical_project_root(&outer).display().to_string());
+        assert_eq!(info.name, "Bid Package");
+        assert_eq!(
+            info.redirected_from.as_deref(),
+            Some(canonical_project_root(&inner).display().to_string().as_str())
+        );
+        assert!(info.has_database);
+
+        // Asking for the outer folder itself is not a redirect.
+        let direct = resolve_project(&outer.display().to_string(), false).unwrap();
+        assert_eq!(direct.redirected_from, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_with_no_project_above_it_is_its_own_root() {
+        let dir = temp_dir("own-root");
+        let inner = dir.join("a").join("b");
+        fs::create_dir_all(&inner).unwrap();
+        let info = resolve_project(&inner.display().to_string(), false).unwrap();
+        assert_eq!(info.path, canonical_project_root(&inner).display().to_string());
+        assert_eq!(info.redirected_from, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skips_a_nested_internal_directory_and_database() {
+        let dir = temp_dir("nested-internal");
+        write_file(&dir, "drawings/A-101.pdf", b"one");
+        // A subfolder that was once its own project.
+        write_file(&dir, "drawings/.redbeam/cache/thumb.pdf", b"two");
+        write_file(&dir, "drawings/redbeam.db", b"three");
+        write_file(&dir, "drawings/redbeam.db-wal", b"four");
+        let scan = scan_project(&dir, &["pdf".to_string()]).unwrap();
+        let paths: Vec<&str> = scan.files.iter().map(|f| f.relative_path.as_str()).collect();
+        assert_eq!(paths, vec!["drawings/A-101.pdf"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn skips_the_internal_directory() {
         assert!(is_internal(".redbeam"));
         assert!(is_internal(".redbeam/cache/x.bin"));
         assert!(is_internal(".REDBEAM/cache/x.bin"));
+        assert!(is_internal("drawings/.redbeam/cache/x.bin"));
+        assert!(!is_internal("drawings/redbeam-notes/x.pdf"));
         assert!(!is_internal("redbeam/x.pdf"));
     }
 
@@ -1635,6 +1765,7 @@ mod tests {
             db_path: dir.join("redbeam.db").display().to_string(),
             created: false,
             has_database: false,
+        redirected_from: None,
         };
         let promoted = promote_recent(&[], &project, "2026-08-28T00:00:00.000Z".into());
         write_recents(&file, &promoted).unwrap();
@@ -1654,6 +1785,7 @@ mod tests {
             db_path: "C:/jobs/a/redbeam.db".into(),
             created: false,
             has_database: true,
+        redirected_from: None,
         };
         let b = ProjectInfo {
             path: "C:/jobs/b".into(),
@@ -1661,6 +1793,7 @@ mod tests {
             db_path: "C:/jobs/b/redbeam.db".into(),
             created: false,
             has_database: true,
+        redirected_from: None,
         };
         let list = promote_recent(&[], &a, "t1".into());
         let list = promote_recent(&list, &b, "t2".into());
@@ -1686,6 +1819,7 @@ mod tests {
             db_path: "c:/jobs/a/redbeam.db".into(),
             created: false,
             has_database: true,
+        redirected_from: None,
         };
         assert_eq!(promote_recent(&existing, &same, "t2".into()).len(), 1);
     }
@@ -1700,6 +1834,7 @@ mod tests {
                 db_path: format!("C:/jobs/{i}/redbeam.db"),
                 created: false,
                 has_database: false,
+            redirected_from: None,
             };
             list = promote_recent(&list, &info, format!("t{i}"));
         }

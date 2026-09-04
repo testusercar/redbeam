@@ -28,12 +28,13 @@ import {
   type ScalePreset,
 } from '@redbeam/domain'
 import type { Tool } from '../draw.js'
+import { PRODUCT_TYPE_LABEL, readProductType } from '@redbeam/domain'
 import {
   Check, ChevronDown, ChevronRight, Compass, Crop, Crosshair, Ellipsis,
   Glyph, Hand, Highlighter, Maximize, Minus, MoveHorizontal, Pentagon, Plus, Ruler, Scissors,
   SlidersHorizontal, StretchHorizontal, Tally, X, LayoutGrid, Calculator,
 } from './icons.js'
-import type { LucideIcon } from 'lucide-react'
+import type { Icon } from './icons.js'
 import { useClampedPopover } from './popover.js'
 import { CalibrationEntry, type CalibrationEntryProps } from './CalibrationEntry.js'
 import { RegionList } from '../scale/RegionList.js'
@@ -46,7 +47,7 @@ import { ScalePicker } from '../scale/ScalePicker.js'
  * scale, the other a scope's orientation, and neither leaves a markup behind.
  * Mixing them in implied that calibrating draws something.
  */
-const TOOLS: Array<{ id: Tool; label: string; icon: LucideIcon }> = [
+const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
   { id: 'area', label: 'Area', icon: Pentagon },
   { id: 'polyline', label: 'Linear', icon: Ruler },
   { id: 'count', label: 'Count', icon: Tally },
@@ -67,7 +68,7 @@ const TOOLS: Array<{ id: Tool; label: string; icon: LucideIcon }> = [
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
 export type ReadTool = 'pan' | 'dimension'
-const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: LucideIcon }> = [
+const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
   { id: 'pan', label: 'Pan', title: 'Move the sheet (V)', icon: Hand },
   { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: MoveHorizontal },
 ]
@@ -91,7 +92,7 @@ const COMMON_SCALES = ['arch-1-8', 'arch-1-4', 'metric-50', 'metric-100'] as con
  * where the scale is, where the scale is read, and where every other way of
  * setting one already lives.
  */
-const SETUP: Array<{ id: Tool; label: string; title: string; icon: LucideIcon }> = [
+const SETUP: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
   {
     id: 'direction',
     label: 'Direction',
@@ -200,6 +201,10 @@ export interface ToolPillProps {
   onEstimate?: (id: string) => void
   /** Ask the sidebar to add a scope to the open round. */
   onAddScope?: () => void
+  /** Markups per scope, for the row's count. Absent in a harness with none. */
+  markupCountFor?: (scopeId: string) => number
+  /** Open the estimates panel, for a project with no round yet. */
+  onOpenEstimates?: () => void
 }
 
 /**
@@ -220,9 +225,17 @@ export interface ToolPillProps {
 export function ToolPill({
   tool, onTool, scopes, activeScope, onScope,
   onSpecifications, onQuantities, layoutOn, onToggleLayout, takeoff, onTakeoff,
-  estimates = [], openEstimateId = null, onEstimate, onAddScope,
+  estimates = [], openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
 }: ToolPillProps) {
   const [scopeOpen, setScopeOpen] = useState(false)
+  /*
+   * The round list is folded inside the popover. Switching a round used to
+   * be a row among the scopes and CLOSED the menu, so reaching a scope in
+   * another round took two openings and read as if the menu had misfired.
+   * Now the round is a header that unfolds its alternatives in place; picking
+   * one swaps the scope list beneath it and the menu stays open.
+   */
+  const [roundsOpen, setRoundsOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const scopeRef = useDismiss(scopeOpen, () => setScopeOpen(false))
   const moreRef = useDismiss(moreOpen, () => setMoreOpen(false))
@@ -248,7 +261,7 @@ export function ToolPill({
    * what every drawing application does with a tool row, and it is what the
    * comps drew.
    */
-  const toolButton = (t: { id: Tool; label: string; icon: LucideIcon; title?: string }, collapse?: string) => (
+  const toolButton = (t: { id: Tool; label: string; icon: Icon; title?: string }, collapse?: string) => (
     <button
       key={t.id}
       className="dockbtn dockicon"
@@ -309,21 +322,36 @@ export function ToolPill({
               row, the open one checked; picking another is the same gesture
               as picking a scope.
             */}
-            <div className="menuhead">Estimate</div>
-            {!switchable && (
-              <div className="scopemenuhead">
-                <span className="scopemenuname">{round?.name ?? 'No estimate open'}</span>
-              </div>
-            )}
-            {switchable && estimates.map((e) => (
+            {/*
+              THE ROUND, then ITS SCOPES. Markups land in a scope OF a round, so
+              the popover answers both questions in that order: which bid am I
+              in, and which product am I drawing. The round is a header that
+              can be unfolded to switch; the scopes are the list; adding a
+              scope is the foot. Nothing here closes the menu except choosing
+              a scope, which is the one thing the menu is for.
+            */}
+            <div className="scopemenuest">
+              <span className="menuhead">Estimate</span>
               <button
-                key={e.id}
-                className="menuitem"
-                role="option"
-                aria-selected={e.id === openEstimateId}
-                onClick={() => { onEstimate(e.id); setScopeOpen(false) }}
+                className="scopemenuswitch"
+                aria-expanded={switchable ? roundsOpen : undefined}
+                disabled={!switchable}
+                title={switchable ? 'Switch round' : undefined}
+                onClick={() => { if (switchable) setRoundsOpen((v) => !v) }}
               >
                 <Glyph icon={Calculator} role="row" />
+                <span className="scopemenuname">{round?.name ?? 'No estimate open'}</span>
+                {switchable && estimates.length > 1 && <Glyph icon={ChevronDown} role="small" />}
+              </button>
+            </div>
+            {switchable && roundsOpen && estimates.map((e) => (
+              <button
+                key={e.id}
+                className="menuitem scopemenuround"
+                role="option"
+                aria-selected={e.id === openEstimateId}
+                onClick={() => { onEstimate(e.id); setRoundsOpen(false) }}
+              >
                 <span className="grow">{e.name}</span>
                 {e.id === openEstimateId && <Glyph icon={Check} role="small" />}
               </button>
@@ -332,27 +360,49 @@ export function ToolPill({
             <div className="menuhead">Scopes</div>
             {scopes.length === 0 && (
               <div className="menunote">
-                <span>{round === null ? 'Open an estimate to see its scopes.' : 'No scopes in this estimate yet.'}</span>
+                <span>
+                  {round === null
+                    ? 'No estimate is open. Start one in the Estimates panel; scopes live inside it.'
+                    : 'No scopes in this estimate yet. Add one and it becomes the target for what you draw.'}
+                </span>
               </div>
             )}
-            {scopes.map((sc) => (
-              <button
-                key={sc.id}
-                className="menuitem"
-                role="option"
-                aria-selected={sc.id === activeScope}
-                onClick={() => { onScope(sc.id); setScopeOpen(false) }}
-              >
-                <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
-                <span className="grow">{sc.label}</span>
-                {sc.id === activeScope && <Glyph icon={Check} role="small" />}
-              </button>
-            ))}
+            {scopes.map((sc) => {
+              const n = markupCountFor?.(sc.id)
+              return (
+                <button
+                  key={sc.id}
+                  className="menuitem scopemenurow"
+                  role="option"
+                  aria-selected={sc.id === activeScope}
+                  title={`${sc.label} — ${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}${n === undefined ? '' : ` · ${n} markup${n === 1 ? '' : 's'}`}`}
+                  onClick={() => { onScope(sc.id); setScopeOpen(false) }}
+                >
+                  <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
+                  <span className="scopemenutext">
+                    <span className="scopemenulabel">{sc.label}</span>
+                    <span className="scopemenusub">
+                      {PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}
+                      {n !== undefined && ` · ${n} markup${n === 1 ? '' : 's'}`}
+                    </span>
+                  </span>
+                  {sc.id === activeScope && <Glyph icon={Check} role="small" />}
+                </button>
+              )
+            })}
+            {round === null && onOpenEstimates !== undefined && (
+              <>
+                <div className="menusep" />
+                <button className="menuitem" onClick={() => { onOpenEstimates(); setScopeOpen(false) }}>
+                  <Glyph icon={Calculator} role="inline" /><span className="grow">Open the estimates panel</span>
+                </button>
+              </>
+            )}
             {onAddScope !== undefined && round !== null && (
               <>
                 <div className="menusep" />
                 <button className="menuitem" onClick={() => { onAddScope(); setScopeOpen(false) }}>
-                  <Glyph icon={Plus} role="inline" /><span className="grow">Add scope</span>
+                  <Glyph icon={Plus} role="inline" /><span className="grow">Add scope…</span>
                 </button>
               </>
             )}

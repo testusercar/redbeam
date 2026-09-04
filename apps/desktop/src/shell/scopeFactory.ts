@@ -39,7 +39,9 @@ export function newScope(label: string, existing: ReadonlyArray<{ color: string 
     scopeType: 'area',
     color: nextScopeColor(existing),
     // Panels: the one product whose counts are proven against the Qt build,
-    // and what most of the trade's ceiling scopes are.
-    specifications: { productType: 'panels' },
+    // and what most of the trade's ceiling scopes are. Seams aligned from the
+    // start — Aaron: "Default to align seams at all times." The key is a
+    // string because the Qt build stored every specification as text.
+    specifications: { productType: 'panels', alignSeams: 'true' },
   }
 }

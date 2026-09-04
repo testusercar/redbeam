@@ -82,6 +82,7 @@ pub fn run() {
             project::project_clear_recents,
             project::project_scan,
             project::project_read_document,
+            project::project_save_file,
             window::open_project_window,
             window::open_context_window,
             window::close_window,

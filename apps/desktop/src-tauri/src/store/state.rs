@@ -9,7 +9,9 @@
 //! * **A pool would defeat the point.** The reason the store moved out of the
 //!   browser at all is that a per-page database let two windows diverge. A pool
 //!   hands different windows different connections, which brings back the same
-//!   class of bug for anything not yet committed. One connection, one truth.
+//!   class of bug for anything not yet committed. One connection PER PROJECT,
+//!   one truth per project — see [`StoreState`] for why it is not one per
+//!   process.
 //! * **SQLite serializes writes anyway.** This is a single-user, single-writer
 //!   desktop app; the contention a pool would relieve does not exist. Reads are
 //!   sub-millisecond against a project-sized database.
@@ -25,6 +27,8 @@
 //! If write throughput ever becomes the problem, the answer is a dedicated
 //! writer thread with a channel — not more connections.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -51,14 +55,39 @@ pub struct OpenInfo {
     pub db_path: String,
 }
 
+/// The open connections, one per project, and which one was opened last.
+#[derive(Default)]
+struct Open {
+    stores: HashMap<PathBuf, Store>,
+    /// The most recently opened project — what an unaddressed caller (the
+    /// automation bridge, a crash report) means by "the project".
+    current: Option<PathBuf>,
+}
+
 /// Process-wide store handle.
 ///
 /// Register once with `.manage(StoreState::new())`; every window's commands
 /// resolve to this same value, which is the whole reason the database moved out
 /// of the browser.
+///
+/// # One connection PER PROJECT, not per process
+///
+/// This held exactly one `Store`, and `open` replaced it. That was right for
+/// the case it was written for — every window on one project shares one
+/// connection, so none can diverge — and wrong for the case the shell then
+/// built on top of it: "open another project" opens a SECOND WINDOW, and a
+/// window is a project. The second window's `db_open` swapped the process's
+/// only connection under the first, whose every subsequent `db_all`/`db_run`
+/// was then refused as `WrongProject`. From the first window nothing worked:
+/// no markups loaded, no scope saved, and no error anyone could act on.
+///
+/// Aaron hit it by opening a drawing as a project and then its parent folder
+/// as another. So the map: each project keeps its own connection for as long
+/// as the process lives, windows on the same project still share exactly one,
+/// and a write is addressed to the project it belongs to.
 #[derive(Default)]
 pub struct StoreState {
-    inner: Mutex<Option<Store>>,
+    inner: Mutex<Open>,
 }
 
 impl StoreState {
@@ -66,9 +95,21 @@ impl StoreState {
         Self::default()
     }
 
-    /// Open a project, run migrations, and replace whatever was open before.
+    /// Open a project and run its migrations. The connection is kept beside
+    /// any other open project's; opening the same project again reuses it.
     pub fn open(&self, project_path: &str) -> Result<OpenInfo, StoreError> {
-        let store = Store::open(project_path)?;
+        let key = super::db::resolve_db_path(project_path);
+        let mut guard = self.lock();
+        // `:memory:` is a fresh database every time it is opened, and a test
+        // that opens it twice wants two — so it is the one path never reused.
+        let reuse = key != PathBuf::from(":memory:") && guard.stores.contains_key(&key);
+        if !reuse {
+            let store = Store::open(project_path)?;
+            guard.stores.insert(key.clone(), store);
+        }
+        let store = guard.stores.get(&key).expect("just inserted");
+        // Migrating an already-open project is a no-op that reports zero
+        // applied, which is what a reopen should say.
         let migrated = store.migrate()?;
         let info = OpenInfo {
             schema_version: store.schema_version()?,
@@ -80,62 +121,75 @@ impl StoreState {
                 .collect(),
             db_path: store.db_path().display().to_string(),
         };
-        // Dropping the previous Store closes its connection.
-        *self.lock() = Some(store);
+        guard.current = Some(key);
         Ok(info)
     }
 
-    /// Borrow the open store for one operation.
+    /// Borrow the most recently opened store for one operation.
+    ///
+    /// For callers with no project of their own — the bridge, the crash
+    /// reporter. Anything acting on a window's behalf goes through
+    /// [`with_project`](Self::with_project).
     pub fn with<T>(&self, f: impl FnOnce(&Store) -> Result<T, StoreError>) -> Result<T, StoreError> {
         let guard = self.lock();
-        let store = guard.as_ref().ok_or(StoreError::NotOpen)?;
+        let key = guard.current.as_ref().ok_or(StoreError::NotOpen)?;
+        let store = guard.stores.get(key).ok_or(StoreError::NotOpen)?;
         f(store)
     }
 
-    /// Borrow the open store, but only if it is the project the caller meant.
+    /// Borrow the store for the project the caller meant.
     ///
     /// # The bug this exists to make impossible
     ///
-    /// One connection for the process is the right design — it is why two
-    /// windows cannot diverge — but it made a write's DESTINATION a property of
-    /// time rather than of the write. Opening a project starts a folder scan
-    /// that can run for minutes on a synced share; switching projects mid-scan
-    /// repointed this connection, and when the first scan finished it ingested
-    /// into whichever database was open by then.
+    /// A write's DESTINATION must be a property of the write, not of time.
+    /// Opening a project starts a folder scan that can run for minutes on a
+    /// synced share; switching projects mid-scan used to repoint the
+    /// connection, and when the first scan finished it ingested into whichever
+    /// database was open by then.
     ///
     /// That is not hypothetical. On 2026-09-03 the Barclays Toronto project's
     /// database was found holding 625 documents from two other jobs, and the
     /// CoreWeave project's database was holding Barclays' three. One client's
     /// drawings, catalogued under another client's bid.
     ///
-    /// The check is here rather than in the caller because here it is under the
-    /// SAME lock as the write. Asking "is the right project open?" and then
-    /// writing is two steps, and a switch fits between them.
+    /// With one connection per project the wrong destination cannot be open
+    /// by accident; what is refused now is a project that was never opened.
     pub fn with_project<T>(
         &self,
         project_path: &str,
         f: impl FnOnce(&Store) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let guard = self.lock();
-        let store = guard.as_ref().ok_or(StoreError::NotOpen)?;
-
         // Resolved the same way `Store::open` resolved it, so a caller may name
         // the project folder or the .db file, as `db_open` allows.
         let expected = super::db::resolve_db_path(project_path);
-        if expected != store.db_path() {
-            return Err(StoreError::WrongProject {
+        match guard.stores.get(&expected) {
+            Some(store) => f(store),
+            None => Err(StoreError::WrongProject {
                 expected: expected.display().to_string(),
-                open: store.db_path().display().to_string(),
-            });
+                open: guard
+                    .current
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "nothing".to_string()),
+            }),
         }
-        f(store)
+    }
+
+    /// The projects currently open, as database paths.
+    pub fn open_paths(&self) -> Vec<String> {
+        self.lock()
+            .stores
+            .keys()
+            .map(|p| p.display().to_string())
+            .collect()
     }
 
     /// A poisoned lock means a panic unwound through a query. `rusqlite` keeps
     /// no invariant that a panic could leave half-broken, and bricking the
     /// user's project for the rest of the session over it would be worse than
     /// the panic was, so the guard is recovered.
-    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Store>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Open> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }

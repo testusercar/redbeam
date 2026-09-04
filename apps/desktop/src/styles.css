@@ -352,7 +352,7 @@ h4 {
      cards carry, so a card is a card wherever it appears. */
   border: 1px solid var(--ads-line);
   border-radius: var(--ads-radius-l);
-  background: var(--rb-raised);
+  background: var(--rb-layer);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
 }
 .starthead { display: flex; align-items: center; gap: var(--ads-sp-3); }
@@ -409,3 +409,93 @@ h4 {
 .diagkind { font-weight: 600 }
 .diagwhen { color: var(--ink-3); white-space: nowrap }
 .diagmsg { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+
+/* ---- export sheet ----
+   The page in the estimates sidebar where an estimate is checked and named
+   before it leaves as a PDF, a CSV or a TSV. Fields use the sidebar's own
+   input grammar (see `.nameeditor input` in shell.css); the layout is the
+   panel's sections. */
+.exportsheet { display: flex; flex-direction: column; min-height: 0 }
+.exportfield { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center;
+  gap: 8px; padding: 3px 0 }
+.exportfield > span { font-size: 12px; color: var(--ink-3) }
+.exportfield input, .exportscopehead input, .exportnote {
+  width: 100%; min-width: 0; padding: 4px 8px; border: 1px solid var(--rule);
+  border-radius: var(--r-sm); background: var(--inset); color: var(--ink);
+  font: inherit; font-size: 12px }
+.exportfield input:focus-visible, .exportscopehead input:focus-visible, .exportnote:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -1px }
+.exportscope { padding: 6px 0 8px; border-bottom: 1px solid var(--rule) }
+.exportscope:last-child { border-bottom: 0 }
+.exportscopehead { display: grid; grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center; gap: 6px }
+.exportscopename { font-weight: 600 }
+.exportscopeproduct { color: var(--ink-3) }
+.exportlines { display: flex; flex-direction: column; gap: 2px; padding: 6px 0 4px 14px }
+.exportline { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-2) }
+.exportline.flagged { box-shadow: inset 2px 0 0 var(--warn); padding-left: 6px; margin-left: -8px }
+.exportqty { font-variant-numeric: tabular-nums; white-space: nowrap }
+.exportnote { resize: vertical; min-height: 26px; margin-top: 2px; font-size: 12px }
+.exportactions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px }
+.exportstatus { font-size: 12px; color: var(--ink-3); padding: 2px 0 12px }
+.exportproblem { color: var(--bad) }
+
+/* ---- search indexing ----
+   The Search tab wears a ring while the project's text is being read, so the
+   coverage line in the pane is not the first place the wait is visible. A
+   conic ring rather than a spinner glyph: it sits behind the icon at the
+   tab's own size and needs no second element. */
+.sidetab.indexing { position: relative }
+.sidetab.indexing::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+  margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--accent) 0 25%, transparent 25% 100%);
+  -webkit-mask: radial-gradient(circle, transparent 10px, #000 11px);
+  mask: radial-gradient(circle, transparent 10px, #000 11px);
+  animation: indexing-spin 1.1s linear infinite }
+@keyframes indexing-spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) {
+  .sidetab.indexing::after { animation: none; background: conic-gradient(var(--accent) 0 100%) }
+}
+
+/* ---- no drawing open ----
+   The stage with a project open and no document chosen. Not an error: it is
+   the first thing a freshly opened project shows, and it points at the Files
+   pane, which is where the next click goes. */
+.stageempty { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; pointer-events: none }
+.stageempty > div { max-width: 360px; text-align: center; color: var(--ink-3); font-size: 13px;
+  line-height: 1.5 }
+.stageempty strong { display: block; color: var(--ink-2); font-size: 15px; margin-bottom: 4px }
+
+/* ---- file tree ----
+   Folders at every depth, the way the drawings sit on disk. Depth is a CSS
+   variable set per row so the indent is one rule, not one class per level. */
+.treefolder { padding-left: calc(var(--ads-sp-4) + var(--tree-depth, 0) * 14px) }
+/* One line, always: a folder name that wraps to two lines pushes the whole
+   tree down and reads as two folders. The title carries the full path. */
+.treefolder .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+/* The chevron is a ChevronDown: open points down, closed points right. The
+   sheet-group rule this row borrows rotates ITS chevron 90 degrees when open;
+   that is undone here or an open folder points left. */
+.treefolder > svg:first-child { flex: none; transition: transform 120ms ease; transform: none }
+.treefolder[aria-expanded="true"] > svg:first-child { transform: none }
+.treefolder[aria-expanded="false"] > svg:first-child { transform: rotate(-90deg) }
+.treefolder .treecount { font-size: var(--ads-text-xs); color: var(--ink-4) }
+.filerow.treefile { padding-left: calc(var(--ads-sp-6) + var(--tree-depth, 0) * 14px) }
+@media (prefers-reduced-motion: reduce) { .treefolder > svg:first-child { transition: none } }
+
+/* ---- the dock's scope popover ----
+   Round as a header that unfolds, scopes as two-line rows. See ToolPill. */
+.scopemenuest { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 2px }
+.scopemenuswitch { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%;
+  padding: 4px 6px; border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer }
+.scopemenuswitch:disabled { cursor: default }
+.scopemenuswitch:not(:disabled):hover { background: var(--inset) }
+.scopemenuswitch[aria-expanded="true"] > svg:last-child { transform: rotate(180deg) }
+.scopemenuround { padding-left: 34px }
+.scopemenurow { align-items: center }
+.scopemenutext { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 1px }
+.scopemenulabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.scopemenusub { font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

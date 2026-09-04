@@ -25,6 +25,12 @@ export interface ProjectInfo {
   created: boolean
   /** True when the database file already existed — a reopen, not a first open. */
   hasDatabase: boolean
+  /**
+   * The folder that was asked for, when the project opened is an ancestor of
+   * it instead. A folder inside an existing project IS that project — see
+   * `outermost_project_root` in project.rs. Absent when nothing was redirected.
+   */
+  redirectedFrom?: string
 }
 
 /** One entry in the recent-projects list. */

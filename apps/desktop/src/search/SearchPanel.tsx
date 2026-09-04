@@ -32,6 +32,12 @@ export interface SearchPanelProps {
    * A pane that stays open cannot use "mounted" as its cue.
    */
   focusNonce?: number
+  /**
+   * A query handed in from outside — the palette, when it matched nothing
+   * and offered the search it cannot do. Applied whenever it or `focusNonce`
+   * changes, so the same words offered twice run twice.
+   */
+  seed?: string
 }
 
 /** Characters before a query is worth running. One letter matches every page. */
@@ -39,7 +45,7 @@ const MIN_QUERY = 2
 /** How long the field is left alone between keystrokes before a search runs. */
 const DEBOUNCE_MS = 250
 
-export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0 }: SearchPanelProps) {
+export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0, seed = '' }: SearchPanelProps) {
   useReturnFocus(true)
   const [query, setQuery] = useState('')
   const [report, setReport] = useState<SearchReport | null>(null)
@@ -54,6 +60,7 @@ export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0 }: Se
   const seq = useRef(0)
 
   useEffect(() => { inputRef.current?.focus() }, [focusNonce])
+  useEffect(() => { if (seed !== '') setQuery(seed) }, [seed, focusNonce])
 
   const run = useCallback(async (raw: string) => {
     const q = raw.trim()

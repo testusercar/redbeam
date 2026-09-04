@@ -14,13 +14,13 @@
     "tauri:build:arm64": "scripts\\build-arm64.cmd"
   },
   "dependencies": {
+    "@fluentui/react-icons": "^2.0.339",
     "@redbeam/domain": "*",
     "@redbeam/store": "*",
     "@redbeam/viewer": "*",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.11.0",
-    "lucide-react": "^1.35.0",
     "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

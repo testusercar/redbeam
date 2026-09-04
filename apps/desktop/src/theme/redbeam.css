@@ -117,6 +117,18 @@
    * white sheet is a colour cast on the thing being measured.
    */
   --rb-acrylic:    rgba(44, 44, 44, .72);
+  /*
+   * A flyout is in-app acrylic too — #2C2C2C at the luminosity WinUI gives
+   * AcrylicInAppFillColorDefault, near-opaque so a menu over a busy sheet
+   * reads — with SurfaceStrokeColorDefault around it.
+   */
+  --rb-flyout:         rgba(44, 44, 44, .92);
+  --rb-surface-stroke: rgba(117, 117, 117, .4);
+  /* LayerFillColorDefault: the card ground on Mica. */
+  --rb-layer:          rgba(58, 58, 58, .3);
+  /* The focus visual is Fluent's black-and-white double ring, not the accent. */
+  --rb-focus-outer:    #FFFFFF;
+  --rb-focus-inner:    #000000;
 
   /*
    * The primary button is WHITE on this ground, not red — see the "+ New"
@@ -128,9 +140,19 @@
 
   /* --- functional ------------------------------------------------------ */
   /* Never carried by colour alone; always paired with a label or icon. */
-  --rb-good:      #4ADE80;
-  --rb-warn:      #F4B740;
-  --rb-bad:       #FF4D4D;
+  /*
+   * WinUI's system fills, not ours. Each state colour ships with the
+   * background WinUI paints under it (SystemFillColor*Background), so an
+   * InfoBar is the resource pair rather than a colour-mix guess.
+   */
+  --rb-good:      #6CCB5F;   /* SystemFillColorSuccess */
+  --rb-good-bg:   #393D1B;
+  --rb-warn:      #FCE100;   /* SystemFillColorCaution */
+  --rb-warn-bg:   #433519;
+  --rb-bad:       #FF99A4;   /* SystemFillColorCritical */
+  --rb-bad-bg:    #442726;
+  --rb-attention: #60CDFF;   /* SystemFillColorAttention */
+  --rb-attention-bg: rgba(255, 255, 255, .0326);
 
   /*
    * Paper.
@@ -168,8 +190,18 @@
    * These are the row heights the rest of the shell is measured against, so a
    * density change is one edit here rather than forty.
    */
-  --rb-row:       28px;   /* two-line list rows: sheet index, estimates */
-  --rb-row-sm:    24px;   /* one-line rows: markups, menu items, kv */
+  /*
+   * WinUI Compact sizing (XamlControlsResources.UseCompactResources): a
+   * one-line ListViewItem is 24, a two-line one 36, a MenuFlyoutItem 28, a
+   * NavigationViewItem 32. Nothing here is tighter than Windows draws.
+   */
+  --rb-row:       24px;   /* one-line list rows: sheet index, files, markups, kv */
+  --rb-row-2:     36px;   /* two-line rows: estimates, scopes */
+  --rb-row-sm:    24px;   /* kept for the rules that still name it */
+  --rb-menu-item: 28px;   /* MenuFlyoutItem, compact */
+  /* Body 14/20 on navigation and menus; Caption 12 inside 24px controls. */
+  --rb-text-body:    14px;
+  --rb-leading-body: 20px;
   --rb-head:      24px;   /* SECTION headers — a mono-caps divider, not a bar */
   --rb-pane-head: 32px;   /* PANE headers — the pane's own title row */
   --rb-control:   32px;   /* inputs, buttons, segmented controls */
@@ -178,7 +210,7 @@
 
   --rb-topbar-h:  40px;
   --rb-rail-w:    48px;   /* Fluent compact navigation, when the sidebar collapses */
-  --rb-rail-btn:  36px;    /* 44 × 36 — the rail's hit target */
+  --rb-rail-btn:  32px;    /* NavigationViewItem, compact */
   --rb-pane-w:    300px;   /* doc says 280, min 232, max 420 */
   --rb-work-w:    380px;   /* doc and build agree; min 320 */
 

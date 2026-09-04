@@ -7,12 +7,18 @@
 //! # The contract
 //!
 //! ```js
-//! await invoke('undo_record', { record, apply: true, limit: 100 })  // -> UndoStatus
-//! await invoke('undo_apply')                            // -> UndoOutcome
-//! await invoke('undo_redo')                             // -> UndoOutcome
-//! await invoke('undo_state')                            // -> UndoStatus
-//! await invoke('undo_clear')                            // -> UndoStatus
+//! await invoke('undo_record', { record, apply: true, limit: 100, projectPath })  // -> UndoStatus
+//! await invoke('undo_apply', { projectPath })           // -> UndoOutcome
+//! await invoke('undo_redo', { projectPath })            // -> UndoOutcome
+//! await invoke('undo_state', { projectPath })           // -> UndoStatus
+//! await invoke('undo_clear', { projectPath })           // -> UndoStatus
 //! ```
+//!
+//! `projectPath` names the window's project, folder or `.db`, the same way the
+//! store commands take it. It is optional only for callers that have no
+//! project of their own; a window always passes it, because with one
+//! connection per project an unaddressed undo would act on whichever project
+//! was opened last.
 //!
 //! Command names come from the function identifiers verbatim. Argument keys are
 //! lower-camel-cased by Tauri's macro, which is why `record` and `apply` are
@@ -51,8 +57,9 @@ pub async fn undo_record(
     record: UndoRecord,
     apply: Option<bool>,
     limit: Option<usize>,
+    project_path: Option<String>,
 ) -> Result<UndoStatus, String> {
-    undo.record(&store, record, apply.unwrap_or(true), limit)
+    undo.record(&store, project_path.as_deref(), record, apply.unwrap_or(true), limit)
         .map_err(|e| e.to_string())
 }
 
@@ -64,8 +71,9 @@ pub async fn undo_record(
 pub async fn undo_apply(
     store: State<'_, StoreState>,
     undo: State<'_, UndoState>,
+    project_path: Option<String>,
 ) -> Result<UndoOutcome, String> {
-    undo.undo(&store).map_err(|e| e.to_string())
+    undo.undo(&store, project_path.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Redo the most recently undone command.
@@ -73,8 +81,9 @@ pub async fn undo_apply(
 pub async fn undo_redo(
     store: State<'_, StoreState>,
     undo: State<'_, UndoState>,
+    project_path: Option<String>,
 ) -> Result<UndoOutcome, String> {
-    undo.redo(&store).map_err(|e| e.to_string())
+    undo.redo(&store, project_path.as_deref()).map_err(|e| e.to_string())
 }
 
 /// What the undo control should say, and what it would act on.
@@ -85,8 +94,9 @@ pub async fn undo_redo(
 pub async fn undo_state(
     store: State<'_, StoreState>,
     undo: State<'_, UndoState>,
+    project_path: Option<String>,
 ) -> Result<UndoStatus, String> {
-    undo.status(&store).map_err(|e| e.to_string())
+    undo.status(&store, project_path.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Drop the stack without reverting anything.
@@ -94,6 +104,7 @@ pub async fn undo_state(
 pub async fn undo_clear(
     store: State<'_, StoreState>,
     undo: State<'_, UndoState>,
+    project_path: Option<String>,
 ) -> Result<UndoStatus, String> {
-    undo.clear(&store).map_err(|e| e.to_string())
+    undo.clear(&store, project_path.as_deref()).map_err(|e| e.to_string())
 }

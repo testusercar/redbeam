@@ -39,14 +39,26 @@ describe('search · ranking', () => {
     expect(rank(list, 'arc', 'Show arc length')).toBeLessThan(rank(list, 'arc', 'Show auto rescale'))
   })
 
-  it('ranks any title match above any keyword-only match', () => {
+  it('ranks a whole-word keyword above a fuzzy title, and a title prefix above both', () => {
     const list = [
-      // A keyword hit as strong as one gets — an exact prefix of the keyword —
-      // against a title hit as weak as one gets: two gaps and no prefix.
+      // A keyword the query is a prefix of, against a title hit as weak as
+      // one gets: two gaps and no prefix. The keyword wins — that is what an
+      // alias is for — but a title the query is a prefix of still beats it.
       cmd('Lock page layout', { keywords: ['freeze'] }),
       cmd('Set frame size'),
+      cmd('Fresh start'),
     ]
-    expect(titles(list, 'fre')).toEqual(['Set frame size', 'Lock page layout'])
+    expect(titles(list, 'fre')).toEqual(['Fresh start', 'Lock page layout', 'Set frame size'])
+  })
+
+  it('keeps a keyword the query only fuzzy-matches below every title match', () => {
+    const list = [
+      cmd('Lock page layout', { keywords: ['freeze'] }),
+      cmd('Fizz buzz'),
+    ]
+    // "fz" is in "freeze" with a gap and starts no word of it; the title
+    // "Fizz buzz" only fuzzy-matches too, and a title still outranks it.
+    expect(titles(list, 'fz')).toEqual(['Fizz buzz', 'Lock page layout'])
   })
 
   it('finds a command through a plain-language alias, and marks nothing in the title', () => {

@@ -325,17 +325,12 @@ describe('SettingsStore', () => {
 })
 
 /**
- * The header and the body wrap the same centred column, so they have to
- * agree about where its edges are.
- *
- * The previous layout's did not: the header carried an asymmetric shorthand
- * declared after the shared `padding-inline`, which silently reset it, and the
- * title sat 4px right of the settings underneath it — small enough to look
- * like nothing and large enough to look wrong, on the one screen whose job is
- * to look settled. The body added its own 4px by being the only row that
- * loses width to a scrollbar.
+ * The page's shape is Windows Settings' shape, and the stylesheet says so in
+ * numbers: a navigation pane the width of the sidebar's column, 36px
+ * navigation items, 68px SettingsCards, and one scrolling layer whose
+ * scrollbar never shifts the column.
  */
-describe('the settings column', () => {
+describe('the settings page', () => {
   const css = readFileSync(join(HERE, 'settings.css'), 'utf8')
   const block = (selector: string) => {
     const start = css.indexOf(`\n${selector} {`)
@@ -343,21 +338,19 @@ describe('the settings column', () => {
     return css.slice(start, css.indexOf('\n}', start))
   }
 
-  it('has one rule owning the inline padding of both rows', () => {
-    expect(css).toContain('.prefs-head, .prefs-body { padding-inline:')
+  it("puts the navigation pane in the sidebar's column", () => {
+    expect(block('.prefs-nav')).toContain('width: var(--rb-pane-w)')
   })
 
-  for (const row of ['.prefs-head', '.prefs-body']) {
-    it(`does not let ${row} reset that padding with a shorthand`, () => {
-      expect(block(row)).not.toMatch(/^\s*padding:/m)
-    })
-  }
+  it('draws NavigationView items at 36 and SettingsCards at 68', () => {
+    expect(block('.prefs-navitem')).toContain('height: 36px')
+    expect(block('.prefs-card')).toContain('min-height: 68px')
+  })
 
-  it('reserves the scrollbar on both edges of the body', () => {
-    // Only the body scrolls, so only the body loses width to a scrollbar.
-    // `stable both-edges` spends it symmetrically and leaves centre where the
-    // header put it.
-    expect(block('.prefs-body')).toContain('scrollbar-gutter: stable both-edges')
+  it('scrolls only the layer, with the gutter reserved', () => {
+    expect(block('.prefs-layer')).toContain('overflow-y: auto')
+    expect(block('.prefs-layer')).toContain('scrollbar-gutter: stable')
+    expect(block('.prefs-page')).not.toContain('overflow')
   })
 
   it('does not define the bare selector shell.css still owns', () => {

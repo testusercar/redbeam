@@ -13,6 +13,7 @@
  * preferences.
  */
 import { useEffect, useState } from 'react'
+import { Bug, Glyph } from '../shell/icons.js'
 import { crashFolder, listCrashReports } from '../crash.js'
 
 interface Report {
@@ -51,6 +52,7 @@ export function DiagnosticsRow({ desktop }: { desktop: boolean }) {
 
   return (
     <div className="prefs-card">
+      <span className="prefs-cardicon"><Glyph icon={Bug} role="card" /></span>
       <div className="prefs-cardtext">
         <div className="prefs-cardtitle">Problem reports</div>
         {reports === null && <div className="prefs-cardnote">Looking…</div>}

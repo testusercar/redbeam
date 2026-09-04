@@ -182,3 +182,25 @@ export function rectPoints(
     screenToNormalized(left, bottom, view, pageW, pageH),
   ]
 }
+
+/**
+ * The four corners of a rectangle between two NORMALIZED corners.
+ *
+ * The drag-rectangle used to keep its anchor in SCREEN pixels and convert on
+ * every move, so panning or zooming mid-drag — a wheel while the button is
+ * down — moved the anchor with the screen and the shape slid across the
+ * sheet. Aaron: "the scope should be anchored to the point on the sheet".
+ * The anchor is a point on the page; only the live corner is on screen.
+ */
+export function rectPointsBetween(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): Array<{ x: number; y: number }> {
+  const left = Math.min(a.x, b.x)
+  const right = Math.max(a.x, b.x)
+  const top = Math.min(a.y, b.y)
+  const bottom = Math.max(a.y, b.y)
+  return [
+    { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },
+  ]
+}

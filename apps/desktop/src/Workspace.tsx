@@ -4,13 +4,15 @@ import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
   calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction,
   scopeToolWarning, calculatePieces, scopeDefaultDirectionFrom,
-  SCALE_PRESETS, PRODUCT_TYPE_LABEL, readProductType, missingRequiredMeasures,
+  SCALE_PRESETS, PRODUCT_TYPES, PRODUCT_TYPE_LABEL, readProductType, writeProductType, missingRequiredMeasures,
   areaSquareFeet, linearFeet, feetPerPointForPreset, presetSource, scaleLabel,
   bucketByScale, conflictingRegions, type ScaleRegion,
   buildBom, bomToTsv,
   type MarkupKind, type PieceResult, type ScalePreset,
-  type Calibration, type Markup, type Scope, type QuantityResult,
+  type Calibration, type Markup, type Scope, type ScopeType, type QuantityResult,
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, pageDirectionsFrom, areaDirectionsFrom,
+  pointInPolygon,
+  editableMeasures, measureHelp, readString, unitDisplayText, readBool,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -36,7 +38,7 @@ import { broadcastChange, onChange } from '@redbeam/store'
 import { getWindowRole, openContextWindow, isTauri } from './tauri/window.js'
 import { windowTitle } from './windowTitle.js'
 import {
-  emptyDraft, drawDraft, screenToNormalized, rectPoints, isCommittable, draftLengthPdfPoints,
+  emptyDraft, drawDraft, screenToNormalized, rectPointsBetween, isCommittable, draftLengthPdfPoints,
   type DraftState, type Tool,
 } from './draw.js'
 import { toOverlay } from './overlay.js'
@@ -62,6 +64,7 @@ import { buildSheetIndex, sheetFromText } from './shell/sheets.js'
 import type { SheetIndexShape, SheetOutlineNode } from './shell/sheets.js'
 import {
   EstimatesPanel, type EstimateFile, type EstimateListItem, type ScopeMarkup,
+  type ScopePage,
 } from './shell/RightWorkspace.js'
 import { renderTakeoffReport } from './export/report.js'
 import { projectBridge, projectNameFromPath } from './project/bridge.js'
@@ -69,7 +72,7 @@ import { createCoreBlobUrlResolver } from './project/ingest.js'
 import { openProjectDocuments } from './project/openProject.js'
 import { SearchPanel } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
-import type { Command } from './palette/commands.js'
+import type { Command, Step } from './palette/commands.js'
 import { snapPoint, drawSnapIndicator, DEFAULT_SNAP, type SnapResult } from './snap.js'
 import { hitTest, drawSelection, drawMarquee, markupsInRect, insertVertexAt, removeVertexAt, type Hit } from './hit.js'
 import { normalizedToScreen } from './draw.js'
@@ -79,8 +82,19 @@ import { isTextEntry, survivesTextEntry } from './keys.js'
 import { readSession, writeSession } from './session.js'
 import { calculationFor, deltaBetween, type QuantityDelta } from './commit.js'
 import { projectCommands } from './palette/projects.js'
+import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
+import { ExportSheet } from './export/ExportSheet.js'
+import {
+  buildEstimateExport, estimateToCsv, estimateToTsv, exportFileName, type EstimateExport,
+} from './export/estimateExport.js'
+import { renderEstimatePdf } from './export/estimatePdf.js'
+import { saveFile, saveOutcomeText } from './export/saveFile.js'
+import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/snapshots.js'
+import { indexProject, type IndexProgress } from './search/indexer.js'
+import { openHeadlessDocument } from './project/headlessDocument.js'
+import { hitTestDimension } from './tools/dimension.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
@@ -97,6 +111,9 @@ const VH = 780
  * used — the id comes from the ingested row, which is derived from the file's
  * relative path so the same file always resolves to the same takeoff.
  */
+/** What a scope counts, as the Setup page words it. */
+const SCOPE_TYPE_LABEL: Record<ScopeType, string> = { area: 'areas', linear: 'lengths', count: 'counts' }
+
 const FALLBACK_DOC = { id: 'doc-sample', relativePath: 'sample.pdf', displayName: 'Sample drawing' }
 /**
  * Page and document identity come from @redbeam/store, never from here.
@@ -143,6 +160,24 @@ export interface WorkspaceProps {
 function pageIndexOf(pageId: string): number | null {
   const m = /-p(\d+)$/.exec(pageId)
   return m === null ? null : Number(m[1])
+}
+
+/**
+ * Cutouts that subtract from nothing: no area of the same scope on the same
+ * page contains their first vertex — the rule `effectiveAreaRings` applies.
+ */
+function strayCutouts(markups: readonly Markup[]): number {
+  let n = 0
+  for (const c of markups) {
+    if (c.kind !== 'cutout') continue
+    const probe = c.rings[0]?.[0]
+    if (probe === undefined) continue
+    const inside = markups.some((a) =>
+      a.kind === 'area' && a.pageId === c.pageId && a.scopeId === c.scopeId
+      && a.rings.some((ring) => pointInPolygon(probe, ring)))
+    if (!inside) n++
+  }
+  return n
 }
 
 export default function Workspace({
@@ -226,6 +261,8 @@ export default function Workspace({
   const [addScopeRequest, setAddScopeRequest] = useState(0)
   const [docUrl, setDocUrl] = useState<string | null>(null)
   const [ingestNote, setIngestNote] = useState<string | null>(null)
+  /** The project-wide text indexer's progress; null when it is not running. */
+  const [indexing, setIndexing] = useState<IndexProgress | null>(null)
   /*
    * Search is a RAIL PANE, so it has no open/closed state of its own — the
    * rail owns that. What survives is a nonce: pressing Ctrl+F while the pane
@@ -233,6 +270,7 @@ export default function Workspace({
    * an already-mounted pane would not.
    */
   const [searchFocus, setSearchFocus] = useState(0)
+  const [searchSeed, setSearchSeed] = useState('')
   /** Key of the (document, page) whose `pages` row is known to exist. */
   const [pageReadyKey, setPageReadyKey] = useState<string | null>(null)
   const [textNote, setTextNote] = useState<string | null>(null)
@@ -245,6 +283,26 @@ export default function Workspace({
   const docIdRef = useRef<string>(FALLBACK_DOC.id)
   const regionsRef = useRef<Map<string, ScaleRegion[]>>(new Map())
   const toolRef = useRef<Tool>('pan')
+  /**
+   * The page's calibration, for the paint loop.
+   *
+   * A committed dimension's label is derived from its length and the page's
+   * scale, and the painter read neither: it drew every dimension with
+   * `feetPerPoint: 0`, so a calibrated sheet's dimensions all said "set
+   * scale first". A ref rather than a dependency, because the paint callback
+   * must not be rebuilt on every calibration change.
+   */
+  const calRef = useRef<Calibration | null>(null)
+  /**
+   * Space is held: the next press-and-drag pans, WHATEVER tool is in hand.
+   *
+   * Every drawing application does this and an estimator's hands expect it —
+   * halfway through a polygon you hold space, drag the sheet over, let go
+   * and place the next vertex. It also covers the middle button. The ref
+   * pair is read by the pointer handlers; nothing re-renders for it.
+   */
+  const spaceRef = useRef(false)
+  const panOverrideRef = useRef(false)
   /**
    * Is a dialog on screen?
    *
@@ -307,9 +365,14 @@ export default function Workspace({
   const settings = settingsRef.current
   const [settingsOpen, setSettingsOpen] = useState(false)
   /** The bill of materials is showing, as a level of the estimates panel. */
-  const [bomOpen, setBomOpen] = useState(false)
+  /* Which page of the open scope shows: the dock's Quantities opens Parts, its Specifications opens Setup. */
+  const [scopePage, setScopePage] = useState<ScopePage>('parts')
   /** Which left-rail panel is showing, or null when the panel is collapsed. */
-  const [railPanel, setRailPanel] = useState<RailPanel | null>('contents')
+  /*
+   * Files first. A project opens with no drawing on the stage (see the open
+   * effect), so the pane that lists the drawings is the one to be looking at.
+   */
+  const [railPanel, setRailPanel] = useState<RailPanel | null>('files')
   /**
    * Whether the drawing tools are on screen.
    *
@@ -501,16 +564,20 @@ export default function Workspace({
    */
   const only = useCallback((open: 'bom' | 'browser' | 'scope') => {
     setSettingsOpen(false)
-    if (open === 'bom') { setWorkOpen(true); setBomOpen(true) }
+    if (open === 'bom') {
+      // The bill is a scope's Parts page now — there is no level of its own.
+      setWorkOpen(true); setScopePage('parts')
+      const id = activeScopeRef.current
+      if (id !== null) setOpenScopeId(id)
+    }
     if (open === 'browser') { setRailPanel('files'); setFilesFocus((n) => n + 1) }
     if (open === 'scope') {
       setWorkOpen(true)
-      setBomOpen(false)
       setOpenScopeId(null)
       setAddScopeRequest((n) => n + 1)
     }
   }, [])
-  const openBom = useCallback(() => { only('bom') }, [only])
+  const openParts = useCallback(() => { only('bom') }, [only])
   const openBrowser = useCallback(() => { only('browser') }, [only])
   const openScopeEditor = useCallback(() => { only('scope') }, [only])
   /**
@@ -527,7 +594,7 @@ export default function Workspace({
     if (id === null) { only('scope'); return }
     setSettingsOpen(false)
     setWorkOpen(true)
-    setBomOpen(false)
+    setScopePage('setup')
     setOpenScopeId(id)
   }, [only])
   useEffect(() => settings.subscribe(setPrefs), [settings])
@@ -560,8 +627,16 @@ export default function Workspace({
    * travelled a few pixels the gesture is still a click placing a polygon
    * vertex, and only on release is it decided which one it was.
    */
+  /**
+   * A drag-rectangle in progress. The anchor is a point on the PAGE
+   * (normalized), the live corner is on the screen: panning or zooming with
+   * the wheel while the button is down moves the screen, not the sheet, and
+   * the shape's anchored corner has to stay where it was pressed. It used to
+   * hold both corners in screen pixels and slid across the sheet with every
+   * pan — see `rectPointsBetween` in draw.ts.
+   */
   const rectRef = useRef<
-    { x0: number; y0: number; x1: number; y1: number; moved: boolean } | null
+    { anchor: { x: number; y: number }; x1: number; y1: number; moved: boolean } | null
   >(null)
   const shiftRef = useRef(false)
   const [calError, setCalError] = useState<string | null>(null)
@@ -672,7 +747,12 @@ export default function Workspace({
        */
       for (const m of markupsRef.current) {
         if (m.kind !== 'dimension') continue
-        drawDimension(oc, m as unknown as DimensionMarkup, viewRef.current, page.width, page.height)
+        // A dimension written before content was carried has none; skip it
+        // rather than let one row take the whole overlay down.
+        if ((m as unknown as { content?: unknown }).content === undefined) continue
+        drawDimension(oc, m as unknown as DimensionMarkup, viewRef.current, page.width, page.height, {
+          feetPerPoint: calRef.current?.feetPerPoint ?? 0,
+        })
       }
       if (toolRef.current === 'dimension') {
         drawDimensionDraft(oc, dimensionDraftRef.current, viewRef.current, page.width, page.height)
@@ -875,16 +955,22 @@ export default function Workspace({
        * had been doing, which on a 29-sheet job means finding your way back by
        * hand every time. An explicit request still wins: a popped-out context
        * window was opened to show one document and must not be second-guessed.
-       * A remembered document that is no longer in the project falls through
-       * to the first, the same as a stale URL does.
+       * A remembered document that is no longer in the project, like a stale
+       * URL, opens NOTHING. The first file in the folder is not a choice
+       * anyone made: on a real bid package it is a bid form or an old set,
+       * and opening it looked like the app deciding what to work on. Aaron:
+       * "It shouldn't open any file by default, and it should open directly
+       * to the folder pane." So a project with no remembered sheet opens on
+       * the Files pane and an empty stage that says so.
        */
       const remembered = saved.documentPath === undefined
         ? null
         : listed.find((d) => d.relativePath === saved.documentPath)?.id ?? null
-      const first = requested ?? remembered ?? listed[0]?.id ?? null
+      const first = requested ?? remembered ?? null
       setActiveDocId((cur) => cur ?? first)
       // One tab on open, not one per document.
       setOpenDocIds((cur) => (cur.length > 0 ? cur : first !== null ? [first] : []))
+      if (first === null) setRailPanel('files')
     })()
     return () => { cancelled = true }
   }, [projectPath, initialDocumentPath])
@@ -910,6 +996,19 @@ export default function Workspace({
     }): Markup => ({
       id: r.id, scopeId: r.scopeId, documentId: r.documentId, pageId: r.pageId,
       kind: r.kind as Markup['kind'], rings: r.rings,
+      /*
+       * The per-kind payload, carried through.
+       *
+       * This dropped it, so every committed dimension reached the painter
+       * with no `content` — and `drawDimension` reads `content.offsetPoints`
+       * before anything else. The first dimension on a sheet threw inside
+       * the paint loop on every frame after it was saved: the overlay froze,
+       * the dimension itself never appeared, and nothing said why. Aaron:
+       * "linear dimension … doesn't work as expected".
+       */
+      ...((r as { content?: Record<string, unknown> }).content !== undefined
+        ? { content: (r as { content?: Record<string, unknown> }).content }
+        : {}),
     })
     const docId = docIdRef.current
     // Two queries rather than one filtered in the client: the page query is on
@@ -1109,6 +1208,54 @@ export default function Workspace({
     })
     return () => { cancelled = true; resolver.release() }
   }, [documents, activeDocId, projectPath])
+
+  /*
+   * Index the whole project's text, starting the moment the folder is known.
+   *
+   * See `search/indexer.ts` for what and why. Runs in its own worker, one
+   * document at a time, and is cancelled if the project closes or the
+   * catalog changes under it. Documents it has finished are remembered per
+   * machine, keyed by content fingerprint, so a reopen costs one lookup per
+   * document and a replaced drawing is read again.
+   *
+   * Desktop only: the browser build cannot read a project folder.
+   */
+  useEffect(() => {
+    const db = dbRef.current
+    if (!db || scan !== 'done' || documents.length === 0 || !isTauri()) return
+    let cancelled = false
+    const key = `redbeam.indexed.v1:${projectPath}`
+    const fingerprintOf = new Map(documents.map((d) => [d.id, d.contentFingerprint ?? '']))
+    let done: Record<string, string> = {}
+    try { done = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string> } catch { done = {} }
+    const completed = {
+      has: (id: string) => done[id] !== undefined && done[id] === fingerprintOf.get(id),
+      add: (id: string) => {
+        done[id] = fingerprintOf.get(id) ?? ''
+        try { localStorage.setItem(key, JSON.stringify(done)) } catch { /* a lost marker costs one re-read */ }
+      },
+    }
+    const resolver = createCoreBlobUrlResolver(projectPath)
+    void indexProject({
+      db,
+      documents,
+      resolveUrl: (d) => resolver.resolveUrl(d),
+      releaseUrl: (u) => resolver.releaseUrl(u),
+      openDocument: (url) => openHeadlessDocument(url),
+      completed,
+      isCancelled: () => cancelled,
+      onProgress: (p) => { if (!cancelled) setIndexing(p.done >= p.total ? null : p) },
+    }).then((out) => {
+      if (cancelled) return
+      setIndexing(null)
+      if (out.failures.length > 0) {
+        setTextNote(`Text indexing skipped ${out.failures.length} item${out.failures.length === 1 ? '' : 's'}: ${out.failures[0]!.relativePath} — ${out.failures[0]!.reason}`)
+      }
+    }).catch((err) => {
+      if (!cancelled) setTextNote(`Text indexing stopped: ${err instanceof Error ? err.message : String(err)}`)
+    })
+    return () => { cancelled = true; setIndexing(null); resolver.release() }
+  }, [documents, scan, projectPath])
 
   // Extract and index this page's text once it is shown.
   //
@@ -1524,17 +1671,11 @@ export default function Workspace({
       calibrations: projectCalibrations,
       pageBoxes: projectPageBoxes,
       readBytes: () => projectBridge.readDocument(projectPath, doc.relativePath),
+      // A native Save As on the desktop; the downloader only in the browser.
       save: (fileName, bytes) => {
-        const url = URL.createObjectURL(
-          new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' }),
-        )
-        const a = document.createElement('a')
-        a.href = url
-        a.download = fileName
-        a.click()
-        // Revoked late: revoking synchronously races the download in WebView2
-        // and produces an empty file. Same reason as the report export.
-        setTimeout(() => URL.revokeObjectURL(url), 30_000)
+        void saveFile(bytes, {
+          name: fileName, type: 'application/pdf', filter: { name: 'PDF drawing', extensions: ['pdf'] },
+        }).then((o) => setStatus(saveOutcomeText(o, 'marked-up PDF')))
       },
     })
   }, [
@@ -1543,6 +1684,8 @@ export default function Workspace({
   ])
 
   useEffect(() => { activeScopeRef.current = activeScope }, [activeScope])
+  useEffect(() => { calRef.current = cal }, [cal])
+
 
   useEffect(() => { openEstimateIdRef.current = openEstimateId }, [openEstimateId])
 
@@ -1623,8 +1766,18 @@ export default function Workspace({
     void refreshEstimates(openEstimateIdRef.current)
   }, [backend, refreshEstimates, scopes.length, markups.length])
 
+  /*
+   * Once. This re-ran whenever `openEstimateId` went back to null, so the
+   * "Estimates" breadcrumb reopened the first round on the next render and
+   * the list of rounds could not be reached at all. Aaron: "Why can't I go
+   * back to the root estimates page?" The automatic open is for landing, not
+   * for every time the list is asked for.
+   */
+  const autoOpenedRound = useRef(false)
   useEffect(() => {
+    if (autoOpenedRound.current) return
     if (openEstimateId === null && estimates.length > 0) {
+      autoOpenedRound.current = true
       setOpenEstimateId(estimates[0]!.id)
       void refreshEstimates(estimates[0]!.id)
     }
@@ -1711,6 +1864,9 @@ export default function Workspace({
    */
   const cancelDraft = useCallback(() => {
     draftRef.current = emptyDraft(draftRef.current.tool)
+    // The dimension keeps its own draft, and Escape left its first point
+    // standing: the next click closed a dimension nobody was drawing.
+    dimensionDraftRef.current = emptyDimensionDraft(dimensionDraftRef.current.ortho)
     setSelectedIds([])
     selectedRef.current = []
     requestPaint()
@@ -1767,7 +1923,10 @@ export default function Workspace({
 
     if (d.tool === 'calibrate') {
       // hand off to the inline form; the draft stays on screen behind it
-      setPendingCal(draftLengthPdfPoints(d, page.width, page.height))
+      const length = draftLengthPdfPoints(d, page.width, page.height)
+      // Eagerly, so the very next click is already refused (see onPointerDown).
+      pendingCalRef.current = length
+      setPendingCal(length)
       setCalError(null)
       return
     }
@@ -1783,13 +1942,15 @@ export default function Workspace({
     if (d.tool === 'scale-region') {
       const a = d.points[0]!
       const b = d.points[1]!
-      setPendingRegion({
+      const pending = {
         rect: { x0: a.x, y0: a.y, x1: b.x, y1: b.y },
         // The ref, not the state: by the time the picker is answered the
         // person may well have paged away, and the region belongs to the sheet
         // it was drawn on.
         pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
-      })
+      }
+      pendingRegionRef.current = pending
+      setPendingRegion(pending)
       return
     }
 
@@ -1979,6 +2140,17 @@ export default function Workspace({
        * for when they press them.
        */
       if (isTextEntry(e.target) && !survivesTextEntry(e)) return
+      if (e.key === ' ' && !mod) {
+        // Held, not pressed: the pointer handlers read it. preventDefault so
+        // the page does not scroll and a focused button is not "clicked".
+        if (!spaceRef.current) {
+          spaceRef.current = true
+          const el = stageRef.current
+          if (el !== null) el.style.cursor = 'grab'
+        }
+        e.preventDefault()
+        return
+      }
       // Ctrl+, is the settings shortcut on every platform the Qt build shipped
       // to, and the Qt shell forwards it from a Context Window to its owner.
       if (mod && e.key === ',') { e.preventDefault(); settingsOpen ? setSettingsOpen(false) : openSettings(); return }
@@ -2019,7 +2191,20 @@ export default function Workspace({
          */
         if (pendingCalRef.current !== null) { cancelCalibration(); return }
         if (pendingRegionRef.current !== null) { cancelRegion(); return }
+        // The markup menu closed only on a click on its scrim; Escape, the
+        // key every menu closes on, left it standing over the sheet.
+        setMarkupMenu(null)
+        /*
+         * Two presses, two meanings. With something half-drawn, Escape
+         * abandons it and keeps the tool — the next shape is usually the
+         * same kind. With nothing in progress there is nothing to abandon,
+         * so Escape puts the tool down and goes back to Pan; a crosshair
+         * with no way out is how a stray click draws something. Right-click
+         * does the same (see onContextMenu). Aaron asked for both.
+         */
+        const drawing = draftRef.current.points.length > 0 || dimensionDraftRef.current.a !== null
         cancelDraft()
+        if (!drawing && toolRef.current !== 'pan') setTool('pan')
       }
       else if (e.key === 'Delete' && selectedRef.current.length > 0) {
         const ids = selectedRef.current
@@ -2055,12 +2240,27 @@ export default function Workspace({
       // a measured line, for the page that carries more than one.
       else if (e.key === 'K') { setTool('scale-region') }
     }
-    const onKeyUp = (e: KeyboardEvent) => { shiftRef.current = e.shiftKey }
+    const onKeyUp = (e: KeyboardEvent) => {
+      shiftRef.current = e.shiftKey
+      if (e.key === ' ') {
+        spaceRef.current = false
+        const el = stageRef.current
+        if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : 'crosshair'
+      }
+    }
+    // Alt-tabbing away with space held would leave it held forever.
+    const onBlur = () => {
+      spaceRef.current = false
+      const el = stageRef.current
+      if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : 'crosshair'
+    }
+    window.addEventListener('blur', onBlur)
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKeyUp)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
     }
   }, [commitDraft, requestPaint, removeMarkups, doUndo, doRedo, copySelection, pasteClipboard,
     cancelCalibration, cancelRegion])
@@ -2242,7 +2442,44 @@ export default function Workspace({
     startZoom: number
   } | null>(null)
 
+  /**
+   * The dimension under the pointer, if any, in the shape `hitTest` answers.
+   *
+   * `hitTest` knows the takeoff kinds and nothing else, so a committed
+   * dimension could not be selected, moved or deleted — the tool that drew
+   * it was the only thing that ever touched it. A dimension's own tester
+   * answers for it here, after `hitTest` has had first refusal, so the pan
+   * tool treats the two alike: its measured points are vertices and its line
+   * moves it.
+   */
+  const hitDimensionAt = (hx: number, hy: number): Hit | null => {
+    const dims = markupsRef.current.filter(
+      (m) => m.kind === 'dimension' && (m as unknown as { content?: unknown }).content !== undefined,
+    ) as unknown as DimensionMarkup[]
+    if (dims.length === 0) return null
+    const d = hitTestDimension(hx, hy, dims, viewRef.current, page.width, page.height)
+    if (d === null) return null
+    return { markupId: d.markupId, part: d.part === 'vertex' ? 'vertex' : 'inside', index: d.index }
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
+    /*
+     * Space held, or the middle button: pan, whatever the tool.
+     *
+     * Ahead of the primary-button check because the middle button IS the
+     * gesture here, and ahead of the pending-gesture check because moving
+     * the sheet to see a calibration line better is not answering it.
+     */
+    if (spaceRef.current || (e.pointerType === 'mouse' && e.button === 1)) {
+      panOverrideRef.current = true
+      dragRef.current = { x: e.clientX, y: e.clientY }
+      // Capture keeps the drag alive past the stage's edge. A pointer the
+      // browser does not consider active (a synthetic one, in a test) refuses
+      // it; the pan still works, it just ends at the edge.
+      try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* see above */ }
+      e.preventDefault()
+      return
+    }
     /*
      * Only the primary button draws.
      *
@@ -2258,7 +2495,13 @@ export default function Workspace({
      * with no scrim over the drawing any more a click here would start a
      * second line on top of the first — and answer the question for neither.
      */
-    if (pendingCal !== null || pendingRegion !== null) return
+    /*
+     * The refs, not the state. The second calibration click sets the pending
+     * question, but a third click landing before React re-rendered still saw
+     * `pendingCal === null` and appended a third point to a two-point line.
+     * Aaron: "It shouldn't allow you to start drawing a third point."
+     */
+    if (pendingCalRef.current !== null || pendingRegionRef.current !== null) return
     if (e.pointerType === 'touch') {
       const r = e.currentTarget.getBoundingClientRect()
       const p = pinchRef.current ?? {
@@ -2283,7 +2526,11 @@ export default function Workspace({
       const r0 = e.currentTarget.getBoundingClientRect()
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
       const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
-      ;(e.target as Element).setPointerCapture(e.pointerId)
+        ?? hitDimensionAt(hx, hy)
+      // Capture keeps a drag alive past the stage's edge. A pointer the
+      // browser does not consider active — a synthetic one, in a test —
+      // refuses it, and the refusal must not abort the selection or the pan.
+      try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* see above */ }
 
       if (hit) {
         // Shift extends the selection; a plain click replaces it. Clicking an
@@ -2381,10 +2628,21 @@ export default function Workspace({
       return
     }
 
-    if ((tool === 'area' || tool === 'cutout') && d.points.length === 0) {
-      rectRef.current = { x0: s0.x, y0: s0.y, x1: s0.x, y1: s0.y, moved: false }
-      ;(e.target as Element).setPointerCapture(e.pointerId)
+    /*
+     * The highlight too. A highlighter is a drag across the thing being
+     * marked; asking for three corners and Enter made the Highlight button
+     * look broken, because nothing appeared until a gesture nobody makes
+     * with a highlighter had been completed.
+     */
+    if ((tool === 'area' || tool === 'cutout' || tool === 'shape') && d.points.length === 0) {
+      rectRef.current = { anchor: p, x1: s0.x, y1: s0.y, moved: false }
+      try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* as in the pan branch */ }
     }
+
+    // A two-point gesture is complete at two. Its commit hands off to a
+    // question (calibrate, region) or writes (direction); either way there is
+    // no third point to place.
+    if ((tool === 'calibrate' || tool === 'direction' || tool === 'scale-region') && d.points.length >= 2) return
 
     draftRef.current = { ...d, points: [...d.points, p] }
     forceRender((n) => n + 1)
@@ -2423,6 +2681,19 @@ export default function Workspace({
     if (!v) return
     const rect = e.currentTarget.getBoundingClientRect()
 
+    if (panOverrideRef.current) {
+      const d = dragRef.current
+      if (!d) return
+      viewRef.current = clampViewport(
+        { ...viewRef.current, ox: viewRef.current.ox - (e.clientX - d.x), oy: viewRef.current.oy - (e.clientY - d.y) },
+        v.pageInfo,
+      )
+      dragRef.current = { x: e.clientX, y: e.clientY }
+      v.requestVisible(viewRef.current)
+      requestPaint()
+      return
+    }
+
     const rc = rectRef.current
     if (rc) {
       const s = applySnap(e.clientX - rect.left, e.clientY - rect.top)
@@ -2430,11 +2701,16 @@ export default function Workspace({
       rc.x1 = s.x
       rc.y1 = s.y
       // A few pixels of slop so a click with a shaky hand is still a click.
-      if (Math.abs(rc.x1 - rc.x0) > 3 || Math.abs(rc.y1 - rc.y0) > 3) rc.moved = true
+      // Measured against where the anchor IS on screen now, so a wheel pan
+      // mid-press does not count as travel on its own.
+      const a = normalizedToScreen(rc.anchor.x, rc.anchor.y, viewRef.current, page.width, page.height)
+      if (Math.abs(rc.x1 - a.x) > 3 || Math.abs(rc.y1 - a.y) > 3) rc.moved = true
       if (rc.moved) {
         draftRef.current = {
           ...draftRef.current,
-          points: rectPoints(rc, viewRef.current, page.width, page.height),
+          points: rectPointsBetween(
+            rc.anchor, screenToNormalized(rc.x1, rc.y1, viewRef.current, page.width, page.height),
+          ),
           cursor: null,
         }
       }
@@ -2493,6 +2769,7 @@ export default function Workspace({
       // hover feedback for handles
       const hv = hitTest(e.clientX - rect.left, e.clientY - rect.top,
         markupsRef.current, viewRef.current, page.width, page.height)
+        ?? hitDimensionAt(e.clientX - rect.left, e.clientY - rect.top)
       hoverRef.current = hv
       const d = dragRef.current
       if (!d) { requestPaint(); return }
@@ -2526,6 +2803,13 @@ export default function Workspace({
       else if (pinch.points.size < 2) pinch.startDist = 0
       if (e.pointerType === 'touch') return
     }
+    if (panOverrideRef.current) {
+      // The drag was a pan and nothing else: no vertex went down, so there is
+      // no rectangle, marquee or edit to finish.
+      panOverrideRef.current = false
+      dragRef.current = null
+      return
+    }
     dragRef.current = null
 
     const rc = rectRef.current
@@ -2534,7 +2818,9 @@ export default function Workspace({
       if (rc.moved) {
         draftRef.current = {
           ...draftRef.current,
-          points: rectPoints(rc, viewRef.current, page.width, page.height),
+          points: rectPointsBetween(
+            rc.anchor, screenToNormalized(rc.x1, rc.y1, viewRef.current, page.width, page.height),
+          ),
           cursor: null,
         }
         void commitDraft()
@@ -2786,9 +3072,9 @@ export default function Workspace({
    * The refusal is the feature: an estimator does not lose an afternoon's
    * tracing to a click on the round it happens to live in.
    */
-  const deleteEstimateBy = useCallback(async (id: string) => {
+  const deleteEstimateBy = useCallback(async (id: string): Promise<string | undefined> => {
     const db = dbRef.current
-    if (!db) return
+    if (!db) return undefined
     try {
       await deleteEstimate(db, id)
       saveRef.current?.()
@@ -2798,8 +3084,11 @@ export default function Workspace({
       await refreshEstimates(null)
       setStatus('round deleted')
       void broadcastChange('estimates', identity.projectId ?? 'default')
+      return undefined
     } catch (err) {
-      setStatus(`cannot delete: ${err instanceof Error ? err.message : String(err)}`)
+      const why = `cannot delete: ${err instanceof Error ? err.message : String(err)}`
+      setStatus(why)
+      return why
     }
   }, [refreshEstimates, refreshScopes, identity.projectId])
 
@@ -2979,7 +3268,7 @@ export default function Workspace({
       // "browser open" is the Files pane.
       panels: {
         scopeEditorOpen: openScopeId !== null, settingsOpen, searchOpen: railPanel === 'search',
-        browserOpen: railPanel === 'files', bomOpen, layoutOn,
+        browserOpen: railPanel === 'files', bomOpen: openScopeId !== null && scopePage === 'parts', scopePage, layoutOn,
       },
       /*
        * The two gestures that are half-finished rather than open or closed.
@@ -3094,7 +3383,7 @@ export default function Workspace({
         case 'open_panel': {
           const which = String(params['panel'] ?? '')
           switch (which) {
-            case 'bom': openBom(); return { panel: 'bom' }
+            case 'bom': openParts(); return { panel: 'bom' }
             case 'browser': openBrowser(); return { panel: 'browser' }
             case 'scope': openScopeEditor(); return { panel: 'scope' }
             case 'settings': openSettings(); return { panel: 'settings' }
@@ -3169,6 +3458,17 @@ export default function Workspace({
               ? { format: 'marked-pdf', saved: true, markups: markupsOnOpenDrawing }
               : { error: problem }
           }
+          if (what === 'csv' || what === 'estimate-tsv' || what === 'pdf') {
+            const id = String(params['estimateId'] ?? openEstimateIdRef.current ?? '')
+            const draft = await buildExportFor(id)
+            if (draft === null) return { error: `no such estimate: ${id || '(none open)'}` }
+            if (what === 'csv') return { format: 'csv', text: estimateToCsv(draft) }
+            if (what === 'estimate-tsv') return { format: 'estimate-tsv', text: estimateToTsv(draft) }
+            const result = await saveEstimatePdf(draft, () => {})
+            return result.problem === null
+              ? { format: 'pdf', saved: true, said: result.said, scopes: draft.scopes.length }
+              : { error: result.problem }
+          }
           const bom = buildBom(piecesRef.current)
           if (what === 'tsv') return { format: 'tsv', text: bomToTsv(bom) }
           if (what === 'report') {
@@ -3185,7 +3485,7 @@ export default function Workspace({
             })
             return { format: 'report', bytes: html.length, html }
           }
-          return { error: `unknown export: ${what} (tsv, report or marked-pdf)` }
+          return { error: `unknown export: ${what} (tsv, report, marked-pdf, csv, estimate-tsv or pdf)` }
         }
         /*
          * Freeze a scope's current answer. A write, but not an undoable one:
@@ -3625,8 +3925,17 @@ export default function Workspace({
    * setting when it never was.
    *
    * A pinch ALWAYS zooms the sheet. `viewer.scrollToZoom` governs the plain
-   * wheel only: off means the wheel scrolls the sheet, which is what a setting
-   * called "scroll to zoom" can mean and nothing else.
+   * wheel only, and it is OFF by default: the wheel scrolls the sheet up and
+   * down, Shift+wheel scrolls it sideways, and a sideways wheel — a tilt
+   * wheel, a trackpad swipe — scrolls sideways whatever the setting says.
+   * Zoom is Ctrl+wheel or the pinch, which is what every PDF viewer does.
+   *
+   * Two things this used to get wrong. With the setting on (its old
+   * default) a plain wheel zoomed and there was no way to scroll the sheet at
+   * all; and `deltaX` was only read on the pan branch, so a horizontal wheel
+   * did nothing while the setting was on. Aaron: "scrolling should be
+   * vertical and if shift is held it should be horizontal", "fix my
+   * horizontal scroll wheel".
    */
   useEffect(() => {
     const el = stageRef.current
@@ -3641,12 +3950,22 @@ export default function Workspace({
 
       const rect = el.getBoundingClientRect()
       const pinchGesture = e.ctrlKey || e.metaKey
-      const zooms = pinchGesture || prefs['viewer.scrollToZoom'] !== false
+      // Lines and pages arrive on some mice and every keyboard-driven wheel;
+      // pixels are what the viewport moves in.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewRef.current.vh : 1
+      let dx = e.deltaX * unit
+      let dy = e.deltaY * unit
+      // Shift turns a vertical wheel sideways. Some platforms already have by
+      // the time the event arrives (Chromium on Windows reports it as deltaX),
+      // so only a delta that is still vertical is turned.
+      if (e.shiftKey && dx === 0) { dx = dy; dy = 0 }
+      const sideways = dx !== 0 && dy === 0
+      const zooms = pinchGesture
+        || (prefs['viewer.scrollToZoom'] === true && !e.shiftKey && !sideways)
 
       if (!zooms) {
-        // deltaX is a horizontal trackpad swipe.
         viewRef.current = clampViewport(
-          { ...viewRef.current, ox: viewRef.current.ox + e.deltaX, oy: viewRef.current.oy + e.deltaY },
+          { ...viewRef.current, ox: viewRef.current.ox + dx, oy: viewRef.current.oy + dy },
           v.pageInfo,
         )
         v.requestVisible(viewRef.current)
@@ -3656,8 +3975,8 @@ export default function Workspace({
 
       // A pinch reports fine-grained deltas; the fixed 1.15 step made it lurch.
       const step = pinchGesture
-        ? Math.exp(-e.deltaY / 180)
-        : (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+        ? Math.exp(-dy / 180)
+        : (dy < 0 ? 1.15 : 1 / 1.15)
       const next = Math.min(8, Math.max(0.05, viewRef.current.zoom * step))
       viewRef.current = clampViewport(
         zoomAbout(viewRef.current, next, e.clientX - rect.left, e.clientY - rect.top),
@@ -3677,36 +3996,26 @@ export default function Workspace({
     d.displayName || d.relativePath.split('/').pop() || d.relativePath
   const activeDoc = documents.find((d) => d.id === activeDocId) ?? null
 
-  /** Group documents by top-level folder, which is what the Files panel renders. */
-  const folders = useMemo(() => {
-    const byFolder = new Map<string, PanelFile[]>()
-    for (const d of documents) {
-      const slash = d.relativePath.indexOf('/')
-      const key = slash < 0 ? 'Project root' : d.relativePath.slice(0, slash)
-      /*
-       * Only the OPEN document carries a qualifier.
-       *
-       * Every row used to repeat its own relative path, under a folder heading
-       * that already named the folder — so each row said the same thing twice
-       * and the file name lost the space to it. The name is what the row is
-       * for; the rest was noise.
-       */
-      const detail = d.id === activeDocId && pageCount > 0
-        ? `Page ${pageIndex + 1} of ${pageCount}`
-        : ''
-      const list = byFolder.get(key) ?? []
-      list.push({
-        id: d.id, name: nameOf(d), relativePath: d.relativePath, detail,
-        ...(d.missing ? { missing: true } : {}),
-      })
-      byFolder.set(key, list)
-    }
-    return [...byFolder].map(([name, files]) => ({
-      name,
-      detail: `${files.length} ${files.length === 1 ? 'file' : 'files'}`,
-      files,
-    }))
-  }, [documents, activeDocId, pageIndex, pageCount])
+  /**
+   * The documents as the Files pane lists them. The pane builds the folder
+   * TREE itself (`shell/fileTree.ts`); this is only the rows, each with the
+   * one qualifier the open document carries.
+   */
+  const panelFiles = useMemo((): PanelFile[] => documents.map((d) => ({
+    id: d.id,
+    name: nameOf(d),
+    relativePath: d.relativePath,
+    /*
+     * Only the OPEN document carries a qualifier.
+     *
+     * Every row used to repeat its own relative path, under a folder heading
+     * that already named the folder — so each row said the same thing twice
+     * and the file name lost the space to it. The name is what the row is
+     * for; the rest was noise.
+     */
+    detail: d.id === activeDocId && pageCount > 0 ? `Page ${pageIndex + 1} of ${pageCount}` : '',
+    ...(d.missing ? { missing: true } : {}),
+  })), [documents, activeDocId, pageIndex, pageCount])
 
   // ------------------------------------------------------- the sheet index --
 
@@ -3769,6 +4078,102 @@ export default function Workspace({
     }
     return `Page ${p + 1}`
   }, [sheetGroups])
+
+  /** The estimate being checked before it leaves, or null. Shown in the estimates panel. */
+  const [exportDraft, setExportDraft] = useState<EstimateExport | null>(null)
+
+  /** Sheet label for any page id in the project — the open document's index, or a page number. */
+  const sheetLabelForPageId = useCallback((pageId: string): string => {
+    const index = pageIndexOfId(pageId)
+    const docId = pageId.replace(/-p\d+$/, '')
+    if (index === null) return pageId
+    if (docId === docIdRef.current) return sheetLabelFor(index)
+    const doc = documents.find((d) => d.id === docId)
+    const name = doc === undefined ? docId : (doc.displayName || doc.relativePath.split('/').pop() || doc.relativePath)
+    return `${name} p${index + 1}`
+  }, [documents, sheetLabelFor])
+
+  /**
+   * Build the export model for a round, from what the workspace already knows.
+   *
+   * Any round, not only the open one: the list level offers the export too,
+   * so the round's scope ids are read from the store rather than from the
+   * open round's state.
+   */
+  const buildExportFor = useCallback(async (estimateId: string): Promise<EstimateExport | null> => {
+    const db = dbRef.current
+    const est = estimates.find((e) => e.id === estimateId)
+    if (!db || est === undefined) return null
+    const ids = await listEstimateScopeIds(db, estimateId)
+    const order = new Map(ids.map((id, i) => [id, i]))
+    const roundScopes = scopesRef.current
+      .filter((sc) => order.has(sc.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+    return buildEstimateExport({
+      projectName,
+      estimateName: est.name,
+      scopes: roundScopes,
+      quantities: quantitiesRef.current,
+      pieces: piecesRef.current,
+      markups: projectMarkups,
+      sheetLabelFor: sheetLabelForPageId,
+      documents: documents.map((d) => d.displayName || d.relativePath),
+    })
+  }, [estimates, projectName, projectMarkups, documents, sheetLabelForPageId])
+
+  const openEstimateExport = useCallback((estimateId: string) => {
+    void buildExportFor(estimateId).then((draft) => {
+      if (draft === null) { setStatus('that estimate could not be read'); return }
+      setExportDraft(draft)
+    })
+  }, [buildExportFor])
+
+  /**
+   * Render the branded PDF for an edited draft and hand it to the downloader.
+   * Resolves to a problem to show, or null when the file was written.
+   */
+  const saveEstimatePdf = useCallback(async (
+    draft: EstimateExport,
+    onProgress: (text: string) => void,
+  ): Promise<{ problem: string | null; said: string }> => {
+    const resolver = createCoreBlobUrlResolver(projectPath)
+    try {
+      onProgress('Rendering the sheets…')
+      const scopeList = draft.scopes.map((sc) => ({ id: sc.id, label: sc.label, color: sc.color }))
+      const { snapshots, failures } = isTauri()
+        ? await renderTakeoffSnapshots({
+            documents: documents.map((d) => ({ id: d.id, relativePath: d.relativePath, displayName: d.displayName })),
+            markups: projectMarkups,
+            scopes: scopeList,
+            // The page arrives as an argument of the sweep, not as state; the id
+            // is spelled out so the page-identity guard has nothing to police.
+            sheetLabelFor: (docId, sheetPage) => sheetLabelForPageId(`${docId}-p${sheetPage}`),
+            resolveUrl: (d) => resolver.resolveUrl(d),
+            releaseUrl: (u) => resolver.releaseUrl(u),
+            onProgress: (done, total) => onProgress(`Rendering sheet ${done} of ${total}…`),
+          })
+        : { snapshots: [], failures: [{ document: 'browser build', reason: 'sheets cannot be read outside the desktop app' }] }
+      onProgress('Writing the PDF…')
+      const bytes = await renderEstimatePdf({
+        estimate: draft,
+        snapshots,
+        notes: failures.map((f) => `${f.document}: ${f.reason}`),
+      })
+      onProgress('Choosing where to save…')
+      const outcome = await saveFile(bytes, {
+        name: exportFileName(draft, 'pdf'),
+        type: 'application/pdf',
+        filter: { name: 'PDF document', extensions: ['pdf'] },
+      })
+      const said = saveOutcomeText(outcome, 'PDF')
+      setStatus(said)
+      return { problem: null, said }
+    } catch (err) {
+      return { problem: err instanceof Error ? err.message : String(err), said: '' }
+    } finally {
+      resolver.release()
+    }
+  }, [projectPath, documents, projectMarkups, sheetLabelForPageId])
 
   // ------------------------------------------------------- the scope panel --
 
@@ -3992,10 +4397,20 @@ export default function Workspace({
      * the dock carries controls only.
      */
     if (toolWarning !== null) out.push(toolWarning)
+    /*
+     * A cutout subtracts only from an area of ITS OWN scope on the same sheet
+     * that contains its first vertex. One drawn beside an area, across its
+     * edge, or into the wrong scope subtracts nothing and looks exactly like
+     * one that does — "the cutout tool doesn't work". Say which.
+     */
+    const stray = strayCutouts(projectMarkups)
+    if (stray > 0) {
+      out.push(`${stray} cutout${stray === 1 ? ' is' : 's are'} outside every area of ${stray === 1 ? 'its' : 'their'} scope on that sheet, so ${stray === 1 ? 'it subtracts' : 'they subtract'} nothing. A cutout has to start inside an area drawn in the same scope.`)
+    }
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups])
 
   // ------------------------------------------------------------ view math --
 
@@ -4156,128 +4571,6 @@ export default function Workspace({
    * registry: a command list that drifts from what the app can actually do is
    * worse than no palette, because it fails silently.
    */
-  const commands = useMemo((): Command[] => {
-    const out: Command[] = [
-      { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], run: () => setFitMode('page') },
-      { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], run: () => setFitMode('width') },
-      {
-        id: 'calibrate', kind: 'command', title: 'Calibrate from the drawing',
-        detail: 'Set this sheet’s scale from a known dimension',
-        keywords: ['scale', 'measure'], run: () => { setTakeoff(true); setTool('calibrate') },
-      },
-      {
-        id: 'scale-region', kind: 'command', title: 'Draw a scale region',
-        detail: 'For a sheet that carries more than one scale — four details at four scales',
-        keywords: ['scale', 'detail', 'region', 'multiple'],
-        run: () => { setTakeoff(true); setTool('scale-region') },
-      },
-      { id: 'quantities', kind: 'command', title: 'Quantities and bill of materials', keywords: ['bom', 'export'], run: openBom },
-      { id: 'specs', kind: 'command', title: 'Scope specifications', keywords: ['edit'], run: openScopeEditor },
-      { id: 'settings', kind: 'command', title: 'Settings', detail: 'Application preferences', keywords: ['preferences', 'options'], run: openSettings },
-      { id: 'search', kind: 'command', title: 'Search the project', keywords: ['find', 'text'], run: openSearch },
-      { id: 'context-window', kind: 'command', title: 'New Context Window', detail: 'A second view on this project', run: () => void openContextWindow(identity.projectId ?? 'default') },
-    ]
-    /*
-     * Every setting, operable WITHOUT opening settings.
-     *
-     * The palette is the only permanent menu this app has, and typing
-     * "scrollbars" to turn scrollbars on should not route through a full-screen
-     * view and a search field inside it. A switch becomes one command that
-     * flips it; a choice becomes one command per option, so "single page" is a
-     * thing you can type rather than a thing you go and find. A number cannot
-     * be typed at a palette, so it opens settings — the only case that does.
-     */
-    for (const d of SETTINGS) {
-      const current = prefs[d.id]
-      if (d.type === 'bool') {
-        const on = current === true
-        out.push({
-          id: `set:${d.id}`,
-          kind: 'command',
-          title: `${on ? 'Turn off' : 'Turn on'} ${d.label.toLowerCase()}`,
-          detail: `Settings · ${CATEGORY_LABEL[d.category]} · currently ${on ? 'on' : 'off'}`,
-          keywords: ['setting', d.label, d.description],
-          run: () => { settings.set(d.id, !on); setStatus(`${d.label}: ${on ? 'off' : 'on'}`) },
-        })
-      } else if (d.type === 'enum') {
-        for (const c of d.choices) {
-          if (String(current) === c.value) continue
-          out.push({
-            id: `set:${d.id}:${c.value}`,
-            kind: 'command',
-            title: `${d.label}: ${c.label}`,
-            detail: `Settings · ${CATEGORY_LABEL[d.category]}`,
-            keywords: ['setting', d.label, c.label, d.description],
-            run: () => { settings.set(d.id, c.value); setStatus(`${d.label}: ${c.label}`) },
-          })
-        }
-      } else {
-        out.push({
-          id: `set:${d.id}`,
-          kind: 'command',
-          title: d.label,
-          detail: `Settings · ${CATEGORY_LABEL[d.category]} · currently ${String(current)}`,
-          keywords: ['setting', d.description],
-          run: openSettings,
-        })
-      }
-    }
-
-    for (const p of SCALE_PRESETS) {
-      out.push({
-        id: `scale-${p.id}`, kind: 'command', title: `Set scale ${p.label}`,
-        keywords: ['scale', 'calibrate'], whenTyped: true, run: () => applyPreset(p),
-      })
-    }
-    for (const e of estimates) {
-      out.push({
-        id: `est-${e.id}`, kind: 'estimate', title: e.name,
-        detail: `${e.scopeCount} scope${e.scopeCount === 1 ? '' : 's'}`,
-        run: () => { setOpenScopeId(null); setOpenEstimateId(e.id); void refreshEstimates(e.id) },
-      })
-    }
-    for (const sc of estimateScopes) {
-      out.push({
-        id: `scope-${sc.id}`, kind: 'scope', title: sc.label,
-        detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
-        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id) },
-      })
-    }
-    for (const d of documents) {
-      out.push({
-        id: `doc-${d.id}`, kind: 'document', title: nameOf(d), detail: d.relativePath,
-        run: () => openDocument(d.id),
-      })
-    }
-    for (const g of sheetGroups) {
-      for (const r of g.rows) {
-        out.push({
-          id: `page-${r.page}`, kind: 'page', title: r.number,
-          ...(r.title === '' ? {} : { detail: r.title }),
-          run: () => goToPage(r.page),
-        })
-      }
-    }
-    /*
-     * Projects last, and after the sheets.
-     *
-     * The palette is mostly things you do INSIDE the open project; switching
-     * to another one is a different order of action, so it sits at the bottom
-     * rather than interleaved with commands that act on what is on screen.
-     */
-    out.push(...projectCommands({
-      currentPath: projectPath,
-      recents: recentProjects ?? [],
-      ...(onOpenProject !== undefined ? { onOpen: onOpenProject } : {}),
-      ...(onBrowseProject !== undefined ? { onBrowse: onBrowseProject } : {}),
-    }))
-    return out
-  }, [
-    fitPage, fitWidth, applyPreset, estimates, estimateScopes, documents,
-    sheetGroups, goToPage, openDocument, refreshEstimates, identity.projectId,
-    prefs, settings,
-    projectPath, recentProjects, onOpenProject, onBrowseProject,
-  ])
 
   /**
    * At most one modal at a time, and one place that says which.
@@ -4295,7 +4588,6 @@ export default function Workspace({
    */
   const closeModals = useCallback(() => {
     setSettingsOpen(false)
-    setBomOpen(false)
   }, [])
 
   /** Abandon a region that was drawn but never given a scale. */
@@ -4365,6 +4657,666 @@ export default function Workspace({
         ? 'Reading the project folder…'
         : null
 
+  /*
+   * THE PALETTE'S VOCABULARY: every verb the app has, so the whole app can be
+   * driven from one field.
+   *
+   * Three rules hold the list together. A verb that cannot run right now is
+   * still listed, with the reason at its right edge — an empty palette teaches
+   * nothing, "open a scope first" does. A verb that needs more takes it in the
+   * palette's own field as a step, never in a dialog. And a verb the store
+   * refuses returns the refusal as a string, which the palette shows and stays
+   * open on, rather than closing on nothing.
+   *
+   * Rows are grouped by the palette (Commands, Scopes, Estimates, Documents,
+   * Pages, Projects) and narrowed by its prefixes; `scope-action` in a row's
+   * keywords lets `@` list what can be done TO a scope beside the scopes.
+   */
+  const commands = useMemo((): Command[] => {
+    const activeDoc = documents.find((d) => d.id === activeDocId)
+    const openRound = estimates.find((e) => e.id === openEstimateId)
+    const shown = scopes.find((s) => s.id === shownScopeId)
+    const noSheet = activeDoc === undefined ? 'no drawing open' : undefined
+    const noRound = openRound === undefined ? 'open a round first' : undefined
+    const noScope = shown === undefined ? 'open a scope first' : undefined
+    const noScale = cal === null ? 'sheet has no scale' : undefined
+    const allPages = Array.from({ length: pageCount }, (_, i) => i)
+    const scaledPages = allPages.filter((i) => scaleOfPage(i) !== null).length
+    const stuck = (why: string | undefined) => (why === undefined ? {} : { unavailable: why })
+    const nameTaken = (name: string, among: readonly string[]) =>
+      among.some((n) => n.trim().toLowerCase() === name.trim().toLowerCase())
+    const roundNameRule = (text: string): string | null =>
+      text.trim() === '' ? 'a round needs a name'
+        : nameTaken(text, estimates.map((e) => e.name)) ? 'a round with that name already exists' : null
+    /* ---- scope workflow builders (see the scopes block below) ---- */
+    const liveScope = (id: string): Scope | undefined => scopesRef.current.find((x) => x.id === id)
+    const scopeByLabel = async (label: string): Promise<Scope | null> => {
+      // The state may not have flushed on the tick the scope was written.
+      for (let i = 0; i < 20; i++) {
+        const hit = scopesRef.current.find((x) => x.label === label)
+        if (hit !== undefined) return hit
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      return null
+    }
+    /** A choose step listing the round's scopes, each leading into `then`. */
+    const pickScope = (label: string, then: (sc: Scope) => Command): Step => ({
+      kind: 'choose', label, note: 'which scope',
+      options: () => [...estimateScopes].sort((a, b) => (a.id === shownScopeId ? -1 : b.id === shownScopeId ? 1 : 0))
+        .map((sc): Command => ({
+          ...then(sc),
+          id: `pick-${sc.id}`, kind: 'scope', title: sc.label,
+          detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}`,
+        })),
+    })
+    const renameCommand = (id: string): Command => ({
+      id: `rename-${id}`, kind: 'command', title: 'Rename',
+      step: {
+        kind: 'text', label: 'Rename scope', placeholder: 'New name', initial: liveScope(id)?.label ?? '', rule: 'must be unique in the round',
+        validate: (t) => (t.trim() === liveScope(id)?.label ? 'that is its name now' : scopeNameRule(t)),
+        describe: (t) => `Rename to “${t.trim()}”`,
+        run: (t) => { const sc = liveScope(id); if (sc !== undefined) void saveScope({ ...sc, label: t.trim() }) },
+      },
+    })
+    const productCommand = (id: string, after: { then?: 'counts' | 'configure' }): Command => ({
+      id: `set-product-${id}`, kind: 'command', title: 'Set product',
+      step: {
+        kind: 'choose', label: 'Product', note: `for ${liveScope(id)?.label ?? 'the scope'}`,
+        options: () => PRODUCT_TYPES.map((t): Command => ({
+          id: `product-${t}`, kind: 'command', title: PRODUCT_TYPE_LABEL[t],
+          ...(readProductType(liveScope(id)?.specifications ?? {}) === t ? { detail: 'current' } : {}),
+          run: async () => {
+            const sc = liveScope(id)
+            if (sc === undefined) return
+            await saveScope({ ...sc, specifications: writeProductType(sc.specifications, t) })
+            if (after.then === 'counts') return { next: countsCommand(id, { then: 'configure' }), chip: PRODUCT_TYPE_LABEL[t] }
+            if (after.then === 'configure') return { next: configureCommand(id), chip: PRODUCT_TYPE_LABEL[t] }
+          },
+        })),
+      },
+    })
+    const countsCommand = (id: string, after: { then?: 'configure' }): Command => ({
+      id: `set-counts-${id}`, kind: 'command', title: 'Set what it counts',
+      step: {
+        kind: 'choose', label: 'Counts', note: `what ${liveScope(id)?.label ?? 'the scope'} measures`,
+        options: () => (['area', 'linear', 'count'] as const).map((t): Command => ({
+          id: `counts-${t}`, kind: 'command', title: SCOPE_TYPE_LABEL[t],
+          ...(liveScope(id)?.scopeType === t ? { detail: 'current' } : {}),
+          run: async () => {
+            const sc = liveScope(id)
+            if (sc === undefined) return
+            await saveScope({ ...sc, scopeType: t })
+            if (after.then === 'configure') return { next: configureCommand(id), chip: SCOPE_TYPE_LABEL[t] }
+          },
+        })),
+      },
+    })
+    /** Parse "8 ft", "96in", "7'6", "2.5m" into a value and a unit. Bare numbers keep the unit given. */
+    const parseMeasure = (text: string, fallbackUnit: string): { value: string; unit: string } | null => {
+      const m = /^\s*([0-9]+(?:[.\/][0-9]+)?(?:\s+[0-9]+\/[0-9]+)?)\s*(ft|feet|'|in|inch|inches|"|mm|cm|m)?\s*$/i.exec(text)
+      if (m === null) return null
+      const raw = (m[2] ?? '').toLowerCase()
+      const unit = raw === '' ? fallbackUnit
+        : raw === "'" || raw === 'feet' ? 'ft'
+        : raw === '"' || raw.startsWith('inch') ? 'in'
+        : raw
+      return { value: m[1]!.trim(), unit }
+    }
+    /** The "what do you want to set" step: product, counts, then every measure the product has. Comes back after each. */
+    const configureCommand = (id: string): Command => ({
+      id: `configure-${id}`, kind: 'command', title: 'Configure',
+      step: {
+        kind: 'choose', label: 'Configure', note: `${liveScope(id)?.label ?? 'the scope'} — pick a setting; Esc when done`,
+        options: () => {
+          const sc = liveScope(id)
+          if (sc === undefined) return []
+          const product = readProductType(sc.specifications)
+          const measures = editableMeasures(product).map((f): Command => {
+            const current = readString(sc.specifications, f.valueKey) ?? ''
+            const unit = unitDisplayText(readString(sc.specifications, f.unitKey) ?? '')
+            const required = missingRequiredMeasures(product, sc.specifications).includes(f.label)
+            return {
+              id: `measure-${f.valueKey}`, kind: 'command', title: f.label,
+              detail: current === '' ? (required ? 'required · not set' : `${measureHelp(f.valueKey)} · not set`) : `${current} ${unit} · ${measureHelp(f.valueKey)}`,
+              keywords: [measureHelp(f.valueKey), 'measure', 'dimension'],
+              step: {
+                kind: 'text', label: f.label, placeholder: `${measureHelp(f.valueKey)} — 4 ft, 48 in, 1.2 m`,
+                initial: current === '' ? '' : `${current} ${unit}`,
+                rule: 'a number with an optional unit (ft, in, mm, cm, m)',
+                validate: (t) => (parseMeasure(t, unit) === null ? 'a number, then a unit if it is not inches' : null),
+                describe: (t) => { const p = parseMeasure(t, unit); return p === null ? `Set ${f.label}` : `Set ${f.label} to ${p.value} ${p.unit}` },
+                run: async (t) => {
+                  const p = parseMeasure(t, unit)
+                  const live = liveScope(id)
+                  if (p === null || live === undefined) return
+                  await saveScope({ ...live, specifications: { ...live.specifications, [f.valueKey]: p.value, [f.unitKey]: p.unit } })
+                  return { next: configureCommand(id), chip: `${f.label} ${p.value} ${p.unit}` }
+                },
+              },
+            }
+          })
+          return [
+            { ...productCommand(id, { then: 'configure' }), id: 'cfg-product', title: 'Product', detail: PRODUCT_TYPE_LABEL[product], keywords: ['type', 'system'] },
+            { ...countsCommand(id, { then: 'configure' }), id: 'cfg-counts', title: 'Counts', detail: SCOPE_TYPE_LABEL[sc.scopeType], keywords: ['measure kind'] },
+            ...measures,
+            {
+              id: 'cfg-seams', kind: 'command', title: 'Seams', detail: readBool(sc.specifications, 'alignSeams') ? 'aligned' : 'free', keywords: ['align', 'joints'],
+              run: async () => {
+                const live = liveScope(id)
+                if (live === undefined) return
+                const on = !readBool(live.specifications, 'alignSeams')
+                await saveScope({ ...live, specifications: { ...live.specifications, alignSeams: String(on) } })
+                return { next: configureCommand(id), chip: on ? 'Seams aligned' : 'Seams free' }
+              },
+            },
+            { ...renameCommand(id), id: 'cfg-rename', title: 'Name', detail: sc.label },
+            { id: 'cfg-open', kind: 'command', title: 'Open the scope page', detail: 'everything else, with the drawing', run: () => { setOpenScopeId(id); setWorkOpen(true) } },
+          ]
+        },
+      },
+    })
+    /**
+     * Archive, not delete, and no confirmation: the register's rule is that a
+     * destructive verb either is refused by the store with a reason, or is
+     * reversible and its row says so. This one is reversible — `restore-scope`
+     * brings the scope and every markup on it back into the round.
+     */
+    const removeCommand = (id: string): Command => ({
+      id: `remove-${id}`, kind: 'command', title: `Archive ${liveScope(id)?.label ?? 'scope'}`,
+      detail: `its ${markupCounts[id] ?? 0} markup${(markupCounts[id] ?? 0) === 1 ? '' : 's'} stay and come back if you restore it`,
+      run: () => { if (openRound !== undefined) void removeScopeBy(openRound.id, id) },
+    })
+
+    const scopeNameRule = (text: string): string | null =>
+      text.trim() === '' ? 'a scope needs a name'
+        : nameTaken(text, scopes.filter((s) => s.id !== shown?.id).map((s) => s.label)) ? 'a scope with that name already exists' : null
+    const docNames = documents.map((d) => d.displayName || d.relativePath)
+    const inContext = (relativePath?: string) => () => { void openContextWindow(identity.projectId ?? projectPath, relativePath) }
+
+    const duplicateRound: Command = {
+      id: 'duplicate-round', kind: 'command', title: 'Duplicate round…', detail: 'Scopes and markups copied; commits are not',
+      keywords: ['estimate', 'copy'], ...stuck(noRound),
+      step: {
+        kind: 'text', label: 'Duplicate round', placeholder: 'Name the copy',
+        initial: openRound === undefined ? '' : `${openRound.name} copy`, rule: 'must be unique', validate: roundNameRule,
+        describe: (t) => `Duplicate as “${t.trim()}”`,
+        run: (t) => { if (openRound !== undefined) void duplicateEstimate(openRound.id, t.trim()) },
+      },
+    }
+    const out: Command[] = [
+      /* ---- the view ---- */
+      { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], ...stuck(noSheet), run: () => setFitMode('page') },
+      { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], ...stuck(noSheet), run: () => setFitMode('width') },
+      ...[50, 100, 200, 400].map((pct): Command => ({
+        id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
+        whenTyped: true, ...stuck(noSheet), run: () => setZoom(pct / 100),
+      })),
+      {
+        id: 'next-sheet', kind: 'command', title: 'Next sheet', shortcut: 'PgDn',
+        ...(pageIndex + 1 < pageCount ? { detail: sheetLabelFor(pageIndex + 1) } : {}),
+        keywords: ['page', 'forward'],
+        ...stuck(noSheet ?? (pageIndex + 1 >= pageCount ? 'this is the last sheet' : undefined)),
+        stay: true, run: () => goToPage(pageIndex + 1),
+      },
+      {
+        id: 'prev-sheet', kind: 'command', title: 'Previous sheet', shortcut: 'PgUp',
+        ...(pageIndex > 0 ? { detail: sheetLabelFor(pageIndex - 1) } : {}),
+        keywords: ['page', 'back'],
+        ...stuck(noSheet ?? (pageIndex === 0 ? 'this is the first sheet' : undefined)),
+        stay: true, run: () => goToPage(pageIndex - 1),
+      },
+      {
+        id: 'close-tab', kind: 'command', title: activeDoc === undefined ? 'Close tab' : `Close ${nameOf(activeDoc)}`,
+        shortcut: 'Ctrl+W', keywords: ['tab', 'document'], ...stuck(noSheet),
+        run: () => { if (activeDocId !== null) closeDocument(activeDocId) },
+      },
+      ...(['files', 'contents', 'thumbnails', 'search'] as const).map((panel): Command => ({
+        id: `pane-${panel}`, kind: 'command',
+        title: railPanel === panel ? `Hide the ${panel} pane` : `Show the ${panel} pane`,
+        keywords: ['sidebar', 'pane', 'rail', panel],
+        run: () => setRailPanel(railPanel === panel ? null : panel),
+      })),
+      {
+        id: 'pane-estimates', kind: 'command', title: workOpen ? 'Hide the estimates pane' : 'Show the estimates pane',
+        keywords: ['sidebar', 'pane', 'estimates', 'scopes'], run: () => setWorkOpen(!workOpen),
+      },
+      { id: 'search', kind: 'command', title: 'Search the project', shortcut: 'Ctrl+F', keywords: ['find', 'text'], run: openSearch },
+      { id: 'settings', kind: 'command', title: 'Settings', detail: 'Application preferences', keywords: ['preferences', 'options'], run: openSettings },
+      {
+        id: 'context-window', kind: 'command', title: 'New context window', detail: 'A second view on this project',
+        keywords: ['window', 'second'], run: inContext(activeDoc?.relativePath),
+      },
+      { id: 'close-project', kind: 'command', title: 'Close project', detail: 'Back to the start page', keywords: ['exit', 'start'], run: onCloseProject },
+      {
+        id: 'undo', kind: 'command', title: undoState.undoLabel === null ? 'Undo' : `Undo ${undoState.undoLabel}`,
+        shortcut: 'Ctrl+Z', ...stuck(undoState.canUndo ? undefined : 'nothing to undo'), stay: true, run: () => void doUndo(),
+      },
+      {
+        id: 'redo', kind: 'command', title: undoState.redoLabel === null ? 'Redo' : `Redo ${undoState.redoLabel}`,
+        shortcut: 'Ctrl+Y', ...stuck(undoState.canRedo ? undefined : 'nothing to redo'), stay: true, run: () => void doRedo(),
+      },
+
+      /* ---- scale ---- */
+      {
+        id: 'calibrate', kind: 'command', title: 'Calibrate from the drawing',
+        detail: 'Set this sheet’s scale from a known dimension',
+        keywords: ['scale', 'measure'], ...stuck(noSheet), run: () => { setTakeoff(true); setTool('calibrate') },
+      },
+      {
+        id: 'set-scale', kind: 'command', title: 'Set scale for this sheet…',
+        detail: cal === null ? 'no scale yet' : `now ${scaleLabel(cal.feetPerPoint)}`,
+        keywords: ['scale', 'preset', 'calibrate'], ...stuck(noSheet),
+        step: {
+          kind: 'choose', label: 'Set scale', note: `applies to ${sheetLabelFor(pageIndex)}`,
+          options: () => SCALE_PRESETS.map((p): Command => ({
+            id: `scale-${p.id}`, kind: 'command', title: p.label,
+            ...(cal !== null && Math.abs(cal.feetPerPoint - feetPerPointForPreset(p)) < 1e-9 ? { detail: 'current' } : {}),
+            run: () => applyPreset(p),
+          })),
+        },
+      },
+      {
+        id: 'scale-all', kind: 'command', title: 'Apply this sheet’s scale to every sheet',
+        detail: `${pageCount} sheets · ${scaledPages} already carry one`,
+        keywords: ['scale', 'all', 'every', 'set'],
+        ...stuck(noSheet ?? (cal === null ? 'no scale on this sheet' : undefined)),
+        run: () => { if (cal !== null) void applyScaleToSelection(allPages, cal.feetPerPoint, 'palette: this sheet’s scale') },
+      },
+      {
+        id: 'scale-range', kind: 'command', title: 'Set scale for a range of sheets…', detail: 'pick the series, then the preset',
+        keywords: ['scale', 'series', 'range', 'sheets'],
+        ...stuck(noSheet ?? (sheetGroups.every((g) => g.label === null) ? 'the set has no sheet series' : undefined)),
+        step: {
+          kind: 'choose', label: 'Set scale for a range', note: 'a series of sheets',
+          options: () => sheetGroups.filter((g) => g.label !== null).map((g): Command => ({
+            id: `range-${g.label}`, kind: 'command', title: g.label ?? '',
+            detail: `${g.rows[0]?.number ?? ''} … ${g.rows[g.rows.length - 1]?.number ?? ''} · ${g.rows.length} sheets`,
+            step: {
+              kind: 'choose', label: `${g.label} · ${g.rows.length} sheets`, note: `applies to all ${g.rows.length}`,
+              ...(g.rows.some((r) => scaleOfPage(r.page) !== null)
+                ? { warn: 'Some of these sheets already carry a scale. Applying one replaces every one of them, and cannot be undone.' }
+                : {}),
+              options: () => SCALE_PRESETS.map((p): Command => {
+                const carrying = g.rows.filter((r) => {
+                  const s = scaleOfPage(r.page)
+                  return s !== null && Math.abs(s - feetPerPointForPreset(p)) < 1e-9
+                }).length
+                return {
+                  id: `range-${g.label}-${p.id}`, kind: 'command', title: p.label,
+                  ...(carrying > 0 ? { detail: `${carrying} of the ${g.rows.length} carry this now` } : {}),
+                  run: () => void applyScaleToSelection(g.rows.map((r) => r.page), feetPerPointForPreset(p), presetSource(p)),
+                }
+              }),
+            },
+          })),
+        },
+      },
+      {
+        id: 'scale-region', kind: 'command', title: 'Draw a scale region',
+        detail: 'For a sheet that carries more than one scale — four details at four scales',
+        keywords: ['scale', 'detail', 'region', 'multiple'], ...stuck(noSheet),
+        run: () => { setTakeoff(true); setTool('scale-region') },
+      },
+      {
+        id: 'remove-region', kind: 'command', title: 'Remove a scale region…',
+        detail: `${regionsOnThisSheet.length} on this sheet`,
+        keywords: ['scale', 'region', 'delete'],
+        ...stuck(noSheet ?? (regionsOnThisSheet.length === 0 ? 'no regions on this sheet' : undefined)),
+        step: {
+          kind: 'choose', label: 'Remove region', note: 'undoable',
+          options: () => regionsOnThisSheet.map((r): Command => ({
+            id: `region-${r.id}`, kind: 'command', title: r.label, detail: scaleLabel(r.feetPerPoint),
+            run: () => void removeRegion(r.id),
+          })),
+        },
+      },
+
+      /* ---- rounds ---- */
+      {
+        id: 'new-round', kind: 'command', title: 'New round…', detail: 'A bidding round: the estimate a takeoff lands in',
+        keywords: ['estimate', 'create', 'add'],
+        step: {
+          kind: 'text', label: 'New round', placeholder: 'Name the round', rule: 'must be unique', validate: roundNameRule,
+          describe: (t) => (t.trim() === '' ? 'Create a round' : `Create round “${t.trim()}”`),
+          run: (t) => void createEstimate(t.trim()),
+        },
+      },
+      {
+        id: 'rename-round', kind: 'command', title: openRound === undefined ? 'Rename round…' : `Rename ${openRound.name}…`,
+        keywords: ['estimate', 'name'], ...stuck(noRound),
+        step: {
+          kind: 'text', label: 'Rename round', placeholder: 'New name', initial: openRound?.name ?? '', rule: 'must be unique',
+          validate: (t) => (t.trim() === openRound?.name ? 'that is its name now' : roundNameRule(t)),
+          describe: (t) => `Rename to “${t.trim()}”`,
+          run: (t) => { if (openRound !== undefined) void renameEstimateBy(openRound.id, t.trim()) },
+        },
+      },
+      duplicateRound,
+      {
+        id: 'delete-round', kind: 'command', title: openRound === undefined ? 'Delete round' : `Delete ${openRound.name}`,
+        // Not a confirmation: the row says what actually happens. A round that
+        // holds the only copy of any markup is refused by the store, with the
+        // reason and the nearest thing that works.
+        detail: `its ${openRound?.scopeCount ?? 0} scope${openRound?.scopeCount === 1 ? '' : 's'} go to the archive · refused while it holds markups`,
+        keywords: ['estimate', 'remove'], ...stuck(noRound),
+        run: async () => {
+          if (openRound === undefined) return undefined
+          const why = await deleteEstimateBy(openRound.id)
+          if (why === undefined) return undefined
+          return { reason: why, alternative: duplicateRound }
+        },
+      },
+      {
+        id: 'export-estimate', kind: 'command', title: 'Export estimate…',
+        detail: 'Check the names and scopes, then a branded PDF, a CSV or a TSV',
+        keywords: ['export', 'estimate', 'pdf', 'csv', 'tsv', 'client'],
+        ...stuck(noRound),
+        run: () => { if (openRound !== undefined) openEstimateExport(openRound.id) },
+      },
+      {
+        id: 'save-report', kind: 'command', title: 'Save report…', detail: 'The round’s parts and quantities as a file',
+        keywords: ['export', 'estimate', 'bill', 'html'],
+        ...stuck(noRound ?? (pieces.length === 0 ? 'nothing measured yet' : undefined)),
+        run: () => {
+          if (openRound === undefined) return
+          void saveReportFile({ projectName, estimateName: openRound.name, bom: buildBom(pieces), documents: docNames })
+            .then((o) => setStatus(saveOutcomeText(o, 'report')))
+        },
+      },
+      {
+        id: 'copy-bill', kind: 'command', title: 'Copy bill as TSV', detail: 'Pastes into a spreadsheet',
+        keywords: ['export', 'clipboard', 'bill', 'excel'],
+        ...stuck(noRound ?? (pieces.length === 0 ? 'nothing measured yet' : undefined)),
+        run: async () => {
+          if (await copyBillTsv(buildBom(pieces))) { setStatus('bill copied as TSV'); return undefined }
+          return 'The clipboard refused the bill.'
+        },
+      },
+      {
+        id: 'save-marked', kind: 'command', title: 'Save marked-up PDF…', detail: 'This drawing with its markups burned in',
+        keywords: ['export', 'pdf', 'markup'],
+        ...stuck(noSheet ?? (markupsOnOpenDrawing === 0 ? 'no markups on this drawing' : undefined)),
+        run: async () => {
+          const err = await exportMarkedDrawing()
+          if (err !== null) return err
+          setStatus('marked-up PDF saved')
+          return undefined
+        },
+      },
+
+      /* ---- scopes ---- */
+      /*
+       * WHOLE WORKFLOWS, inside the palette. Aaron: "you should be able to do
+       * complete CRUD workflows within the command palette without leaving
+       * the command palette." So a scope is created, then asked its product,
+       * then what it counts; configuring one picks the scope, then the
+       * setting, then takes the value and comes back for the next setting;
+       * deleting picks and confirms. Each command works on the OPEN scope
+       * when there is one and otherwise starts by asking which — a command
+       * that is stuck on "open a scope first" is a dialog by another name.
+       */
+      {
+        id: 'add-scope', kind: 'command', title: 'Add scope…', ...(openRound === undefined ? {} : { detail: `to ${openRound.name}` }),
+        keywords: ['scope-action', 'new', 'create'], ...stuck(noRound),
+        step: {
+          kind: 'text', label: 'Add scope', placeholder: 'Name the scope — CL03 Baffle Ceiling', rule: 'must be unique in the round', validate: scopeNameRule,
+          describe: (t) => (t.trim() === '' ? 'Add a scope' : `Add scope “${t.trim()}” — then choose its product`),
+          run: async (t) => {
+            const label = t.trim()
+            await createNamedScope(label)
+            // The scope exists now; read it back rather than trusting a closure.
+            const made = await scopeByLabel(label)
+            if (made === null) return
+            return { next: productCommand(made.id, { then: 'counts' }), chip: `Add ${label}` }
+          },
+        },
+      },
+      {
+        id: 'configure-scope', kind: 'command',
+        title: shown === undefined ? 'Configure scope…' : `Configure ${shown.label}…`,
+        detail: 'product, what it counts, each measure',
+        keywords: ['scope-action', 'setup', 'measures', 'width', 'length', 'spacing'], ...stuck(noRound),
+        step: shown === undefined ? pickScope('Configure scope', (sc) => configureCommand(sc.id)) : configureCommand(shown.id).step!,
+      },
+      {
+        id: 'rename-scope', kind: 'command', title: shown === undefined ? 'Rename scope…' : `Rename ${shown.label}…`,
+        keywords: ['scope-action', 'name'], ...stuck(noRound),
+        step: shown === undefined ? pickScope('Rename scope', (sc) => renameCommand(sc.id)) : renameCommand(shown.id).step!,
+      },
+      {
+        id: 'set-product', kind: 'command', title: 'Set product…',
+        ...(shown === undefined ? {} : { detail: `${shown.label} · ${PRODUCT_TYPE_LABEL[readProductType(shown.specifications)]}` }),
+        keywords: ['scope-action', 'type', 'ceiling', 'plank', 'panel'], ...stuck(noRound),
+        step: shown === undefined ? pickScope('Set product', (sc) => productCommand(sc.id, {})) : productCommand(shown.id, {}).step!,
+      },
+      {
+        id: 'set-counts', kind: 'command', title: 'Set what the scope counts…',
+        ...(shown === undefined ? {} : { detail: `${shown.label} · ${SCOPE_TYPE_LABEL[shown.scopeType]}` }),
+        keywords: ['scope-action', 'areas', 'lengths', 'counts', 'measure'], ...stuck(noRound),
+        step: shown === undefined ? pickScope('Set counts', (sc) => countsCommand(sc.id, {})) : countsCommand(shown.id, {}).step!,
+      },
+      {
+        id: 'duplicate-scope', kind: 'command', title: shown === undefined ? 'Duplicate scope…' : `Duplicate ${shown.label}`,
+        keywords: ['scope-action', 'copy'], ...stuck(noRound),
+        ...(shown === undefined
+          ? { step: pickScope('Duplicate scope', (sc) => ({ id: `dup-${sc.id}`, kind: 'command', title: sc.label, run: () => void duplicateScope(sc.id) })) }
+          : { run: () => void duplicateScope(shown.id) }),
+      },
+      {
+        id: 'remove-scope', kind: 'command', title: shown === undefined ? 'Remove scope from round…' : `Archive ${shown.label}`,
+        // Reversible, so no confirmation: the row says what happens instead.
+        detail: shown === undefined ? 'archived, not destroyed'
+          : `its ${markupCounts[shown.id] ?? 0} markup${(markupCounts[shown.id] ?? 0) === 1 ? '' : 's'} stay and come back if you restore it`,
+        keywords: ['scope-action', 'remove', 'delete', 'archive'], ...stuck(noRound),
+        ...(shown === undefined
+          ? { step: pickScope('Remove scope', (sc) => removeCommand(sc.id)) }
+          : { run: () => { if (openRound !== undefined) void removeScopeBy(openRound.id, shown.id) } }),
+      },
+      {
+        id: 'restore-scope', kind: 'command', title: 'Restore scope…',
+        detail: `${archivedScopes.length} archived`,
+        keywords: ['scope-action', 'archive', 'undelete'],
+        ...stuck(noRound ?? (archivedScopes.length === 0 ? 'nothing archived' : undefined)),
+        step: {
+          kind: 'choose', label: 'Restore scope', note: `into ${openRound?.name ?? 'the round'}`,
+          options: () => archivedScopes.map((sc): Command => ({
+            id: `restore-${sc.id}`, kind: 'command', title: sc.label,
+            detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+            run: () => void restoreScope(sc.id),
+          })),
+        },
+      },
+      {
+        id: 'take-off', kind: 'command', title: shown === undefined ? 'Take off' : `Take off in ${shown.label}`,
+        detail: 'Area tool, drawing into the scope', keywords: ['scope-action', 'takeoff', 'draw', 'measure'],
+        ...stuck(noSheet ?? (shown === undefined ? 'choose a scope first' : noScale)),
+        run: () => { if (shown !== undefined) { setActiveScope(shown.id); beginTakeoff(true); setTool('area') } },
+      },
+      {
+        id: 'leave-takeoff', kind: 'command', title: 'Leave takeoff', detail: 'Back to reading the sheet',
+        keywords: ['stop', 'done', 'pan'], ...stuck(takeoff ? undefined : 'not in a takeoff'),
+        run: () => beginTakeoff(false),
+      },
+      ...([
+        ['area', 'Area tool', 'Trace a region'], ['polyline', 'Length tool', 'Trace a run'], ['count', 'Count tool', 'One click, one piece'],
+        ['cutout', 'Cutout tool', 'Subtract from an area'], ['shape', 'Highlight tool', 'Mark a region; counts nothing'],
+        ['dimension', 'Dimension tool', 'Measure and write it on the sheet'], ['pan', 'Pan tool', 'Read the sheet'],
+      ] as const).map(([t, label, detail]): Command => ({
+        id: `tool-${t}`, kind: 'command', title: label, detail: tool === t ? `${detail} · current` : detail,
+        keywords: ['tool', 'draw'], ...stuck(noSheet ?? (t !== 'pan' && t !== 'dimension' ? noScope : undefined)),
+        run: () => { if (t !== 'pan' && t !== 'dimension' && !takeoff) beginTakeoff(true); setTool(t) },
+      })),
+      {
+        id: 'set-direction', kind: 'command', title: 'Set direction on the sheet', detail: 'The way planks run, drawn as an arrow',
+        keywords: ['scope-action', 'plank', 'orientation'], ...stuck(noSheet ?? noScope),
+        run: () => { setTakeoff(true); setTool('direction') },
+      },
+      {
+        id: 'commit-scope', kind: 'command', title: shown === undefined ? 'Commit scope' : `Commit ${shown.label}`,
+        detail: 'Freeze its quantities into the round', keywords: ['scope-action', 'freeze', 'lock'],
+        ...stuck(noRound ?? noScope), run: () => { if (shown !== undefined) void commitScope(shown.id) },
+      },
+      {
+        id: 'commit-all', kind: 'command', title: 'Commit every scope in the round',
+        detail: `${estimateScopes.length} scope${estimateScopes.length === 1 ? '' : 's'}`, keywords: ['freeze', 'lock', 'all'],
+        ...stuck(noRound ?? (estimateScopes.length === 0 ? 'the round has no scopes' : undefined)),
+        run: async () => { for (const sc of estimateScopes) await commitScope(sc.id) },
+      },
+
+      /* ---- markups ---- */
+      {
+        id: 'move-markup', kind: 'command', title: 'Move selected markup to…',
+        detail: `${selectedIds.length} selected`, keywords: ['scope-action', 'reassign', 'rescope', 'selection'],
+        ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
+        step: {
+          kind: 'choose', label: 'Move to', note: `${selectedIds.length} markup${selectedIds.length === 1 ? '' : 's'}`,
+          options: () => [
+            ...estimateScopes.map((sc): Command => ({
+              id: `move-${sc.id}`, kind: 'scope', title: sc.label, detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+              run: () => void reassignSelection(sc.id),
+            })),
+            { id: 'move-none', kind: 'command', title: 'No scope', detail: 'Kept on the sheet, counted nowhere', run: () => void reassignSelection(null) },
+          ],
+        },
+      },
+      {
+        id: 'delete-markup', kind: 'command', title: 'Delete selected markup', shortcut: 'Del',
+        detail: `${selectedIds.length} selected`, keywords: ['remove', 'selection'],
+        ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
+        run: () => void removeMarkups(selectedRef.current),
+      },
+
+      { id: 'quantities', kind: 'command', title: 'Parts and quantities', detail: 'The open scope, on its Parts page', keywords: ['bom', 'bill', 'order'], ...stuck(noScope), run: openParts },
+      { id: 'specs', kind: 'command', title: 'Scope setup', detail: 'Product, measures, yield', keywords: ['edit', 'specifications'], ...stuck(noScope), run: openScopeEditor },
+    ]
+    /*
+     * Every setting, operable WITHOUT opening settings.
+     *
+     * The palette is the only permanent menu this app has, and typing
+     * "scrollbars" to turn scrollbars on should not route through a full-screen
+     * view and a search field inside it. A switch becomes one command that
+     * flips it — and stays open, so five switches are five Enters; a choice
+     * becomes one command per option, so "single page" is a thing you can type
+     * rather than a thing you go and find. A number cannot be typed at a
+     * palette, so it opens settings — the only case that does.
+     */
+    for (const d of SETTINGS) {
+      const current = prefs[d.id]
+      if (d.type === 'bool') {
+        const on = current === true
+        out.push({
+          id: `set:${d.id}`,
+          kind: 'command',
+          title: `${on ? 'Turn off' : 'Turn on'} ${d.label.toLowerCase()}`,
+          detail: `Settings · ${CATEGORY_LABEL[d.category]} · currently ${on ? 'on' : 'off'}`,
+          keywords: ['setting', d.label, d.description],
+          stay: true,
+          run: () => { settings.set(d.id, !on); setStatus(`${d.label}: ${on ? 'off' : 'on'}`) },
+        })
+      } else if (d.type === 'enum') {
+        for (const c of d.choices) {
+          if (String(current) === c.value) continue
+          out.push({
+            id: `set:${d.id}:${c.value}`,
+            kind: 'command',
+            title: `${d.label}: ${c.label}`,
+            detail: `Settings · ${CATEGORY_LABEL[d.category]}`,
+            keywords: ['setting', d.label, c.label, d.description],
+            stay: true,
+            run: () => { settings.set(d.id, c.value); setStatus(`${d.label}: ${c.label}`) },
+          })
+        }
+      } else {
+        out.push({
+          id: `set:${d.id}`,
+          kind: 'command',
+          title: d.label,
+          detail: `Settings · ${CATEGORY_LABEL[d.category]} · currently ${String(current)}`,
+          keywords: ['setting', d.description],
+          run: openSettings,
+        })
+      }
+    }
+    const modified = SETTINGS.filter((d) => settings.isModified(d.id)).length
+    out.push({
+      id: 'reset-settings', kind: 'command', title: 'Reset all settings', detail: `${modified} changed from default`,
+      keywords: ['setting', 'defaults'], ...stuck(modified === 0 ? 'everything is at its default' : undefined),
+      run: () => { settings.resetAll(); setStatus('settings reset') },
+    })
+
+    // The presets, typeable straight: "1/8" finds it without the step.
+    for (const p of SCALE_PRESETS) {
+      out.push({
+        id: `scale-${p.id}`, kind: 'command', title: `Set scale ${p.label}`,
+        keywords: ['scale', 'calibrate'], whenTyped: true, ...stuck(noSheet), run: () => applyPreset(p),
+      })
+    }
+    for (const e of estimates) {
+      out.push({
+        id: `est-${e.id}`, kind: 'estimate', title: e.name,
+        detail: `${e.scopeCount} scope${e.scopeCount === 1 ? '' : 's'}${e.id === openEstimateId ? ' · open' : ''}`,
+        run: () => { setOpenScopeId(null); setOpenEstimateId(e.id); void refreshEstimates(e.id) },
+      })
+    }
+    for (const sc of estimateScopes) {
+      out.push({
+        id: `scope-${sc.id}`, kind: 'scope', title: sc.label,
+        detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id) },
+      })
+      // "@cl03 take off": the verb beside the noun, findable when typed.
+      out.push({
+        id: `takeoff-${sc.id}`, kind: 'scope', title: `Take off in ${sc.label}`,
+        detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markups`,
+        keywords: ['scope-action', 'takeoff', sc.label], whenTyped: true, ...stuck(noSheet ?? noScale),
+        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); beginTakeoff(true); setTool('area') },
+      })
+    }
+    for (const d of documents) {
+      out.push({
+        id: `doc-${d.id}`, kind: 'document', title: nameOf(d), detail: d.relativePath,
+        ...(d.missing ? { unavailable: 'file missing' } : {}),
+        alt: { label: 'Open in a context window', run: inContext(d.relativePath) },
+        run: () => openDocument(d.id),
+      })
+    }
+    for (const g of sheetGroups) {
+      for (const r of g.rows) {
+        out.push({
+          id: `page-${r.page}`, kind: 'page', title: r.number, page: r.page,
+          ...(r.title === '' ? {} : { detail: r.title, keywords: [r.title] }),
+          run: () => goToPage(r.page),
+        })
+      }
+    }
+    /*
+     * Projects last, and after the sheets.
+     *
+     * The palette is mostly things you do INSIDE the open project; switching
+     * to another one is a different order of action, so it sits at the bottom
+     * rather than interleaved with commands that act on what is on screen.
+     */
+    out.push(...projectCommands({
+      currentPath: projectPath,
+      recents: recentProjects ?? [],
+      ...(onOpenProject !== undefined ? { onOpen: onOpenProject } : {}),
+      ...(onBrowseProject !== undefined ? { onBrowse: onBrowseProject } : {}),
+    }))
+    return out
+  }, [
+    documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
+    pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
+    openSearch, openSettings, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
+    regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
+    deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
+    createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
+    scaleOfPage, applyScaleToSelection, markupCounts,
+    beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups,
+    openParts, openScopeEditor, prefs, settings, setZoom, openDocument, refreshEstimates,
+    identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject,
+    openEstimateExport,
+  ])
+
   return (
     <div
       className="shellapp"
@@ -4416,6 +5368,7 @@ export default function Workspace({
           while another panel is open.
         */
         notes={ingestNote !== null ? { files: ingestNote } : {}}
+        indexing={indexing}
         onSelect={(p) => setRailPanel((cur) => (cur === p ? null : p))}
         onSettings={() => (settingsOpen ? setSettingsOpen(false) : openSettings())}
         title={railPanel === null
@@ -4429,6 +5382,7 @@ export default function Workspace({
               onGoToHit={goToHit}
               onClose={() => setRailPanel(null)}
               focusNonce={searchFocus}
+              seed={searchSeed}
             />
           )}
           {/*
@@ -4485,7 +5439,7 @@ export default function Workspace({
           )}
           {railPanel === 'files' && (
             <FileList
-              folders={folders}
+              files={panelFiles}
               activeId={activeDocId}
               openIds={openDocIds}
               onOpen={openDocument}
@@ -4527,11 +5481,21 @@ export default function Workspace({
         <StatusToast text={statusEntry.text} at={statusEntry.at} />
         {/* The setting promised a readout; this is the readout. */}
         {prefs['performance.showBudgets'] === true && <PerfReadout perf={perf} />}
+        {activeDocId === null && scan === 'done' && (
+          <div className="stageempty" role="status">
+            <div>
+              <strong>No drawing open</strong>
+              Choose a sheet from the Files pane. The project&rsquo;s text is indexed in the
+              background, so search will find it either way.
+            </div>
+          </div>
+        )}
 
         <div
           ref={stageRef}
           className="stage"
           style={{ cursor: tool === 'pan' ? 'grab' : 'crosshair' }}
+          onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -4546,14 +5510,24 @@ export default function Workspace({
              * moments, and neither one is ever ambiguous: a draft is either in
              * progress or it is not.
              */
-            if (isCommittable(draftRef.current) || draftRef.current.points.length > 0) {
+            if (isCommittable(draftRef.current) || draftRef.current.points.length > 0
+                || dimensionDraftRef.current.a !== null) {
               setMarkupMenu(null)
               cancelDraft()
+              return
+            }
+            // Nothing being drawn and a drawing tool in hand: right-click
+            // puts it down, the way Escape does. The menu on a markup is a
+            // Pan-tool question, asked with the tool already down.
+            if (tool !== 'pan') {
+              setMarkupMenu(null)
+              setTool('pan')
               return
             }
             const r = e.currentTarget.getBoundingClientRect()
             const hx = e.clientX - r.left, hy = e.clientY - r.top
             const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
+              ?? hitDimensionAt(hx, hy)
             if (!hit) { setMarkupMenu(null); return }
             // The menu acts on the selection, so what it will act on has to be
             // selected — and visibly so — before it opens.
@@ -4734,7 +5708,7 @@ export default function Workspace({
               activeScope={activeScope}
               onScope={setActiveScope}
               onSpecifications={openScopeDetail}
-              onQuantities={openBom}
+              onQuantities={openParts}
               layoutOn={layoutOn}
               onToggleLayout={setLayoutOn}
               takeoff={takeoff}
@@ -4744,10 +5718,11 @@ export default function Workspace({
               onEstimate={(id) => {
                 setOpenEstimateId(id)
                 setOpenScopeId(null)
-                setBomOpen(false)
                 void refreshEstimates(id)
               }}
               onAddScope={openScopeEditor}
+              markupCountFor={(id) => markupCounts[id] ?? 0}
+              onOpenEstimates={() => setWorkOpen(true)}
             />
           }
           right={
@@ -4838,26 +5813,53 @@ export default function Workspace({
         onDeleteEstimate={(id) => void deleteEstimateBy(id)}
         onRemoveScope={(eid, sid) => void removeScopeBy(eid, sid)}
         onSaveScope={(sc) => void saveScope(sc)}
-        bom={{
+        bill={{
           entries: pieces,
           calibrated: cal !== null,
           documents: documents.map((d) => d.displayName || d.relativePath),
           markupCount: markupsOnOpenDrawing,
           onExportMarkedPdf: exportMarkedDrawing,
         }}
-        bomOpen={bomOpen}
-        onOpenBom={setBomOpen}
+        scopePage={scopePage}
+        onScopePage={setScopePage}
+        totalFor={(id) => {
+          const r = quantities.find((q) => q.scope.id === id)?.rows[0]
+          return r === undefined ? null : `${r.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${r.unit}`
+        }}
+        onSetDirection={() => { setTakeoff(true); setTool('direction') }}
+        direction={(() => {
+          const sc = estimateScopes.find((s) => s.id === (openScopeId ?? activeScope))
+          const d = sc === undefined ? null : scopeDefaultDirectionFrom(sc.specifications)
+          if (d === null || sc === undefined) return null
+          // The sheet it was picked on rides in the raw spec beside the vector.
+          const raw = sc.specifications['scopeDefaultDirection']
+          const page = raw !== null && typeof raw === 'object' && 'sourcePage' in raw ? Number((raw as { sourcePage?: unknown }).sourcePage) : NaN
+          return Number.isFinite(page) ? `set on ${sheetLabelFor(page)}` : 'set'
+        })()}
         layoutOn={layoutOn}
         onToggleLayout={setLayoutOn}
         {...(commitState !== undefined ? { commit: commitState } : {})}
         onCommit={(id) => void commitScope(id)}
         onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool('area') }}
+        onExportEstimate={openEstimateExport}
+        {...(exportDraft !== null
+          ? {
+              exportSheet: (
+                <ExportSheet
+                  key={exportDraft.estimateName}
+                  initial={exportDraft}
+                  onSavePdf={saveEstimatePdf}
+                  onClose={() => setExportDraft(null)}
+                />
+              ),
+            }
+          : {})}
         warnings={warnings}
         {...(layoutBlocker !== undefined ? { blocker: layoutBlocker } : {})}
       />
 
       {paletteOpen && (
-        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} onSearchText={(q) => { openSearch(); setSearchSeed(q) }} />
       )}
     </div>
   )

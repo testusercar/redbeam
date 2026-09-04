@@ -32,7 +32,6 @@ const SURFACES = {
   'CalibrationEntry.tsx': read('./CalibrationEntry.tsx'),
   'Shell.tsx': read('./Shell.tsx'),
   'ShellHarness.tsx': read('./ShellHarness.tsx'),
-  '../bom/BomView.tsx': read('../bom/BomView.tsx'),
   '../scale/ScalePicker.tsx': read('../scale/ScalePicker.tsx'),
   '../scale/RegionList.tsx': read('../scale/RegionList.tsx'),
 }
@@ -83,21 +82,43 @@ describe('the scope editor, in the sidebar', () => {
   })
 })
 
-describe('the bill of materials, in the sidebar', () => {
+describe('the bill of materials, folded into the scope', () => {
   const src = SURFACES['RightWorkspace.tsx']
 
-  it('is a level of the estimates panel', () => {
-    expect(src).toContain('<BomView')
-    expect(src).toContain('bomOpen?: boolean')
+  /** Aaron, 2026-09-04: material never shows at the estimate level. */
+  it('is no level of the estimates panel', () => {
+    expect(src).not.toContain('<BomView')
+    expect(src).not.toContain('bomOpen')
+    expect(src).not.toContain('billlink')
   })
 
-  it('is narrowed to the open round', () => {
+  it('reads its parts on the scope, with each line\'s confidence', () => {
+    expect(src).toContain('function PartsPage(')
+    expect(src).toContain('buildBom([{ scope, result: pieces }])')
+  })
+
+  it('exports from the round\'s menu, narrowed to the open round', () => {
     expect(src).toContain('entriesForRound(')
+    for (const item of ['Save report…', 'Copy bill as TSV', 'Save marked-up PDF…', 'Delete round', 'Duplicate round', 'Rename']) {
+      expect(src, `${item} is not in the round menu`).toContain(item)
+    }
+    expect(src).toContain('saveReportFile(')
+    expect(src).toContain('copyBillTsv(')
+  })
+})
+
+describe('the scope pane, on three pages', () => {
+  const src = SURFACES['RightWorkspace.tsx']
+
+  it('puts the quantity above the pages, with one status line', () => {
+    expect(src).toContain('className="scopehero"')
+    expect(src).toContain('herostatus')
   })
 
-  /** The bill has no close button: the breadcrumb is the way back. */
-  it('has no close of its own', () => {
-    expect(SURFACES['../bom/BomView.tsx']).not.toContain('onClose')
+  it('is a SelectorBar of Parts, Setup and Markups, and Parts opens first', () => {
+    expect(src).toContain("useState<ScopePage>('parts')")
+    for (const page of ["'parts'", "'setup'", "'markups'"]) expect(src).toContain(`page === ${page}`)
+    expect(src).toContain('role="tablist"')
   })
 })
 
@@ -108,7 +129,7 @@ describe('the document browser, in the files pane', () => {
     const at = src.indexOf('export function FileList(')
     const list = src.slice(at)
     expect(list).toContain('className="panesearch"')
-    expect(list).toContain('filterFolders(')
+    expect(list).toContain('filterFileTree(')
   })
 
   it('says which documents already have a tab', () => {

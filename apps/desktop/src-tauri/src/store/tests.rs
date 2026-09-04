@@ -604,8 +604,12 @@ fn queries_before_open_say_so() {
 /// ingested 625 documents from two other jobs into the Barclays project, and
 /// Barclays' three into CoreWeave's — one client's drawings catalogued under
 /// another client's bid, with nothing anywhere reporting it.
+///
+/// With one connection per project the late write has a home: it lands in A,
+/// which is where it was issued for, and B never sees it. What is still
+/// refused is a statement for a project nobody opened.
 #[test]
-fn refuses_a_statement_meant_for_a_different_project() {
+fn a_statement_reaches_the_project_it_was_issued_for() {
     let a = TempDir::new();
     let b = TempDir::new();
     let state = StoreState::new();
@@ -614,7 +618,10 @@ fn refuses_a_statement_meant_for_a_different_project() {
     let b_path = b.0.display().to_string();
 
     state.open(&a_path).expect("open A");
-    // Writing to A while A is open is ordinary.
+    // The user opens a second project. A stays open beside it.
+    state.open(&b_path).expect("open B");
+
+    // A write still in flight for A lands in A.
     state
         .with_project(&a_path, |store| {
             store.run(
@@ -623,22 +630,70 @@ fn refuses_a_statement_meant_for_a_different_project() {
                 &[],
             )
         })
-        .expect("write to the open project");
+        .expect("a late write for A goes to A");
 
-    // The user switches. Anything still in flight for A now names a project
-    // that is not open, and must not be answered by B.
-    state.open(&b_path).expect("open B");
-    let err = state
-        .with_project(&a_path, |store| store.all("SELECT 1", &[]))
-        .expect_err("a statement for A must not run against B");
-    let said = err.to_string();
-    assert!(said.contains("wrong project"), "unhelpful error: {said}");
+    let in_a = state
+        .with_project(&a_path, |store| store.all("SELECT id FROM scopes", &[]))
+        .expect("query A");
+    assert_eq!(in_a.len(), 1, "A's write did not land in A");
 
-    // And B is untouched by A's late write.
+    // And B is untouched by it.
     let rows = state
         .with_project(&b_path, |store| store.all("SELECT id FROM scopes", &[]))
         .expect("query B");
     assert!(rows.is_empty(), "A's work reached B: {rows:?}");
+
+    // Both are reported open; the unaddressed handle is the last one opened.
+    let mut open = state.open_paths();
+    open.sort();
+    assert_eq!(open.len(), 2, "both projects should stay open: {open:?}");
+    let current = state.with(|s| Ok(s.db_path().display().to_string())).expect("current");
+    assert_eq!(current, resolve_db_path(&b_path).display().to_string());
+}
+
+/// A project that was never opened is refused, and the refusal says so.
+#[test]
+fn refuses_a_statement_for_a_project_that_is_not_open() {
+    let a = TempDir::new();
+    let never = TempDir::new();
+    let state = StoreState::new();
+    state.open(&a.0.display().to_string()).expect("open A");
+
+    let err = state
+        .with_project(&never.0.display().to_string(), |store| store.all("SELECT 1", &[]))
+        .expect_err("a statement for a project that is not open must be refused");
+    let said = err.to_string();
+    assert!(said.contains("wrong project"), "unhelpful error: {said}");
+}
+
+/// Opening a project that is already open reuses its connection rather than
+/// replacing it: a second window on the same project sees the first's rows,
+/// and `applied` reports that nothing new was migrated.
+#[test]
+fn reopening_an_open_project_shares_its_connection() {
+    let dir = TempDir::new();
+    let path = dir.0.display().to_string();
+    let state = StoreState::new();
+    let first = state.open(&path).expect("open");
+    assert!(first.applied > 0, "first open should migrate");
+
+    state
+        .with_project(&path, |store| {
+            store.run(
+                "INSERT INTO scopes (id, label, scope_type, color, specifications_json, created_at, updated_at) \
+                 VALUES ('s1', 'shared', 'area', '#fff', '{}', '2026-01-01', '2026-01-01')",
+                &[],
+            )
+        })
+        .expect("write");
+
+    let again = state.open(&path).expect("reopen from a second window");
+    assert_eq!(again.applied, 0, "a reopen migrates nothing");
+    assert_eq!(state.open_paths().len(), 1, "one project, one connection");
+    let rows = state
+        .with_project(&path, |store| store.all("SELECT label FROM scopes", &[]))
+        .expect("query");
+    assert_eq!(rows.len(), 1);
 }
 
 /// The check accepts either spelling of a project, because `db_open` does.

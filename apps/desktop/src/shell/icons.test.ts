@@ -20,9 +20,10 @@ describe('the icon vocabulary', () => {
    * produced was a chevron, a row icon and a section icon that visibly came
    * from three different icon sets, sitting 8px apart.
    */
-  it('draws every icon at one stroke weight', () => {
-    const weights = new Set(Object.values(SIZE).map((s) => s.strokeWidth))
-    expect([...weights]).toEqual([1.5])
+  it('draws every icon from one family, Fluent UI System Icons', () => {
+    const src = read('./icons.tsx')
+    expect(src).toContain("from '@fluentui/react-icons'")
+    expect(src).not.toContain('lucide')
   })
 
   /** 12 chevrons, 14 rows, 16 controls, 18 rail, 24 empty state. 8 is a dot. */

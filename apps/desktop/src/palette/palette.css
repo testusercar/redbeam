@@ -48,11 +48,11 @@
   max-width: 600px;
   max-height: 60vh;
   overflow: hidden;
-  border: 1px solid var(--ads-line-2);
+  border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--ads-radius-xl);
-  background: var(--ads-surface);
-  /* The dialog / window-frame shadow recipe (standards/02). */
-  box-shadow: 0 8px 32px rgba(0, 0, 0, .07);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .5);
   font-size: var(--ads-text-sm);
   line-height: var(--ads-leading-sm);
 }
@@ -101,12 +101,8 @@
   align-items: baseline;
   gap: var(--ads-sp-3);
   padding: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-1);
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
   color: var(--ads-ink-3);
 }
 /* A group's note, in sentence voice beside the kicker: what Enter does here. */
@@ -167,10 +163,22 @@
 .palette-row[aria-selected="true"] {
   background: var(--rb-selected);
   color: var(--ads-ink);
-  box-shadow: inset 2px 0 0 var(--rb-accent);
+}
+.palette-row { position: relative; }
+.palette-row[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--rb-accent);
 }
 
 .palette-text { flex: 1 1 auto; min-width: 0; }
+.palette-title { font-size: var(--rb-text-body); line-height: 18px; }
 .palette-title,
 .palette-detail {
   display: block;
@@ -242,3 +250,74 @@
   font-size: var(--ads-text-2xs);
   line-height: var(--ads-leading-2xs);
 }
+
+/* ---------------------------------------------------------------- steps -- */
+
+/* What has been chosen so far, in the field: a chip per step taken. */
+.palette-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: var(--rb-row-sm);
+  padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-selected);
+  color: var(--ads-ink);
+  font-size: var(--ads-text-sm);
+  white-space: nowrap;
+}
+.palette-chip.current { border-color: var(--rb-accent); }
+/* A command that needs more says so at its right edge, and how. */
+.palette-arg {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-1);
+  color: var(--ads-ink-3);
+  font-size: var(--ads-text-xs);
+  white-space: nowrap;
+}
+/* A choice the undo stack cannot take back is warned about before Enter. */
+.palette-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  margin: var(--ads-sp-1) var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-warn-bg);
+  box-shadow: inset 3px 0 0 var(--rb-warn);
+  color: var(--ads-ink);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.palette-warn > svg { flex: none; margin-top: 1px; color: var(--rb-warn); }
+/* A refusal keeps the palette open, with the reason. */
+.palette-refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  margin: var(--ads-sp-1) var(--ads-sp-2);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-bad-bg);
+  box-shadow: inset 3px 0 0 var(--rb-bad);
+  color: var(--ads-ink);
+  font-size: var(--ads-text-xs);
+  line-height: var(--ads-leading-xs);
+}
+.palette-refusal > svg { flex: none; margin-top: 1px; color: var(--rb-bad); }
+.palette-refusal > .grow { flex: 1 1 auto; min-width: 0; }
+/* A miss says so in quotes, and offers the search it cannot do itself. */
+.palette-emptyline {
+  margin: 0;
+  padding: var(--ads-sp-6) var(--ads-sp-6) var(--ads-sp-3);
+  color: var(--ads-ink-3);
+  text-align: center;
+}
+.palette-empty { padding: 0; text-align: left; }
+.palette-empty .palette-list { padding-top: 0; }
+
+/* In the field the note is a count at the right edge, not the row-filler the kicker uses. */
+.palette-field > .palette-note { flex: none; }

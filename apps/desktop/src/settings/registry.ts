@@ -56,6 +56,13 @@ interface Base {
   label: string
   description: string
   /**
+   * The heading this setting sits under on its page — "Layout preview",
+   * "Drawing tools". A page is a category; a section is a group of cards on
+   * it, the way Windows Settings breaks a page into titled runs. Absent, the
+   * setting sits under the category's own name.
+   */
+  section?: string
+  /**
    * The switch this one only means something under.
    *
    * "Show seams" with the layout preview off is a preference about pieces
@@ -82,16 +89,22 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   {
     id: 'viewer.scrollToZoom',
     category: 'viewer',
+    section: 'Navigation',
     type: 'bool',
-    default: true,
+    // Off: the wheel scrolls the sheet up and down, Shift+wheel scrolls it
+    // sideways, and zoom is Ctrl+wheel or the pinch, which is what every PDF
+    // viewer and browser does. It shipped on, which made a plain scroll zoom
+    // and left no way to scroll at all. Aaron: "scrolling should be vertical".
+    default: false,
     label: 'Scroll wheel zooms',
     description:
-      'On, the wheel zooms. Off, it pans and zooming is pinch or Ctrl+wheel. ' +
-      'A trackpad pinch always zooms either way.',
+      'On, the wheel zooms. Off, it scrolls the sheet (Shift for sideways) ' +
+      'and zooming is Ctrl+wheel or a pinch. A pinch always zooms either way.',
   },
   {
     id: 'takeoff.snapEnabled',
     category: 'takeoff',
+    section: 'Drawing tools',
     type: 'bool',
     default: true,
     label: 'Snap while drawing',
@@ -109,8 +122,11 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   {
     id: 'takeoff.layoutPreview',
     category: 'takeoff',
+    section: 'Layout preview',
     type: 'bool',
-    default: false,
+    // On. Aaron: "Default to layout shown." The preview is how a piece count
+    // is checked by eye, and a count nobody looks at is a count nobody trusts.
+    default: true,
     label: 'Show the layout preview',
     description:
       'Draw the pieces the engine laid out, over the drawing. Applies to '
@@ -134,7 +150,9 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     category: 'takeoff',
     parent: 'takeoff.layoutPreview',
     type: 'bool',
-    default: false,
+    // On. Aaron: "Default to overflow shown." What is ordered is the whole
+    // stock piece; hiding the overhang hides the waste the order pays for.
+    default: true,
     label: 'Show material past the edge',
     description:
       'Draw the whole stock piece, including the part that overhangs the '
@@ -173,6 +191,7 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   {
     id: 'performance.showBudgets',
     category: 'performance',
+    section: 'Diagnostics',
     type: 'bool',
     // Off: the readout used to sit in a status bar and now floats over the
     // drawing, and a diagnostic over the sheet is opted into, not shipped on.

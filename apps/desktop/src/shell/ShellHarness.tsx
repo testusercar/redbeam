@@ -23,7 +23,8 @@
  *   ?harness=shell&state=scanning | opening | note | empty | noscopes
  *   ?harness=shell&status=<what the workspace would say>
  *
- * `bom` opens the bill as a level of the estimates panel; `scopes` opens the
+ * `bom` opens the open scope on its Parts page — the bill is no level of its
+ * own; `scopes` opens the
  * round with the add-scope row showing; `calibration` holds the dock's scale
  * control open on the length entry; `regions` puts the region tool in hand;
  * `scalepicker` holds the scale control open on a region's scale. The
@@ -45,6 +46,7 @@ import {
   DocumentTabStrip, FileList, Sidebar, TitleBar, WindowControls,
   type PanelFolder, type RailPanel,
 } from './Shell.js'
+import type { ScopePage } from './RightWorkspace.js'
 import { SheetIndex } from './SheetIndex.js'
 import { ScalePicker } from '../scale/ScalePicker.js'
 import { Dock, DocumentPill, ReadPill, ToolPill } from './Dock.js'
@@ -193,20 +195,61 @@ const ESTIMATES = [
   { id: 'e3', name: '260729 - Negotiations', scopeCount: 3, markupCount: 4 },
 ]
 
+/*
+ * Every shape a palette row can take, so the harness shows them all: a plain
+ * verb, a toggle that stays, a verb with a choose step, one with a text step,
+ * a row that cannot run and says why, and the nouns with their prefixes.
+ */
 const COMMANDS: Command[] = [
-  { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', run: () => {} },
-  { id: 'fit-sheet', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', run: () => {} },
-  { id: 'bom', kind: 'command', title: 'Bill of materials', keywords: ['quantities', 'order'], run: () => {} },
+  { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], run: () => {} },
+  { id: 'fit-sheet', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], run: () => {} },
+  { id: 'next-sheet', kind: 'command', title: 'Next sheet', detail: 'A-413B', shortcut: 'PgDn', stay: true, run: () => {} },
+  {
+    id: 'set-scale', kind: 'command', title: 'Set scale for this sheet…', detail: "now 1/8″ = 1′", keywords: ['scale'],
+    step: {
+      kind: 'choose', label: 'Set scale', note: 'applies to A-413A',
+      options: () => ['1/16″ = 1′', '1/8″ = 1′', '3/16″ = 1′', '1/4″ = 1′', '1/2″ = 1′', '1″ = 1′']
+        .map((label, i): Command => ({ id: `scale-${i}`, kind: 'command', title: label, ...(i === 1 ? { detail: 'current' } : {}), run: () => {} })),
+    },
+  },
+  {
+    id: 'new-round', kind: 'command', title: 'New round…', detail: 'A bidding round: the estimate a takeoff lands in', keywords: ['estimate'],
+    step: {
+      kind: 'text', label: 'New round', placeholder: 'Name the round', rule: 'must be unique',
+      validate: (t) => (t.trim() === '' ? 'a round needs a name' : null),
+      describe: (t) => (t.trim() === '' ? 'Create a round' : `Create round “${t.trim()}”`), run: () => {},
+    },
+  },
+  {
+    id: 'delete-round', kind: 'command', title: 'Delete 260729 - Negotiations', keywords: ['estimate'],
+    detail: 'its 3 scopes go to the archive · refused while it holds markups',
+    run: () => ({
+      reason: 'cannot delete: this round has 41 markups that exist nowhere else',
+      alternative: {
+        id: 'duplicate-round', kind: 'command', title: 'Duplicate round…', detail: 'Scopes and markups copied; commits are not',
+        step: { kind: 'text', label: 'Duplicate round', placeholder: 'Name the copy', initial: '260729 - Negotiations copy', rule: 'must be unique', describe: (t) => `Duplicate as “${t.trim()}”`, run: () => {} },
+      },
+    }),
+  },
+  { id: 'take-off', kind: 'command', title: 'Take off in CL03 Baffle Ceiling', detail: 'Area tool, drawing into the scope', keywords: ['scope-action'], run: () => {} },
+  { id: 'leave-takeoff', kind: 'command', title: 'Leave takeoff', unavailable: 'not in a takeoff', run: () => {} },
+  { id: 'move-markup', kind: 'command', title: 'Move selected markup to…', detail: '0 selected', unavailable: 'nothing selected', keywords: ['scope-action'], run: () => {} },
+  { id: 'quantities', kind: 'command', title: 'Parts and quantities', detail: 'The open scope, on its Parts page', keywords: ['bom', 'order'], run: () => {} },
   { id: 'settings', kind: 'command', title: 'Settings', shortcut: 'Ctrl+,', run: () => {} },
-  { id: 'doc-a', kind: 'document', title: 'AE6 CEILING SET.pdf', detail: 'drawings/AE6 CEILING SET.pdf', run: () => {} },
-  { id: 'doc-b', kind: 'document', title: 'SPECIFICATIONS.pdf', detail: 'specs/SPECIFICATIONS.pdf', run: () => {} },
+  { id: 'set:snap', kind: 'command', title: 'Turn off snap to lines', detail: 'Settings · Drawing · currently on', keywords: ['setting', 'snap'], stay: true, run: () => {} },
+  { id: 'set:seams', kind: 'command', title: 'Turn on seams in the layout preview', detail: 'Settings · Takeoff · currently off', keywords: ['setting', 'seams'], stay: true, run: () => {} },
+  { id: 'undo', kind: 'command', title: 'Undo area in CL03 Baffle Ceiling', shortcut: 'Ctrl+Z', stay: true, run: () => {} },
+  { id: 'redo', kind: 'command', title: 'Redo', shortcut: 'Ctrl+Y', unavailable: 'nothing to redo', stay: true, run: () => {} },
+  { id: 'doc-a', kind: 'document', title: 'AE6 CEILING SET.pdf', detail: 'drawings/AE6 CEILING SET.pdf', alt: { label: 'Open in a context window', run: () => {} }, run: () => {} },
+  { id: 'doc-b', kind: 'document', title: 'SPECIFICATIONS.pdf', detail: 'specs/SPECIFICATIONS.pdf', alt: { label: 'Open in a context window', run: () => {} }, run: () => {} },
   ...OUTLINE.map((n): Command => ({
-    id: `page-${n.page}`, kind: 'page', title: n.title, detail: `Page ${(n.page ?? 0) + 1}`, run: () => {},
+    id: `page-${n.page}`, kind: 'page', title: n.title, detail: `Page ${(n.page ?? 0) + 1}`, page: n.page ?? 0, keywords: [n.title], run: () => {},
   })),
   ...SCOPES.map((s): Command => ({
     id: `scope-${s.id}`, kind: 'scope', title: s.label, detail: String(s.specifications['productType']), run: () => {},
   })),
-  { id: 'est-e3', kind: 'estimate', title: '260729 - Negotiations', detail: '3 scopes', run: () => {} },
+  { id: 'est-e3', kind: 'estimate', title: '260729 - Negotiations', detail: '3 scopes · open', run: () => {} },
+  { id: 'project:browse', kind: 'project', title: 'Open a project folder…', run: () => {} },
 ]
 
 const HITS: SearchHit[] = [
@@ -279,7 +322,7 @@ export function ShellHarness() {
   const [takeoff, setTakeoff] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(show === 'settings')
   const [paletteOpen, setPaletteOpen] = useState(show === 'palette')
-  const [bomOpen, setBomOpen] = useState(show === 'bom')
+  const [scopePage, setScopePage] = useState<ScopePage>(show === 'bom' ? 'parts' : show === 'scopes' ? 'parts' : 'setup')
   /*
    * The two half-finished gestures, as the workspace would hold them: a line
    * measured and waiting for its length, a box drawn and waiting for its
@@ -298,7 +341,7 @@ export function ShellHarness() {
   )
   const [openScope, setOpenScope] = useState<string | null>(
     moment === 'empty' || moment === 'scanning' || moment === 'noscopes'
-      || show === 'scopes' || show === 'bom'
+      || show === 'scopes'
       ? null
       : 'c-mt-01',
   )
@@ -482,7 +525,7 @@ export function ShellHarness() {
           )}
           {rail === 'files' && (
             <FileList
-              folders={moment === 'scanning' || empty ? [] : FOLDERS}
+              files={moment === 'scanning' || empty ? [] : FOLDERS.flatMap((f) => f.files)}
               activeId={activeDoc}
               openIds={['a', 'b']}
               onOpen={setActiveDoc}
@@ -521,14 +564,14 @@ export function ShellHarness() {
               scopes={scopes}
               activeScope={scope}
               onScope={setScope}
-              onSpecifications={() => { setBomOpen(false); setOpenScope(scope) }}
-              onQuantities={() => { setOpenScope(null); setBomOpen(true) }}
+              onSpecifications={() => { setScopePage('setup'); setOpenScope(scope) }}
+              onQuantities={() => { setScopePage('parts'); setOpenScope(scope) }}
               takeoff={takeoff}
               onTakeoff={setTakeoff}
               estimates={estimates}
               openEstimateId={openEstimate}
-              onEstimate={(id) => { setOpenEstimate(id); setOpenScope(null); setBomOpen(false) }}
-              onAddScope={() => { setBomOpen(false); setOpenScope(null); setAddScopeRequest((n) => n + 1) }}
+              onEstimate={(id) => { setOpenEstimate(id); setOpenScope(null) }}
+              onAddScope={() => { setOpenScope(null); setAddScopeRequest((n) => n + 1) }}
               layoutOn={false}
               onToggleLayout={() => {}}
             />
@@ -624,19 +667,22 @@ export function ShellHarness() {
         onRenameEstimate={() => {}}
         onDeleteEstimate={() => {}}
         onRemoveScope={() => {}}
-        bom={{
+        bill={{
           entries: BOM_ENTRIES,
           calibrated: params.get('calibrated') !== 'no',
           documents: ['AE6 CEILING SET.pdf', 'SPECIFICATIONS.pdf'],
           markupCount: 4,
           onExportMarkedPdf: () => Promise.resolve(params.get('fail') === null ? null : 'The drawing could not be written: the file is open in another program.'),
         }}
-        bomOpen={bomOpen}
-        onOpenBom={setBomOpen}
+        scopePage={scopePage}
+        onScopePage={setScopePage}
+        totalFor={(id) => (id === 'c-mt-01' ? '19,968 SF' : id === 'c-bf-02' ? '412.5 LF' : null)}
+        onSetDirection={() => setTool('direction')}
+        direction={scope === 'c-mt-01' ? 'set on AE6-01-01' : null}
       />
 
       {paletteOpen && (
-        <CommandPalette commands={COMMANDS} onClose={() => setPaletteOpen(false)} />
+        <CommandPalette commands={COMMANDS} onClose={() => setPaletteOpen(false)} onSearchText={() => setPaletteOpen(false)} />
       )}
     </div>
   )
