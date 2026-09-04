@@ -228,20 +228,24 @@ export function cleanSpecifications(specs: Specifications): Specifications {
  * Keyed by `valueKey` so a field carries its caption wherever it is rendered,
  * and returning '' rather than throwing so a new measure shows a bare label
  * instead of breaking the panel.
+ *
+ * Kept SHORT on purpose. These sit beside a field name in a half-width cell of
+ * a 380px panel — a plank scope shows seven of them two per line — so anything
+ * past about fourteen characters wraps and costs a row.
  */
 export function measureHelp(valueKey: string): string {
   switch (valueKey) {
-    case 'panelWidth': return 'panel face width'
-    case 'panelLength': return 'panel face length'
-    case 'plankWidth': return 'plank face width'
-    case 'cassetteWidth': return 'cassette face, and its trim'
+    case 'panelWidth': return 'face width'
+    case 'panelLength': return 'face length'
+    case 'plankWidth': return 'face width'
+    case 'cassetteWidth': return 'face and trim'
     case 'stockLength': return 'length you buy'
     case 'spacing': return 'centre to centre'
-    case 'revealSpacing': return 'gap between faces'
-    case 'railLength': return 'rail stock length'
-    case 'maxRailSpacing': return 'furthest apart rails may sit'
-    case 'maxConnectorSpacing': return 'furthest apart connectors may sit'
-    case 'perimeterTrimLength': return 'trim stock length'
+    case 'revealSpacing': return 'gap between'
+    case 'railLength': return 'rail stock'
+    case 'maxRailSpacing': return 'rail limit'
+    case 'maxConnectorSpacing': return 'hanger limit'
+    case 'perimeterTrimLength': return 'trim stock'
     default: return ''
   }
 }

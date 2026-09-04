@@ -1368,9 +1368,24 @@
 .kvvalue.num { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
 .kvvalue.unset { color: var(--rb-ink-4); font-weight: 400; }
 .req { color: var(--rb-warn); font-weight: 500; }
-/* What the measure controls, in four words — the trade abbreviation beside it
-   does not say which of these moves the piece count. */
-.spechelp { color: var(--ads-ink-3); font-weight: 400; }
+/*
+ * What the measure controls, in four words — the trade abbreviation beside it
+ * does not say which of these moves the piece count.
+ *
+ * NOT uppercased with the label. The label is a 10px all-caps field name, which
+ * is fine for two words and shouting by the time it reads PANEL W · PANEL FACE
+ * WIDTH. The caption is a sentence, so it is set as one and sized to be read.
+ */
+.spechelp {
+  color: var(--ads-ink-3);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--ads-text-xs);
+  /* A caption that must wrap wraps tightly rather than opening the row up. */
+  line-height: var(--ads-leading-2xs);
+}
+.req { text-transform: none; letter-spacing: normal; font-size: var(--ads-text-xs); }
 /*
  * A required-but-empty measure takes the warning stroke.
  *
@@ -3499,7 +3514,7 @@
 
 /* ---- the bill, in the sidebar's row grammar ---- */
 .bomactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); }
-.bomline > .kvlabel { display: flex; align-items: baseline; gap: var(--ads-sp-2); min-width: 0; }
+.bomline > span:first-child { display: flex; align-items: baseline; gap: var(--ads-sp-2); min-width: 0; }
 /* Confidence is a word beside the line, in the status colour: a tinted row
    alone is a legend nobody has. */
 .bomconf {
@@ -3510,7 +3525,7 @@
 }
 .bomconf.unverified { color: var(--rb-warn); }
 .bomconf.blocked { color: var(--rb-bad); }
-.bomline.blocked > .kvvalue { color: var(--rb-ink-3); }
+.bomline.blocked > .num { color: var(--ads-ink-3); }
 
 /* ---- the files pane: which documents already have a tab ---- */
 .fileopen { font-family: var(--ads-mono); font-size: var(--ads-text-2xs); letter-spacing: .06em; text-transform: uppercase; }

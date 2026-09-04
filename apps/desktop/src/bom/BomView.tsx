@@ -228,9 +228,16 @@ export function BomView(p: BomViewProps) {
 }
 
 function Line({ line }: { line: BomLine }) {
+  /*
+    The same three columns the scope's own parts table uses — part, quantity,
+    unit — because it is the same kind of line. It was a key-value row with the
+    quantity and the unit run together on the right, so the two places that
+    list what to order disagreed about how an order line looks, and neither
+    column of figures aligned on its unit.
+  */
   return (
-    <div className={`kvrow bomline ${line.confidence}`} title={line.note ?? ''}>
-      <span className="kvlabel">
+    <div className={`partsrow bomline ${line.confidence}`} title={line.note ?? ''}>
+      <span>
         {line.label}
         {/* Confidence beside the label, in words: a colour alone is a
             column nobody can read the legend for. */}
@@ -238,11 +245,10 @@ function Line({ line }: { line: BomLine }) {
           <span className={`bomconf ${line.confidence}`}>{line.confidence}</span>
         )}
       </span>
-      <span className="kvvalue num">
-        {/* An em dash, never 0: a blocked scope has no count, and 0 reads as
-            "nothing to order". */}
-        {line.quantity === null ? '—' : `${fmt(line.quantity)} ${line.unit}`}
-      </span>
+      {/* An em dash, never 0: a blocked scope has no count, and 0 reads as
+          "nothing to order". */}
+      <span className="num">{line.quantity === null ? '—' : fmt(line.quantity)}</span>
+      <span className="partsunit">{line.quantity === null ? '' : line.unit}</span>
     </div>
   )
 }
