@@ -1,7 +1,10 @@
 # REDBEAM
 
 Construction quantity takeoff from PDF drawings. TypeScript rewrite of the
-Okular-fork build (`../okular-redbeam`).
+Okular-fork build, which no longer sits beside this repo — it is archived at
+`260415 - REDBEAM Archive/_ARCHIVE/okular-redbeam-2026-09-04.7z`.
+Paths of the form `okular-redbeam/...` in the comments below name files inside
+that archive.
 
 Maxxit's own estimating tool. The source is public; the software is not
 released under an open-source licence and no rights are granted — see

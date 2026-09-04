@@ -28,9 +28,19 @@ export interface GroundTruth {
     document: string
     quoteNumber: string
     quotedAt: string
-    quotedBy: string
-    currency: string
-    quotedTotal: number
+    /**
+     * Commercial terms and the person who signed the quote.
+     *
+     * Optional because the checked-in fixture is redacted: this repository is
+     * public, and a client's quoted total and the estimator's name are not.
+     * Declaring them required would have the type promise a `number` where
+     * every actual instance has `undefined` — a reader would get the trap
+     * rather than the compile error. The QUANTITIES are what the oracle
+     * asserts, and those are all present.
+     */
+    quotedBy?: string | undefined
+    currency?: string | undefined
+    quotedTotal?: number | undefined
     [key: string]: unknown
   }
   scopes: GroundTruthScope[]

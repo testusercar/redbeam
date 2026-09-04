@@ -2,7 +2,8 @@
  * Finish-region tracing: click inside a room, get its boundary as a ring.
  *
  * Ported in approach from the Qt build's `redbeam_trace_finish_region`
- * (`../okular-redbeam/redbeam-mcp-server/index.js`, the `trace_candidates`
+ * (`okular-redbeam/redbeam-mcp-server/index.js` in the archived Qt build, the
+ * `trace_candidates`
  * function of the embedded Python). That implementation:
  *
  *   1. rasterizes the page's vector segments into a small grid,

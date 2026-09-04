@@ -1,7 +1,11 @@
 # Porting from okular-redbeam
 
-Source of truth for the old build: `../okular-redbeam` (fork of KDE Okular,
-30 commits past merge-base `245f5387`, ~65,920 insertions).
+Source of truth for the old build: the archived Qt fork
+`260415 - REDBEAM Archive/_ARCHIVE/okular-redbeam-2026-09-04.7z`
+(fork of KDE Okular, 30 commits past merge-base `245f5387`, ~65,920
+insertions). It was removed from the working tree on 2026-09-04 once this
+rewrite shipped; unpack the archive to consult it. Every `okular-redbeam/...`
+path below is relative to its root.
 
 ## The rule
 
@@ -52,7 +56,8 @@ The piece/yield/BOM layer is the largest remaining chunk and the highest risk:
 build — inputs and outputs for every scope type across the real drawing sets —
 and make the TS port reproduce them exactly. The Qt build is the oracle. There
 is a regression harness to reuse at
-`../okular-redbeam/redbeam-mcp-server/calculation-regression.test.js`.
+`okular-redbeam/redbeam-mcp-server/calculation-regression.test.js` inside the
+archive.
 
 ## Known defects in the source — do not port these
 
