@@ -22,7 +22,7 @@ import type {
 } from '@redbeam/domain'
 import type { QuantityDelta } from '../commit.js'
 import {
-  PRODUCT_TYPES, PRODUCT_TYPE_LABEL, editableMeasures, missingRequiredMeasures,
+  PRODUCT_TYPES, PRODUCT_TYPE_LABEL, editableMeasures, measureHelp, missingRequiredMeasures,
   readProductType, readString, unitDisplayText, writeProductType,
   deriveRunTriple,
   granularityKey, readGranularity, readBool, GRANULARITIES,
@@ -30,7 +30,7 @@ import {
 import {
   Calculator, ChevronRight, Crosshair, FileText, Glyph, ListChecks,
   Plus, Ruler, SlidersHorizontal, Pentagon, Tally, TriangleAlert,
-  LayoutGrid, Copy, Trash2, RotateCcw, Archive,
+  LayoutGrid, Copy, Trash2, RotateCcw, Archive, Info,
 } from './icons.js'
 import { BomView, type BomViewProps } from '../bom/BomView.js'
 import { bomSummary, entriesForRound } from '../bom/bomRows.js'
@@ -666,22 +666,27 @@ function EstimateOverview({
         window over the drawing it has to be checked against. This row says
         how much of it can be trusted before it is opened.
       */}
+      {/*
+        The bill is an ACTION here, not a card in the scope list.
+        Aaron: "The build material should not show on the estimate tab. It
+        should show in the scope detail tab." A scope's parts do — the parts
+        table under its Total quantity. What survives at this level is the way
+        OUT to the round's order document, which is a thing you go to rather
+        than a third thing to read beside the scopes, so it sits under a rule
+        at the foot of the panel instead of wearing a card.
+      */}
       {summary !== null && onOpenBom !== undefined && (
-        <section className="wssection">
-          <button className="estrow" onClick={() => onOpenBom(true)}>
-            <Glyph icon={Calculator} role="card" />
-            <span className="esttext">
-              <span className="estname">Bill of materials</span>
-              <span className="wsmuted">
-                {summary.lines === 0
-                  ? 'Nothing to order yet'
-                  : `${summary.lines} line${summary.lines === 1 ? '' : 's'}`
-                    + (summary.attention > 0 ? ` · ${summary.attention} need attention` : '')}
-              </span>
-            </span>
-            <Glyph icon={ChevronRight} role="inline" />
-          </button>
-        </section>
+        <button className="billlink" onClick={() => onOpenBom(true)}>
+          <Glyph icon={Calculator} role="row" />
+          <span className="grow">Bill of materials</span>
+          <span className="wsmuted">
+            {summary.lines === 0
+              ? 'nothing to order yet'
+              : `${summary.lines} line${summary.lines === 1 ? '' : 's'}`
+                + (summary.attention > 0 ? ` · ${summary.attention} need attention` : '')}
+          </span>
+          <Glyph icon={ChevronRight} role="small" />
+        </button>
       )}
 
       <section className="wssection">
@@ -873,6 +878,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
             <MeasureRow
               key={f.valueKey}
               label={f.label}
+              valueKey={f.valueKey}
               required={missing.includes(f.label)}
               value={readString(scope.specifications, f.valueKey) ?? ''}
               unit={unitDisplayText(readString(scope.specifications, f.unitKey) ?? '')}
@@ -922,6 +928,23 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
                 </select>
               </span>
             </label>
+          </div>
+        )}
+
+        {/*
+          The triple, said out loud.
+          `deriveRunTriple` fills the third of plank width / reveal / spacing
+          from the other two — real behaviour, and alarming the first time a
+          field you did not type into acquires a value.
+        */}
+        {product === 'planks' && (
+          <div className="specnote">
+            <Glyph icon={Info} role="small" />
+            <span>
+              Width, reveal and spacing are one geometry —
+              {' '}<span className="mono">spacing = width + reveal</span>. Enter any two
+              and the third fills itself, while it is still empty.
+            </span>
           </div>
         )}
 
@@ -975,12 +998,30 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
             <span className="kvvalue num">{fmt(r.quantity)} {r.unit}</span>
           </div>
         ))}
-        {pieces?.quantities.map((q) => (
-          <div className="kvrow" key={q.itemKey}>
-            <span className="kvlabel">{pieceLabel(q)}</span>
-            <span className="kvvalue num">{fmt(q.quantity)} {q.unit}</span>
+        {/*
+          The PARTS, as a table rather than more key-value rows.
+          The roll-up above answers "how much of this is there"; these answer
+          "what do I order", which is a different question with a quantity and
+          a UNIT per line — so the unit gets a column of its own and the figures
+          align on it. Run together as kv rows, an order list read as more of
+          the same measurement.
+        */}
+        {pieces !== undefined && pieces.quantities.length > 0 && (
+          <div className="partstable">
+            <div className="partshead">
+              <span>Part</span>
+              <span className="num">Qty</span>
+              <span>Unit</span>
+            </div>
+            {pieces.quantities.map((q) => (
+              <div className="partsrow" key={q.itemKey}>
+                <span>{pieceLabel(q)}</span>
+                <span className="num">{fmt(q.quantity)}</span>
+                <span className="partsunit">{q.unit}</span>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
         {/*
           A blocked scope says so where the number would be. A takeoff that
           cannot calculate must never look like one that calculated to zero.
@@ -1183,9 +1224,10 @@ function NameField({
  * clicks and a mode for the common case to save a border on the rare one.
  */
 function MeasureRow({
-  label, required, value, unit, onCommit,
+  label, valueKey, required, value, unit, onCommit,
 }: {
   label: string
+  valueKey: string
   required: boolean
   value: string
   unit: string
@@ -1195,10 +1237,21 @@ function MeasureRow({
   useEffect(() => { setDraft(value) }, [value])
   const commit = () => { if (draft !== value) onCommit(draft.trim(), unit) }
 
+  const help = measureHelp(valueKey)
+
   return (
-    <div className="speccell">
+    <div className={required ? 'speccell needed' : 'speccell'}>
       <label>
-        {label}{required && <span className="req" title="Required"> ·</span>}
+        {label}
+        {/*
+          The caption, and the required mark, on the LABEL.
+          "Set Stock before this scope can be counted" used to live in a warning
+          below the fold, so the thing to fix and the sentence about it were
+          different objects on different screens. Now the field says it.
+        */}
+        {required
+          ? <span className="req"> · required</span>
+          : help !== '' && <span className="spechelp"> · {help}</span>}
       </label>
       <span className="specpair">
         <input

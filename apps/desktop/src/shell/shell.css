@@ -1367,7 +1367,90 @@
 }
 .kvvalue.num { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
 .kvvalue.unset { color: var(--rb-ink-4); font-weight: 400; }
-.req { color: var(--rb-warn); }
+.req { color: var(--rb-warn); font-weight: 500; }
+/* What the measure controls, in four words — the trade abbreviation beside it
+   does not say which of these moves the piece count. */
+.spechelp { color: var(--ads-ink-3); font-weight: 400; }
+/*
+ * A required-but-empty measure takes the warning stroke.
+ *
+ * The panel already knew which measures were missing and said so in a warning
+ * under the fold, so the thing to fix and the sentence about it were different
+ * objects. The field carries it now.
+ */
+.speccell.needed > .specpair > .kvcontrol:first-child {
+  border-color: var(--rb-warn);
+  border-bottom-color: var(--rb-warn);
+}
+
+/* The note that explains a behaviour, rather than warning about a state. */
+.specnote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  margin: var(--ads-sp-2) 0 0;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-hover);
+  color: var(--ads-ink-2);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+}
+.specnote > svg { flex: none; margin-top: 2px; color: var(--ads-ink-3); }
+
+/*
+ * The parts table: what to ORDER, as against how much there is.
+ *
+ * One grid so the figures align on their unit column. The quantity is mono for
+ * the same reason every other figure in the app is — a column of numbers that
+ * do not share an advance is a column you cannot scan.
+ */
+.partstable {
+  margin: var(--ads-sp-2) 0 0;
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  overflow: hidden;
+}
+.partshead, .partsrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 3ch;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: 0 var(--ads-sp-3);
+  min-height: var(--rb-row-sm);
+}
+.partshead {
+  background: var(--rb-hover);
+  color: var(--ads-ink-3);
+  font-size: var(--ads-text-sm);
+}
+.partsrow { color: var(--ads-ink-2); font-size: var(--ads-text-sm); }
+.partsrow > .num { font-family: var(--ads-mono); color: var(--ads-ink); }
+.partshead > .num { text-align: right; }
+.partsunit { color: var(--ads-ink-3); }
+
+/* The way out to the round's order document: an action under a rule, not a
+   card competing with the scopes above it. */
+.billlink {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  width: 100%;
+  min-height: var(--rb-row);
+  margin-top: var(--ads-sp-2);
+  padding: 0 var(--rb-pad-row);
+  border: 0;
+  border-top: 1px solid var(--ads-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  font-size: var(--ads-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.billlink:hover { background: var(--ads-inset); color: var(--ads-ink); }
 .kvcontrol, .kvedit input, .kvedit select {
   padding: var(--ads-sp-1) var(--ads-sp-2);
   border: 1px solid var(--rb-line-2);
@@ -1782,7 +1865,14 @@
 .wssection > .wsmuted, .wssection > .wswarn { padding: var(--ads-sp-2) var(--rb-pad-row); }
 
 .kvrow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
-.kvcontrol, .kvedit input, .kvedit select { padding: 0 var(--ads-sp-2); height: var(--ads-sp-5); }
+/* Fluent's control height, and a text field's brighter bottom stroke. These
+   sat at 20px — a control shorter than the row it lives in. */
+.kvcontrol, .kvedit input, .kvedit select {
+  padding: 0 var(--ads-sp-2);
+  height: var(--rb-control);
+  border-bottom-color: var(--rb-line-2);
+}
+.kvcontrol:focus-visible, .kvedit input:focus-visible { border-bottom-color: var(--rb-accent); }
 
 .estrow { min-height: var(--rb-row); padding: var(--ads-sp-2) var(--rb-pad-row); gap: var(--ads-sp-2); }
 .markuprow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }

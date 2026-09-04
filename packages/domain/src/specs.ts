@@ -217,6 +217,35 @@ export function cleanSpecifications(specs: Specifications): Specifications {
  * Every measure field the spec editor offers for a product type, required or
  * not. Drives the 04.3 editor; the required subset is flagged separately.
  */
+/**
+ * What a measure CONTROLS, in four words.
+ *
+ * The labels are trade abbreviations — "Stock", "Conn. Max", "Reveal" — and
+ * which of them moves the piece count is not guessable from the abbreviation.
+ * These are captions, not new semantics: each one names the thing the layout
+ * engine already does with that key.
+ *
+ * Keyed by `valueKey` so a field carries its caption wherever it is rendered,
+ * and returning '' rather than throwing so a new measure shows a bare label
+ * instead of breaking the panel.
+ */
+export function measureHelp(valueKey: string): string {
+  switch (valueKey) {
+    case 'panelWidth': return 'panel face width'
+    case 'panelLength': return 'panel face length'
+    case 'plankWidth': return 'plank face width'
+    case 'cassetteWidth': return 'cassette face, and its trim'
+    case 'stockLength': return 'length you buy'
+    case 'spacing': return 'centre to centre'
+    case 'revealSpacing': return 'gap between faces'
+    case 'railLength': return 'rail stock length'
+    case 'maxRailSpacing': return 'furthest apart rails may sit'
+    case 'maxConnectorSpacing': return 'furthest apart connectors may sit'
+    case 'perimeterTrimLength': return 'trim stock length'
+    default: return ''
+  }
+}
+
 export function editableMeasures(product: ProductType): MeasureField[] {
   // Planks are the only product that reads a generic trim length.
   const common = [measure('perimeterTrimLength', 'Trim Len')]
