@@ -4390,7 +4390,9 @@ export default function Workspace({
 
   const warnings = useMemo(() => {
     const out: string[] = []
-    if (cal === null) out.push('This sheet has no scale, so no quantity is in real units.')
+    // Only once there is a sheet to have one: with no drawing open the line
+    // read as a warning about nothing, on the start of every project.
+    if (activeDocId !== null && cal === null) out.push('This sheet has no scale, so no quantity is in real units.')
     /*
      * The tool/scope mismatch used to float above the dock. It reads here
      * instead, with everything else that says a number cannot be trusted —
@@ -5383,6 +5385,7 @@ export default function Workspace({
               onClose={() => setRailPanel(null)}
               focusNonce={searchFocus}
               seed={searchSeed}
+              indexing={indexing}
             />
           )}
           {/*

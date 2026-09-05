@@ -4,6 +4,21 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## Unreleased
+
+Found in the live test of the installed 0.2.0 build on the Barclays set
+(`docs/AUDIT-2026-09-04.md`, "Live test").
+
+- Opening a folder inside a project through the bridge created a second
+  `redbeam.db` in it: the bridge's open now goes through the same project
+  resolution as the picker.
+- The palette's field refocuses on every step change (a configure chain had
+  left it unfocused), and Escape cancels the palette outright.
+- "This sheet has no scale" no longer shows while no sheet is open.
+- Indexing progress is determinate: a ring behind the collapsed Search tab,
+  the count and a foot bar on the expanded tab, and a bar with the numbers in
+  the Search pane's footer. No spinner over the expanded tab.
+
 ## 0.2.0 — 2026-09-04
 
 The shell brought to WinUI 3, a command palette that can drive the whole

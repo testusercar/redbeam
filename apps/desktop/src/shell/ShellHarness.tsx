@@ -20,7 +20,7 @@
  *   ?harness=shell&show=settings | palette | bom | scopes | calibration
  *                        | regions | search | scalepicker | crash
  *   ?harness=shell&rail=files | contents | thumbnails | search | none
- *   ?harness=shell&state=scanning | opening | note | empty | noscopes
+ *   ?harness=shell&state=scanning | opening | note | empty | noscopes | indexing
  *   ?harness=shell&status=<what the workspace would say>
  *
  * `bom` opens the open scope on its Parts page — the bill is no level of its
@@ -270,6 +270,9 @@ const HITS: SearchHit[] = [
   },
 ]
 
+/** The indexer a quarter of the way through the Barclays set: what the Search tab and pane show while it runs. */
+const INDEXING = { done: 173, total: 693, document: '2026-04-24 - MIDRISE - PKG A - 50_CD - ARCH.pdf' }
+
 /** Answers like a project half-way through indexing, which is the honest case. */
 const fakeSearch = (query: string): Promise<SearchReport> => new Promise((resolve) => {
   setTimeout(() => resolve({
@@ -286,7 +289,7 @@ type Show = 'settings' | 'palette' | 'bom' | 'scopes' | 'calibration' | 'regions
  * first, now that nothing is seeded. It is the state the scope onboarding
  * exists for, and it cannot be reached from `empty`, which has no round.
  */
-type Moment = 'scanning' | 'opening' | 'note' | 'empty' | 'noscopes' | null
+type Moment = 'scanning' | 'opening' | 'note' | 'empty' | 'noscopes' | 'indexing' | null
 
 const PANE_TITLE: Record<RailPanel, string> = {
   files: 'Files', contents: 'Contents', thumbnails: 'Thumbnails', search: 'Search',
@@ -490,6 +493,7 @@ export function ShellHarness() {
           : {}}
         onSelect={(p) => setRail((cur) => (cur === p ? null : p))}
         onSettings={() => setSettingsOpen(true)}
+        indexing={moment === 'indexing' ? INDEXING : null}
         title={rail === null
           ? undefined
           : scalePicker !== null && rail === 'contents' ? 'Set scale' : PANE_TITLE[rail]}
@@ -541,6 +545,7 @@ export function ShellHarness() {
               onSearch={empty ? null : fakeSearch}
               onGoToHit={(h) => { setActiveDoc(h.documentId); setPage(h.pageNumber) }}
               onClose={() => setRail(null)}
+              indexing={moment === 'indexing' ? INDEXING : null}
             />
           )}
         </>)}

@@ -69,13 +69,18 @@ export default function App() {
       const { listen } = await import('@tauri-apps/api/event')
       const un = await listen<{ path?: string }>('redbeam://bridge/open-project', (e) => {
         const path = e.payload?.path
-        if (typeof path === 'string' && path.length > 0) setOpenPath(path)
+        // Through `project.open`, the same road the picker takes: it resolves
+        // the folder to the outermost project root before anything opens a
+        // database. Setting the path straight in opened `<folder>/redbeam.db`
+        // for whatever folder was named — a second database inside a project,
+        // for a folder that was never a project.
+        if (typeof path === 'string' && path.length > 0) void project.open(path)
       })
       if (cancelled) un()
       else stop = un
     })()
     return () => { cancelled = true; stop?.() }
-  }, [])
+  }, [project.open])
 
   /**
    * Reopen the last project on launch.

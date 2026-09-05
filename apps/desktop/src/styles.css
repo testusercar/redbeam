@@ -441,22 +441,33 @@ h4 {
 .exportproblem { color: var(--bad) }
 
 /* ---- search indexing ----
-   The Search tab wears a ring while the project's text is being read, so the
-   coverage line in the pane is not the first place the wait is visible. A
-   conic ring rather than a spinner glyph: it sits behind the icon at the
-   tab's own size and needs no second element. */
+   Progress with two faces. Collapsed, the Search tab is an icon and wears a
+   determinate ring behind it at the tab's own size — WinUI's ProgressRing,
+   filled to `--indexing` (0..1), which the tab sets from done/total. Expanded,
+   the label has room: the count sits beside it and a 2px bar runs along the
+   tab's foot, and nothing is drawn over the icon. No spinner: the indexer
+   knows how far it is, so the ring says so instead of merely turning. */
 .sidetab.indexing { position: relative }
-.sidetab.indexing::after {
+.sidetab.indexing:not(.on)::after {
   content: ""; position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
   margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: none;
-  background: conic-gradient(var(--accent) 0 25%, transparent 25% 100%);
+  background: conic-gradient(
+    var(--rb-accent) 0 calc(var(--indexing, 0) * 100%),
+    var(--ads-line) calc(var(--indexing, 0) * 100%) 100%);
   -webkit-mask: radial-gradient(circle, transparent 10px, #000 11px);
   mask: radial-gradient(circle, transparent 10px, #000 11px);
-  animation: indexing-spin 1.1s linear infinite }
-@keyframes indexing-spin { to { transform: rotate(360deg) } }
-@media (prefers-reduced-motion: reduce) {
-  .sidetab.indexing::after { animation: none; background: conic-gradient(var(--accent) 0 100%) }
-}
+  transition: background .3s }
+.sidetabprogress {
+  margin-left: var(--ads-sp-2); font-family: var(--ads-mono); font-size: 11px;
+  color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap }
+.sidetab.indexing.on::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  pointer-events: none; border-radius: 0 0 4px 4px;
+  background: linear-gradient(to right, var(--rb-accent) calc(var(--indexing, 0) * 100%), transparent 0);
+  transition: background .3s }
+/* The Search pane's own bar, above the footer line that says the numbers. */
+.paneprogress { flex: none; height: 2px; background: var(--ads-line) }
+.paneprogress > span { display: block; height: 100%; background: var(--rb-accent); transition: width .3s }
 
 /* ---- no drawing open ----
    The stage with a project open and no document chosen. Not an error: it is

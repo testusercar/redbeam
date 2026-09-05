@@ -38,6 +38,12 @@ export interface SearchPanelProps {
    * changes, so the same words offered twice run twice.
    */
   seed?: string
+  /**
+   * The project-wide indexer's progress while it runs. The footer says how
+   * far it has got and a bar shows it, so an empty result on a half-read set
+   * reads as "not finished" rather than "not there".
+   */
+  indexing?: { done: number; total: number; document: string | null } | null
 }
 
 /** Characters before a query is worth running. One letter matches every page. */
@@ -45,7 +51,7 @@ const MIN_QUERY = 2
 /** How long the field is left alone between keystrokes before a search runs. */
 const DEBOUNCE_MS = 250
 
-export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0, seed = '' }: SearchPanelProps) {
+export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0, seed = '', indexing = null }: SearchPanelProps) {
   useReturnFocus(true)
   const [query, setQuery] = useState('')
   const [report, setReport] = useState<SearchReport | null>(null)
@@ -180,11 +186,28 @@ export function SearchPanel({ onSearch, onGoToHit, onClose, focusNonce = 0, seed
         ))}
       </div>
 
+      {indexing !== null && indexing.total > 0 && (
+        <div
+          className="paneprogress"
+          role="progressbar"
+          aria-label="Indexing"
+          aria-valuemin={0}
+          aria-valuemax={indexing.total}
+          aria-valuenow={indexing.done}
+        >
+          <span style={{ width: `${Math.round((Math.min(1, indexing.done / indexing.total)) * 100)}%` }} />
+        </div>
+      )}
       <div className="panefoot">
         {busy
           ? 'Searching…'
           : report === null
-            ? (onSearch === null ? 'No project open' : 'Matches appear as you type')
+            ? (onSearch === null
+                ? 'No project open'
+                : indexing !== null && indexing.total > 0
+                  ? `Indexing ${indexing.done} of ${indexing.total} documents`
+                    + (indexing.document !== null ? ` — ${indexing.document}` : '')
+                  : 'Matches appear as you type')
             : summary(report, partial ? coverage : null)}
       </div>
     </>

@@ -606,24 +606,37 @@ export function Sidebar({
 }) {
   const tab = (id: RailPanel, label: string, icon: Icon) => {
     const busy = id === 'search' && indexing !== null && indexing.total > 0
+    const fraction = busy ? Math.min(1, indexing.done / indexing.total) : 0
     const progress = busy
       ? `indexing ${indexing.done} of ${indexing.total} document${indexing.total === 1 ? '' : 's'}`
         + (indexing.document !== null ? ` — ${indexing.document}` : '')
       : undefined
-    const note = notes[id] ?? progress
+    const note = notes[id]
+    const said = note ?? progress
     const on = active === id
+    /*
+     * Progress has two faces. Collapsed, the tab is an icon and wears a
+     * determinate ring at its own size — how far, not merely "busy".
+     * Expanded, the label has room, so the count sits beside it and a 2px
+     * bar runs along the tab's foot; nothing is drawn over the icon. The
+     * warning dot is for a panel NOTE only — progress is not a warning.
+     */
     return (
       <button
         key={id}
         className={`sidetab${on ? ' on' : ''}${busy ? ' indexing' : ''}`}
-        title={note === undefined ? label : `${label} — ${note}`}
-        aria-label={note === undefined ? label : `${label}: ${note}`}
+        style={busy ? ({ '--indexing': fraction } as CSSProperties) : undefined}
+        title={said === undefined ? label : `${label} — ${said}`}
+        aria-label={said === undefined ? label : `${label}: ${said}`}
         aria-pressed={on}
         aria-busy={busy || undefined}
         onClick={() => onSelect(id)}
       >
         <Glyph icon={icon} role="card" />
         {on && <span className="sidetablabel">{label}</span>}
+        {on && busy && (
+          <span className="sidetabprogress" aria-hidden="true">{indexing.done} of {indexing.total}</span>
+        )}
         {note !== undefined && <span className="railflag" aria-hidden="true" />}
       </button>
     )

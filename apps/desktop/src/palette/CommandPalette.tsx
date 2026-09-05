@@ -156,7 +156,10 @@ export function CommandPalette({
   const optionId = (at: number): string => `${base}-option-${at}`
   const listId = `${base}-results`
 
-  useEffect(() => { inputRef.current?.focus() }, [taken.length])
+  // Keyed on the chips themselves, not their count: a step that leads into
+  // the next one (`Next`) replaces its chip without changing the count, and
+  // a field that lost focus there took no Escape, no Backspace, nothing.
+  useEffect(() => { inputRef.current?.focus() }, [taken])
   useEffect(() => { setActive(0); setRefusal(null) }, [query, taken.length])
   useEffect(() => {
     document.getElementById(optionId(index))?.scrollIntoView({ block: 'nearest' })
@@ -215,9 +218,11 @@ export function CommandPalette({
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
+      // Escape CANCELS: the whole palette, steps and all. One press, out —
+      // a chain of steps is not a stack of dialogs to be backed out of one
+      // by one. Backspace on an empty field is the way back a step, and
+      // clearing a typed query is what the field itself is for.
       event.preventDefault()
-      if (query !== '') { setQuery(''); return }
-      if (taken.length > 0) { back(); return }
       onClose()
       return
     }
