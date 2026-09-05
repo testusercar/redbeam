@@ -651,6 +651,38 @@ fn a_statement_reaches_the_project_it_was_issued_for() {
     assert_eq!(current, resolve_db_path(&b_path).display().to_string());
 }
 
+/// Every window that opened a project has to let go before its connection
+/// closes; the last one closing drops it, and the bridge's unaddressed handle
+/// moves to whatever is still open.
+#[test]
+fn a_project_closes_when_its_last_window_lets_go() {
+    let a = TempDir::new();
+    let b = TempDir::new();
+    let state = StoreState::new();
+    let a_path = a.0.display().to_string();
+    let b_path = b.0.display().to_string();
+
+    state.open(&a_path).expect("window 1 opens A");
+    state.open(&a_path).expect("window 2 opens A");
+    state.open(&b_path).expect("open B");
+    assert_eq!(state.open_paths().len(), 2);
+
+    assert!(!state.close(&a_path), "one window still holds A");
+    assert!(state.with_project(&a_path, |s| s.all("SELECT 1", &[])).is_ok());
+
+    // B was opened last, so it is the unaddressed handle; closing it moves
+    // that handle to A rather than leaving it dangling.
+    assert!(state.close(&b_path), "B's only window let go");
+    let current = state.with(|s| Ok(s.db_path().display().to_string())).expect("still a current store");
+    assert_eq!(current, resolve_db_path(&a_path).display().to_string());
+
+    assert!(state.close(&a_path), "the last window on A let go");
+    assert!(state.open_paths().is_empty());
+    assert!(state.with(|s| s.all("SELECT 1", &[])).is_err(), "nothing is open");
+    // Closing what is not open is a no-op, not a panic.
+    assert!(!state.close(&a_path));
+}
+
 /// A project that was never opened is refused, and the refusal says so.
 #[test]
 fn refuses_a_statement_for_a_project_that_is_not_open() {

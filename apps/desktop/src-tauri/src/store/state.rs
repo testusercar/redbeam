@@ -56,9 +56,16 @@ pub struct OpenInfo {
 }
 
 /// The open connections, one per project, and which one was opened last.
+///
+/// Each carries a count of the windows holding it: every `db_open` adds one
+/// and every `db_close` takes one away, and the connection is dropped at
+/// zero. Without the count a project switched away from stayed open for the
+/// life of the process, and its files could not be moved or deleted while
+/// the app ran. A window that dies without closing leaves its count behind —
+/// the old behaviour, and harmless.
 #[derive(Default)]
 struct Open {
-    stores: HashMap<PathBuf, Store>,
+    stores: HashMap<PathBuf, (Store, usize)>,
     /// The most recently opened project — what an unaddressed caller (the
     /// automation bridge, a crash report) means by "the project".
     current: Option<PathBuf>,
@@ -103,11 +110,13 @@ impl StoreState {
         // `:memory:` is a fresh database every time it is opened, and a test
         // that opens it twice wants two — so it is the one path never reused.
         let reuse = key != PathBuf::from(":memory:") && guard.stores.contains_key(&key);
-        if !reuse {
+        if reuse {
+            guard.stores.get_mut(&key).expect("checked").1 += 1;
+        } else {
             let store = Store::open(project_path)?;
-            guard.stores.insert(key.clone(), store);
+            guard.stores.insert(key.clone(), (store, 1));
         }
-        let store = guard.stores.get(&key).expect("just inserted");
+        let (store, _) = guard.stores.get(&key).expect("just inserted");
         // Migrating an already-open project is a no-op that reports zero
         // applied, which is what a reopen should say.
         let migrated = store.migrate()?;
@@ -133,8 +142,30 @@ impl StoreState {
     pub fn with<T>(&self, f: impl FnOnce(&Store) -> Result<T, StoreError>) -> Result<T, StoreError> {
         let guard = self.lock();
         let key = guard.current.as_ref().ok_or(StoreError::NotOpen)?;
-        let store = guard.stores.get(key).ok_or(StoreError::NotOpen)?;
+        let (store, _) = guard.stores.get(key).ok_or(StoreError::NotOpen)?;
         f(store)
+    }
+
+    /// One window has let go of a project. The connection is dropped when
+    /// the last one has; `true` says it was dropped now.
+    pub fn close(&self, project_path: &str) -> bool {
+        let key = super::db::resolve_db_path(project_path);
+        let mut guard = self.lock();
+        let Some(entry) = guard.stores.get_mut(&key) else {
+            return false;
+        };
+        entry.1 = entry.1.saturating_sub(1);
+        if entry.1 > 0 {
+            return false;
+        }
+        // Dropping the Store closes its connection.
+        guard.stores.remove(&key);
+        if guard.current.as_ref() == Some(&key) {
+            // The unaddressed callers (the bridge) fall back to whatever is
+            // still open, if anything.
+            guard.current = guard.stores.keys().next().cloned();
+        }
+        true
     }
 
     /// Borrow the store for the project the caller meant.
@@ -164,7 +195,7 @@ impl StoreState {
         // the project folder or the .db file, as `db_open` allows.
         let expected = super::db::resolve_db_path(project_path);
         match guard.stores.get(&expected) {
-            Some(store) => f(store),
+            Some((store, _)) => f(store),
             None => Err(StoreError::WrongProject {
                 expected: expected.display().to_string(),
                 open: guard

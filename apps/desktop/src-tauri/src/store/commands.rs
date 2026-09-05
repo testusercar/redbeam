@@ -50,6 +50,15 @@ pub async fn db_open(
     state.open(&project_path).map_err(to_message)
 }
 
+/// A window is done with a project. The connection closes once every
+/// window on it has said so; reports whether it closed now.
+///
+/// Invoked from JavaScript as `invoke('db_close', { projectPath })`.
+#[tauri::command]
+pub async fn db_close(state: State<'_, StoreState>, project_path: String) -> Result<bool, String> {
+    Ok(state.close(&project_path))
+}
+
 /// Run one or more statements with no parameters and no results.
 #[tauri::command]
 pub async fn db_exec(

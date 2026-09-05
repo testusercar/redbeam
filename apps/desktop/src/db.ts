@@ -41,6 +41,8 @@ export interface OpenedDb {
   /** Persist current state. A no-op under Tauri: the core writes through. */
   save: () => Promise<void>
   reset: () => Promise<void>
+  /** This window is done with the project. Under Tauri the core drops the connection once every window is. */
+  close: () => Promise<void>
 }
 
 // ------------------------------------------------------------------ tauri --
@@ -73,6 +75,7 @@ async function openTauri(projectPath: string): Promise<OpenedDb> {
     reset: async () => {
       throw new Error('reset is not supported on the desktop store; delete the project database file')
     },
+    close: () => driver.close(),
   }
 }
 
@@ -137,6 +140,8 @@ async function openSqlJs(): Promise<OpenedDb> {
         tx.onerror = () => reject(tx.error)
       })
     },
+    // The in-memory database has nothing to release; the last save is the close.
+    close: async () => { await storeBytes(driver.export()) },
   }
 }
 

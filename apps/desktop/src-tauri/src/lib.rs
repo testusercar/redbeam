@@ -69,6 +69,7 @@ pub fn run() {
             store::commands::db_exec,
             store::commands::db_all,
             store::commands::db_run,
+            store::commands::db_close,
             undo::commands::undo_record,
             undo::commands::undo_apply,
             undo::commands::undo_redo,

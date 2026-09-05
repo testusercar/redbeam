@@ -848,9 +848,15 @@ export default function Workspace({
     // Read ONCE, at open. Re-reading later would fight the user's navigation
     // with a stale idea of where they were.
     const saved = readSession(projectPath)
+    let held: Awaited<ReturnType<typeof openDatabase>> | null = null
     ;(async () => {
       const opened = await openDatabase(projectPath)
-      if (cancelled) return
+      if (cancelled) {
+        // Opened after the window moved on: let go at once.
+        void opened.close()
+        return
+      }
+      held = opened
       dbRef.current = opened.driver
       saveRef.current = debounceSave(opened.save)
       setBackend(opened.backend)
@@ -972,7 +978,15 @@ export default function Workspace({
       setOpenDocIds((cur) => (cur.length > 0 ? cur : first !== null ? [first] : []))
       if (first === null) setRailPanel('files')
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      // Switching or closing the project: this window is done with the
+      // database. The core drops the connection when the last window is.
+      const done = held
+      held = null
+      dbRef.current = null
+      if (done !== null) void done.close()
+    }
   }, [projectPath, initialDocumentPath])
 
   /**
@@ -1039,6 +1053,18 @@ export default function Workspace({
     // its own is worse than one that is late.
     await reloadRegions(db)
   }, [reloadRegions])
+
+  /*
+   * The project's markups, calibrations and boxes are loaded by `syncMarkups`,
+   * which the page effect below runs once a sheet has a box. A project now
+   * opens with NO sheet on the stage, so nothing ran it: the round page read
+   * 0 markups and no totals until some sheet was visited. Run it as soon as
+   * the store is open, whether or not a page is.
+   */
+  useEffect(() => {
+    if (backend === null || activeDocId !== null) return
+    void syncMarkups()
+  }, [backend, activeDocId, syncMarkups])
 
   // Load page-dependent state once BOTH the db and the page box are ready.
   useEffect(() => {
@@ -3210,11 +3236,17 @@ export default function Workspace({
   }, [])
 
   /** Live markup counts per scope, for the shelf and the archive warning. */
+  /**
+   * From the PROJECT's markups, not the open page's. Every reader of this —
+   * the round's scope rows, the dock popover, the palette's remove row —
+   * means "how much takeoff is in this scope", and the page-scoped count
+   * read 0 for every scope whose sheets were not the one on screen.
+   */
   const markupCounts = useMemo(() => {
     const out: Record<string, number> = {}
-    for (const m of markups) if (m.scopeId) out[m.scopeId] = (out[m.scopeId] ?? 0) + 1
+    for (const m of projectMarkups) if (m.scopeId) out[m.scopeId] = (out[m.scopeId] ?? 0) + 1
     return out
-  }, [markups])
+  }, [projectMarkups])
 
   const onDoubleClick = () => {
     if (tool === 'area' || tool === 'cutout' || tool === 'shape' || tool === 'polyline') void commitDraft()

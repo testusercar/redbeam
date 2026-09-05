@@ -234,6 +234,24 @@ export class TauriSqlDriver implements SqlDriver {
     return driver
   }
 
+  /**
+   * Let go of the project. The core keeps one connection per project and
+   * drops it when the last window on it has closed; a window that switches
+   * projects without saying so would keep the old database open for the life
+   * of the process.
+   */
+  async close(): Promise<void> {
+    if (this.projectPath === null) return
+    const path = this.projectPath
+    this.projectPath = null
+    try {
+      await this.invoke<boolean>('db_close', { projectPath: path })
+    } catch (err) {
+      // Not worth failing a close over; the connection lingers as it always did.
+      console.warn('[store] could not close the project database:', err)
+    }
+  }
+
   private async openProject(projectPath: string): Promise<DbOpenInfo> {
     let raw: unknown
     try {

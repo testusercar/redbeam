@@ -18,6 +18,12 @@ Found in the live test of the installed 0.2.0 build on the Barclays set
 - Indexing progress is determinate: a ring behind the collapsed Search tab,
   the count and a foot bar on the expanded tab, and a bar with the numbers in
   the Search pane's footer. No spinner over the expanded tab.
+- A round's scope rows and totals no longer read 0 after a reopen until a
+  sheet is visited: the project's markups are loaded as soon as the store is
+  open, and the counts come from the project rather than the open page.
+- Switching or closing a project releases its database once the last window
+  on it has let go (`db_close`), so its files can be moved or removed while
+  the app is still running.
 
 ## 0.2.0 — 2026-09-04
 
