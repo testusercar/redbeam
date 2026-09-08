@@ -4,10 +4,10 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
-## Unreleased
+## 0.2.1 — 2026-09-08
 
-Found in the live test of the installed 0.2.0 build on the Barclays set
-(`docs/AUDIT-2026-09-04.md`, "Live test").
+What the live test of the installed 0.2.0 build on the Barclays set found
+(`docs/AUDIT-2026-09-04.md`, "Live test"), fixed.
 
 - Opening a folder inside a project through the bridge created a second
   `redbeam.db` in it: the bridge's open now goes through the same project
