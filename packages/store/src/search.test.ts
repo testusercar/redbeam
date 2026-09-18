@@ -19,8 +19,19 @@ import {
   textIndexCoverage,
   toFts5Match,
   toLikePattern,
+  folderPattern,
   type PageLayout,
 } from './search.js'
+
+describe('folderPattern', () => {
+  it('matches everything under the folder and nothing beside it', () => {
+    expect(folderPattern('Drawings/Arch')).toBe('Drawings/Arch/%')
+    expect(folderPattern('Drawings/Arch/')).toBe('Drawings/Arch/%')
+  })
+  it('escapes LIKE wildcards in the folder name', () => {
+    expect(folderPattern('50%_done')).toBe('50\\%\\_done/%')
+  })
+})
 
 const here = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(here, '..', 'migrations')

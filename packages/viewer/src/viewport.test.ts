@@ -38,6 +38,19 @@ describe('clampViewport', () => {
     expect(clampViewport(view({ oy: 99999 }), page).oy).toBe(800 - 400)
   })
 
+  it('lets a zoom at the page edge keep its anchor, given overscroll', () => {
+    // Zooming in with the cursor on the page's right edge asks for an
+    // offset past the hard clamp; with half a window of slack it is legal
+    // and the point under the cursor stays put.
+    const before = view({ zoom: 1, ox: 400 })            // right edge at screen x=600
+    const after = zoomAbout(before, 2, 600, 200)
+    expect(clampViewport(after, page).ox, 'hard clamp moves it').toBe(2000 - 600)
+    expect(clampViewport(after, page, 0.5).ox, 'slack keeps it').toBe(after.ox)
+    // But not without limit: the slack is the bound.
+    expect(clampViewport(view({ ox: 99999 }), page, 0.5).ox).toBe(1000 - 600 + 300)
+    expect(clampViewport(view({ ox: -99999 }), page, 0.5).ox).toBe(-300)
+  })
+
   it('applies each axis independently', () => {
     // A wide sheet in a tall window: horizontal scrolls, vertical has slack.
     const v = clampViewport(view({ zoom: 1, vw: 400, vh: 900, ox: 99999 }), page)

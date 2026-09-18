@@ -36,7 +36,10 @@ export interface ProjectInfo {
 /** One entry in the recent-projects list. */
 export interface RecentProject {
   path: string
+  /** The folder name. */
   name: string
+  /** A name the estimator gave it, shown instead of the folder name. */
+  displayName: string | null
   /** RFC 3339 UTC. */
   lastOpenedAt: string
   /** The folder is gone. The entry stays so the user can see what happened. */
@@ -65,6 +68,22 @@ export interface PickOutcome {
  * after someone has already named the file they want is a step nobody asked
  * for.
  */
+/**
+ * What picking a drawing TO VIEW produced. No project is made: `project` is
+ * where the file would belong, resolved but untouched, and `hasDatabase` on
+ * it says whether a job already holds this drawing.
+ */
+export interface FilePickOutcome {
+  supported: boolean
+  /** The file's absolute path; null when cancelled or unsupported. */
+  path: string | null
+  /** The folder the file would belong to, as a project, resolved without creating anything. */
+  project: ProjectInfo | null
+  /** The file's path relative to that project's root, forward-slashed. */
+  relativePath: string | null
+  reason: string | null
+}
+
 export interface DrawingPickOutcome {
   supported: boolean
   /** null when the user cancelled, or when `supported` is false. */

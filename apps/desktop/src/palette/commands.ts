@@ -28,6 +28,20 @@ export interface Command {
   title: string
   /** Optional second line: a sheet number, a file path, a scope's product type. */
   detail?: string
+  /**
+   * The glyph beside the row: the verb a command does, the noun a row is. The
+   * palette infers one from the kind and the title's verb when this is absent;
+   * a family of generated commands sets it once here instead.
+   */
+  icon?: unknown
+  /**
+   * Why this is offered before anything is typed — "no scale yet · 4 markups
+   * count nothing". Suggestions lead an untyped palette; they are what fits
+   * the sheet and the scope on screen, not a catalogue.
+   */
+  suggest?: string
+  /** A scope's colour, drawn as the dot that stands for a scope everywhere else. */
+  color?: string
   /** Keyboard shortcut to display, e.g. "Ctrl+1". Display only. */
   shortcut?: string
   /** Extra words that should match but are not displayed — synonyms, aliases. */
@@ -397,9 +411,13 @@ export function search(commands: Command[], query: string, opts?: { limit?: numb
    * "Fit width" by its title before anything that only calls itself fit.
    */
   const lower = q.toLowerCase()
+  // Against the title with its separators removed, as the query is: "take
+  // off" is a prefix of "Take off…" and not of "Leave takeoff", which is
+  // the other way round when the query has lost its space and the title
+  // has not.
   const wordPrefix = (text: string): boolean => {
-    const t = text.toLowerCase()
-    return t.startsWith(lower) || t.split(/[\s-]+/).some((w) => w.startsWith(lower))
+    const words = text.toLowerCase().split(SEPARATORS).filter((w) => w !== '')
+    return words.some((_, i) => words.slice(i).join('').startsWith(lower))
   }
   const hits: Array<Match & { at: number }> = []
   commands.forEach((command, at) => {
@@ -472,7 +490,7 @@ export const GROUP_PREFIX: Partial<Record<CommandKind, string>> = {
 }
 
 export interface Group {
-  kind: CommandKind | 'recent'
+  kind: CommandKind | 'recent' | 'suggest' | 'search'
   label: string
   note?: string
   matches: Match[]
@@ -483,14 +501,21 @@ export interface Group {
  * newest first — an untyped palette leads with the last things run, which is
  * what a palette is reopened for; the rows still appear in their own groups.
  */
-export function groupMatches(matches: Match[], recent: readonly string[] = []): Group[] {
+export function groupMatches(matches: Match[], recent: readonly string[] = [], lead?: CommandKind): Group[] {
   const out: Group[] = []
   if (recent.length > 0) {
     const byId = new Map(matches.map((m) => [m.command.id, m]))
     const rows = recent.map((id) => byId.get(id)).filter((m): m is Match => m !== undefined)
     if (rows.length > 0) out.push({ kind: 'recent', label: 'Recent', note: 'what you ran last', matches: rows })
   }
-  for (const g of GROUPS) {
+  /*
+   * A prefix that names a kind LEADS with that kind. `@cl04` admits the
+   * scope CL04 and the things done to a scope; with Commands first, Enter
+   * on `@cl04` ran "Commit CL04", the top command, instead of opening the
+   * scope typed for. Found 2026-09-13, driving the prompt.
+   */
+  const order = lead === undefined ? GROUPS : [...GROUPS.filter((g) => g.kind === lead), ...GROUPS.filter((g) => g.kind !== lead)]
+  for (const g of order) {
     const rows = matches.filter((m) => m.command.kind === g.kind)
     if (rows.length > 0) out.push({ ...g, matches: rows })
   }

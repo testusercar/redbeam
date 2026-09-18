@@ -10,6 +10,9 @@ const entry = (n: number, over: Partial<ProjectEntry> = {}): ProjectEntry => ({
 
 const ids = (cmds: ReturnType<typeof projectCommands>, query = '') =>
   search(cmds, query).map((m) => m.command.id)
+/** The project rows alone: not the New / Manage / browse rows beside them. */
+const projectIds = (cmds: ReturnType<typeof projectCommands>, query = '') =>
+  ids(cmds, query).filter((id) => id.startsWith('project:C:'))
 
 describe('projectCommands', () => {
   it('lists a recent project under the Projects group and opens it', () => {
@@ -47,25 +50,47 @@ describe('projectCommands', () => {
     // once did.
     const recents = Array.from({ length: LISTED_UNTYPED + 4 }, (_, i) => entry(i))
     const cmds = projectCommands({ currentPath: '', recents, onOpen: () => {} })
-    expect(ids(cmds)).toHaveLength(LISTED_UNTYPED)
+    expect(projectIds(cmds)).toHaveLength(LISTED_UNTYPED)
     // The most recent ones are the ones listed.
-    expect(ids(cmds)[0]).toBe('project:C:\\Jobs\\260410 - Job 0')
+    expect(projectIds(cmds)[0]).toBe('project:C:\\Jobs\\260410 - Job 0')
     expect(ids(cmds, 'job 8')).toContain('project:C:\\Jobs\\260418 - Job 8')
+    // The rest are one row away, with everything that can be done to each.
+    expect(ids(cmds)).toContain('project:manage')
   })
 
-  it('lists a missing folder, dimmed and saying why, rather than hiding it', () => {
+  it('opens a hub on Enter and the project itself on Shift+Enter', () => {
+    const onOpen = vi.fn()
+    const hide = vi.fn()
+    const cmds = projectCommands({ currentPath: '', recents: [entry(1)], onOpen, actions: { hide } })
+    const [row] = search(cmds, 'job 1')
+    expect(row?.command.step?.kind).toBe('choose')
+    row?.command.alt?.run()
+    expect(onOpen).toHaveBeenCalledWith('C:\\Jobs\\260411 - Job 1')
+    const hub = row?.command.step?.kind === 'choose' ? row.command.step.options() : []
+    expect(hub.map((c) => c.title)).toEqual(['Open in a second window', 'Hide from recents'])
+    void hub[1]?.run?.()
+    expect(hide).toHaveBeenCalledWith('C:\\Jobs\\260411 - Job 1')
+  })
+
+  it('lists a missing folder, saying why, and lets it be hidden rather than opened', () => {
     // Somebody typing the job's name and finding nothing would conclude it
-    // was never opened here. The truth is that the drive is offline.
-    const cmds = projectCommands({ currentPath: '', recents: [entry(1, { missing: true })], onOpen: () => {} })
+    // was never opened here. The truth is that the drive is offline. Its row
+    // is not `unavailable`: Enter reaches its hub, which cannot open it but
+    // can hide it, which is what a row for a gone folder is for.
+    const cmds = projectCommands({ currentPath: '', recents: [entry(1, { missing: true })], onOpen: () => {}, actions: { hide: () => {} } })
     const [hit] = search(cmds, 'job 1')
-    expect(hit?.command.unavailable).toBe(NOT_FOUND)
+    expect(hit?.command.detail).toContain(NOT_FOUND)
     expect(hit?.command.detail).toContain('C:\\Jobs')
+    expect(hit?.command.unavailable).toBeUndefined()
+    expect(hit?.command.alt).toBeUndefined()
+    const hub = hit?.command.step?.kind === 'choose' ? hit.command.step.options() : []
+    expect(hub.map((c) => c.title)).toEqual(['Hide from recents'])
   })
 
   it('does not spend an untyped slot on a missing folder', () => {
     const recents = [entry(0, { missing: true }), ...Array.from({ length: LISTED_UNTYPED }, (_, i) => entry(i + 1))]
     const cmds = projectCommands({ currentPath: '', recents, onOpen: () => {} })
-    const untyped = ids(cmds)
+    const untyped = projectIds(cmds)
     expect(untyped).toHaveLength(LISTED_UNTYPED)
     expect(untyped).not.toContain('project:C:\\Jobs\\260410 - Job 0')
   })

@@ -39,22 +39,33 @@ type FluentIcon = React.ComponentType<FluentIconProps>
 export interface Icon {
   readonly name: string
   readonly at: Readonly<Partial<Record<12 | 16 | 20 | 24, FluentIcon>>>
+  /**
+   * The Filled weight, where Fluent ships one. The Windows 11 rule: a thing
+   * that is selected or active switches from Regular to Filled, so one
+   * weight change carries the state and no second colour is needed.
+   */
+  readonly filled: Readonly<Partial<Record<12 | 16 | 20 | 24, FluentIcon>>>
 }
 
 const family = (name: string, ...sizes: Array<12 | 16 | 20 | 24>): Icon => {
   const at: Partial<Record<12 | 16 | 20 | 24, FluentIcon>> = {}
+  const filled: Partial<Record<12 | 16 | 20 | 24, FluentIcon>> = {}
+  const all = F as unknown as Record<string, FluentIcon | undefined>
   for (const s of sizes) {
-    const comp = (F as unknown as Record<string, FluentIcon | undefined>)[`${name}${s}Regular`]
+    const comp = all[`${name}${s}Regular`]
     if (comp !== undefined) at[s] = comp
+    const bold = all[`${name}${s}Filled`]
+    if (bold !== undefined) filled[s] = bold
   }
-  return { name, at }
+  return { name, at, filled }
 }
 
-/** The asset for a size: the smallest one at or above it, else the largest. */
-export function assetFor(icon: Icon, size: number): FluentIcon {
-  const keys = ([12, 16, 20, 24] as const).filter((k) => icon.at[k] !== undefined)
+/** The asset for a size: the smallest one at or above it, else the largest. Regular unless Filled is asked for and shipped. */
+export function assetFor(icon: Icon, size: number, filled = false): FluentIcon {
+  const table = filled && Object.keys(icon.filled).length > 0 ? icon.filled : icon.at
+  const keys = ([12, 16, 20, 24] as const).filter((k) => table[k] !== undefined)
   const pick = keys.find((k) => k >= size) ?? keys[keys.length - 1]
-  const comp = pick === undefined ? undefined : icon.at[pick]
+  const comp = pick === undefined ? undefined : table[pick]
   if (comp === undefined) throw new Error(`icons: ${icon.name} has no Fluent asset`)
   return comp
 }
@@ -75,6 +86,7 @@ export const ChevronLeft = family('ChevronLeft', 12, 16, 20, 24)
 export const ChevronRight = family('ChevronRight', 12, 16, 20, 24)
 export const ChevronUp = family('ChevronUp', 12, 16, 20, 24)
 export const Compass = family('CompassNorthwest', 16, 20, 24)
+export const Cursor = family('Cursor', 16, 20, 24)
 export const Copy = family('Copy', 16, 20, 24)
 export const Crop = family('Crop', 16, 20, 24)
 export const Crosshair = family('Target', 16, 20, 24)
@@ -128,6 +140,40 @@ export const X = family('Dismiss', 12, 16, 20, 24)
 export const ZoomIn = family('ZoomIn', 16, 20, 24)
 export const ZoomOut = family('ZoomOut', 16, 20, 24)
 
+/*
+ * The dictionary (docs/design/prompt-settings-icons-2026-09-18, board 3):
+ * one glyph per noun, one per verb, drawn from here by the whole app. A
+ * command carries its verb; a row carries its noun; a thing that is selected
+ * or active is the same glyph Filled.
+ */
+// nouns
+export const FolderOpen = family('FolderOpen', 16, 20, 24)
+export const Sheet = family('DocumentOnePage', 16, 20, 24)
+export const Round = family('ClipboardBulletListLtr', 16, 20, 24)
+export const Area = family('DrawShape', 16, 20, 24)
+export const Cutout = family('ShapeSubtract', 16, 20, 24)
+export const Polyline = family('Line', 16, 20, 24)
+export const Count = family('Location', 12, 16, 20, 24)
+export const Part = family('Box', 16, 20, 24)
+export const Setting = family('TagMultiple', 16, 20, 24)
+// verbs
+export const Commit = family('CheckmarkCircle', 12, 16, 20, 24)
+export const Export = family('ArrowExport', 16, 20, 24)
+export const Open = family('Open', 12, 16, 20, 24)
+export const Rename = family('Rename', 16, 20, 24)
+export const Reset = family('ArrowReset', 20, 24)
+export const SearchText = family('DocumentSearch', 16, 20, 24)
+export const Next = family('Next', 16, 20, 24)
+export const Previous = family('Previous', 16, 20, 24)
+export const Refresh = family('ArrowSync', 12, 16, 20, 24)
+export const Leave = family('ArrowExit', 20)
+export const Move = family('ArrowMove', 20, 24)
+export const Window = family('Window', 16, 20, 24)
+export const Close = family('Dismiss', 12, 16, 20, 24)
+export const Home = family('Home', 12, 16, 20, 24)
+export const Pin = family('Pin', 12, 16, 20, 24)
+export const TextField = family('TextField', 16, 20, 24)
+
 /* ---------------------------------------------------------------- roles -- */
 
 /**
@@ -160,8 +206,8 @@ export type IconRole = keyof typeof SIZE
  * family ships.
  */
 export function Glyph({
-  icon, role = 'inline', ...rest
-}: { icon: Icon; role?: IconRole } & Record<string, unknown>) {
+  icon, role = 'inline', filled = false, ...rest
+}: { icon: Icon; role?: IconRole; filled?: boolean } & Record<string, unknown>) {
   const { size } = SIZE[role]
-  return createElement(assetFor(icon, size), { fontSize: size, 'aria-hidden': true, ...rest })
+  return createElement(assetFor(icon, size, filled), { fontSize: size, 'aria-hidden': true, ...rest })
 }

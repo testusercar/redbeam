@@ -47,9 +47,20 @@
   --rb-canvas:    #161719;  /* the drawing surround — darkest step */
   --rb-chrome:    #1C1D1F;  /* title bar, rail, dock */
   --rb-panel:     #232427;  /* sidebars */
-  --rb-raised:    #2B2D30;  /* cards, sections, list groups */
-  --rb-hover:     #35383C;  /* row hover */
-  --rb-selected:  #3E4146;  /* row selected */
+  /*
+   * Fills above the ground are ALPHA, not a lighter solid — Fluent's own
+   * dark-theme fills, by name. On Mica a solid #3E4146 slab was an opaque
+   * grey box floating on a wallpaper (Aaron, 2026-09-18: "opacity over
+   * mica, not a solid gray"); a white at a few percent reads as the same
+   * surface, lifted. On the opaque stack the two are indistinguishable.
+   *
+   *   raised    CardBackgroundFillColorDefault   .0512
+   *   hover     SubtleFillColorSecondary          .0605
+   *   selected  ControlFillColorSecondary         .0837
+   */
+  --rb-raised:    rgba(255, 255, 255, .0512);  /* cards, sections, list groups */
+  --rb-hover:     rgba(255, 255, 255, .0605);  /* row hover */
+  --rb-selected:  rgba(255, 255, 255, .0837);  /* row selected */
 
   /*
    * `--rb-oled` is the CANVAS by name throughout the shell, so it follows
@@ -68,8 +79,10 @@
    * there are four times as many of them on screen — at #3A3D42 the panel read
    * as a grid of boxes rather than a list.
    */
-  --rb-line:      #313338;  /* dividers, section splits */
-  --rb-line-2:    #44474C;  /* control outlines, floating surfaces */
+  /* DividerStrokeColorDefault and a step up: white at an alpha, so a rule
+     over Mica is a rule on the wallpaper rather than a grey line beside it. */
+  --rb-line:      rgba(255, 255, 255, .0837);  /* dividers, section splits */
+  --rb-line-2:    rgba(255, 255, 255, .14);    /* control outlines, floating surfaces */
 
   /* --- ink ------------------------------------------------------------- */
   /* Cooler than the OLED ramp: these are the frame's own values, and a warm
@@ -116,13 +129,27 @@
    * Neutral on purpose: the chrome tokens lean blue, and a blue veil over a
    * white sheet is a colour cast on the thing being measured.
    */
-  --rb-acrylic:    rgba(44, 44, 44, .72);
+  --rb-acrylic:    rgba(44, 44, 44, .60);
   /*
-   * A flyout is in-app acrylic too — #2C2C2C at the luminosity WinUI gives
-   * AcrylicInAppFillColorDefault, near-opaque so a menu over a busy sheet
-   * reads — with SurfaceStrokeColorDefault around it.
+   * A flyout is acrylic too: Fluent's recipe is blur, a tint, and a 2%
+   * noise, and at .92 the tint alone was doing the work — a menu read as a
+   * flat grey card (Aaron, 2026-09-18: "instead of being light gray, the
+   * various secondary surfaces should be acrylic"). #2C2C2C is
+   * AcrylicInAppFillColorDefault's tint; the blur and the grain are what
+   * make it a material. Every transient surface shares the three.
    */
-  --rb-flyout:         rgba(44, 44, 44, .92);
+  /*
+   * .90, not .72. Over a Mica window the page behind a flyout is partly the
+   * desktop, and WebView2 cannot blur what DWM paints; at .72 a menu over
+   * the sidebar read as a see-through tint with the rows sharp behind it
+   * (Aaron, 2026-09-18: "All flyouts are transparent. They don't have the
+   * acrylic material."). WinUI's own dark acrylic is near-opaque by
+   * construction — tint .15 with luminosity .96 — and this matches it: the
+   * grain and the blur are what make it a material, not see-through-ness.
+   */
+  --rb-flyout:         rgba(44, 44, 44, .90);
+  --rb-acrylic-blur:   blur(40px) saturate(130%);
+  --rb-noise:          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   --rb-surface-stroke: rgba(117, 117, 117, .4);
   /* LayerFillColorDefault: the card ground on Mica. */
   --rb-layer:          rgba(58, 58, 58, .3);
@@ -207,6 +234,17 @@
   --rb-control:   32px;   /* inputs, buttons, segmented controls */
   --rb-pad:       var(--ads-sp-2);   /* 8px — the pane's inner inset */
   --rb-pad-row:   12px;   /* row inline padding */
+
+  /*
+   * Motion: Fluent's own durations and curves. `fast` is a hover, a fold,
+   * a chevron; `base` is a surface arriving — a menu, a toast. Decelerate
+   * for things that appear, standard for things that move between two
+   * places. Both go to zero under reduced motion (see the foot of this file).
+   */
+  --rb-motion-fast: 150ms;
+  --rb-motion-base: 250ms;
+  --rb-ease-decel: cubic-bezier(0, 0, 0, 1);
+  --rb-ease-standard: cubic-bezier(0.8, 0, 0.2, 1);
 
   --rb-topbar-h:  40px;
   --rb-rail-w:    48px;   /* Fluent compact navigation, when the sidebar collapses */
@@ -356,3 +394,8 @@
  * contrast decision here assumes a dark ground.
  */
 html, body { background: var(--rb-canvas); color-scheme: dark; }
+
+/* Reduced motion: the durations are tokens, so one rule zeroes every transition keyed to them. */
+@media (prefers-reduced-motion: reduce) {
+  .ads { --rb-motion-fast: 0ms; --rb-motion-base: 0ms; }
+}

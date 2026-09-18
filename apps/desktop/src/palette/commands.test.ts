@@ -25,6 +25,13 @@ describe('search · ranking', () => {
     expect(titles(list, 'fit')).toEqual(['Fit width', 'Best fit'])
   })
 
+  it('ranks a title the spaced query leads above one it merely contains', () => {
+    // The query loses its separators before matching; the title has to lose
+    // them too, or "take off" ranks "Leave takeoff" above "Take off…".
+    const list = [cmd('Leave takeoff'), cmd('Save report…'), cmd('Take off…')]
+    expect(titles(list, 'take off')[0]).toBe('Take off…')
+  })
+
   it('ranks a word-boundary match above a mid-word one', () => {
     // Same first-match position in both, so lead position cannot be what
     // decides it: only the boundary bonus separates them.
@@ -169,6 +176,17 @@ describe('groupMatches', () => {
     const list = [cmd('Ceiling grid', { kind: 'scope' }), cmd('Ceiling plan', { kind: 'page' })]
     expect(groupMatches(search(list, 'ceiling')).map((g) => g.kind)).toEqual(['scope', 'page'])
     expect(groupMatches([])).toEqual([])
+  })
+
+  it('leads with the kind a prefix asked for', () => {
+    // `@cl04` admits the scope and the actions on a scope. The scope is what
+    // was typed for, so it is the row Enter lands on.
+    const list = [
+      cmd('Commit CL04', { keywords: ['scope-action'] }),
+      cmd('CL04', { kind: 'scope' }),
+    ]
+    expect(groupMatches(search(list, 'cl04'), [], 'scope').map((g) => g.kind)).toEqual(['scope', 'command'])
+    expect(groupMatches(search(list, 'cl04')).map((g) => g.kind)).toEqual(['command', 'scope'])
   })
 
   it('keeps ranked order inside a group', () => {

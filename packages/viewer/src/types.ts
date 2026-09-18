@@ -1,6 +1,7 @@
 import type { NormClip } from './geometry.js'
 import type { OutlineNode, OutlineShape } from './outline.js'
 import type { PageBox, TextRun } from './text.js'
+import type { PageAnnotation } from './annots.js'
 
 export interface PageInfo {
   /** Page box width in PDF points. */
@@ -89,6 +90,10 @@ export function thumbKey(page: number, width: number): string {
  */
 export function textKey(page: number): string {
   return `x${page}`
+}
+
+export function annotKey(page: number): string {
+  return `a${page}`
 }
 
 /**
@@ -261,6 +266,8 @@ export type WorkerRequest =
   | { type: 'thumb'; key: string; page: number; width: number; priority: number }
   /** Extract the page's text layer. See PRIORITY_TEXT for where it sits. */
   | { type: 'text'; key: string; page: number; priority: number }
+  /** List the page's own annotations. See annots.ts. */
+  | { type: 'annots'; key: string; page: number; priority: number }
   /** Extract the page's vector paths. See PRIORITY_GEOMETRY for where it sits. */
   | {
       type: 'geometry'
@@ -313,6 +320,15 @@ export type WorkerResponse =
       box: PageBox
       charCount: number
       scanned: boolean
+      ms: number
+      error?: string
+    }
+  /** One page's annotations, normalized. `error` as for text. */
+  | {
+      type: 'annots'
+      key: string
+      page: number
+      annotations: PageAnnotation[]
       ms: number
       error?: string
     }

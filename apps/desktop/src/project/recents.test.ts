@@ -6,12 +6,14 @@ import {
   isPlausibleProjectPath,
   projectPathProblem,
   shortenPath,
+  visibleRecents,
 } from './recents.js'
 import type { RecentProject } from './types.js'
 
 const project = (path: string, name = path, lastOpenedAt = '2026-08-28T00:00:00.000Z'): RecentProject => ({
   path,
   name,
+  displayName: null,
   lastOpenedAt,
   missing: false,
 })
@@ -131,5 +133,28 @@ describe('projectPathProblem', () => {
 
   it('explains a relative path', () => {
     expect(projectPathProblem('jobs')).toContain('full path')
+  })
+})
+
+describe('visibleRecents', () => {
+  const now = Date.parse('2026-09-13T12:00:00.000Z')
+  const list = [
+    project('C:\\Jobs\\a', 'a', '2026-09-12T00:00:00.000Z'),
+    project('C:\\Jobs\\b', 'b', '2026-07-01T00:00:00.000Z'),
+    project('C:\\Jobs\\c', 'c', '2025-01-01T00:00:00.000Z'),
+    project('C:\\Jobs\\d', 'd', 'not a date'),
+  ]
+
+  it('keeps the newest N and drops the rest', () => {
+    expect(visibleRecents(list, 2, 'never', now).map((p) => p.name)).toEqual(['a', 'b'])
+  })
+
+  it('drops what has not been opened within the expiry, and keeps an unreadable date', () => {
+    expect(visibleRecents(list, 200, '90', now).map((p) => p.name)).toEqual(['a', 'b', 'd'])
+    expect(visibleRecents(list, 200, '30', now).map((p) => p.name)).toEqual(['a', 'd'])
+  })
+
+  it('never expires by default, and a nonsense limit shows everything', () => {
+    expect(visibleRecents(list, Number.NaN, 'never', now)).toHaveLength(4)
   })
 })

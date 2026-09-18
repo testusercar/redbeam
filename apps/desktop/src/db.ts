@@ -145,6 +145,28 @@ async function openSqlJs(): Promise<OpenedDb> {
   }
 }
 
+/**
+ * A store that lives only for this window: quick view.
+ *
+ * A drawing opened for viewing has no project behind it and must not get
+ * one by accident — the old start page created a redbeam.db beside every
+ * PDF it opened. sql.js in memory, never loaded, never saved: anything
+ * drawn here is gone when the window closes, which is what "viewing" means.
+ */
+export async function openMemory(): Promise<OpenedDb> {
+  const driver = await SqlJsDriver.open(undefined, { locateFile: () => '/sql-wasm.wasm' })
+  const migration = await migrate(driver, migrationsFromGlob(migrationSql))
+  return {
+    driver,
+    backend: 'sqljs',
+    migration,
+    location: 'in memory (viewing)',
+    save: async () => {},
+    reset: async () => {},
+    close: async () => {},
+  }
+}
+
 // ------------------------------------------------------------------- open --
 
 export async function openDatabase(projectPath = '.'): Promise<OpenedDb> {

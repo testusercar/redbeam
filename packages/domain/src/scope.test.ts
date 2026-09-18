@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  areaSquareFeet, perimeterFeet, linearFeet, countEach,
+  areaSquareFeet, perimeterFeet, linearFeet, countEach, cutoutSquareFeet, cutoutSubtracts,
   calculateScopeQuantities, calibrationFromReference,
   markupCountsInScope, scopeToolWarning, countableKinds, TAKEOFF_KINDS,
   type Calibration, type Markup, type Scope,
@@ -49,6 +49,71 @@ describe('areaSquareFeet', () => {
 
   it('returns zero when there are only cutouts and no area', () => {
     expect(areaSquareFeet([mk('cutout', rect(0.1, 0.1, 0.2, 0.2))], cal)).toBe(0)
+  })
+
+  /*
+   * The 2026-09-10 review. A cutout is drawn across an area's edge far more
+   * often than neatly inside it — a shaft that runs to the corridor, a
+   * bulkhead at the perimeter — and every one of these used to ADD the part
+   * outside as material, or subtract nothing, depending on which corner was
+   * clicked first.
+   */
+  it('subtracts only the part INSIDE when a cutout starts inside and runs past the edge', () => {
+    const markups = [
+      mk('area', rect(0.1, 0.1, 0.2, 0.2)),       // 40,000, x 0.1..0.3
+      mk('cutout', rect(0.25, 0.15, 0.1, 0.05)),  // x 0.25..0.35: 50 wide inside of 100
+    ]
+    // 0.05 x 0.05 inside = 50 x 50 = 2,500 removed; nothing added.
+    expect(areaSquareFeet(markups, cal)).toBeCloseTo(37500, 6)
+  })
+
+  it('subtracts the same when the cutout STARTS outside and runs in', () => {
+    // Same opening, first vertex placed outside the area. The old rule
+    // dropped this one entirely.
+    const ring = rect(0.25, 0.15, 0.1, 0.05)
+    const fromOutside = [ring[1]!, ring[2]!, ring[3]!, ring[0]!]
+    const markups = [mk('area', rect(0.1, 0.1, 0.2, 0.2)), mk('cutout', fromOutside)]
+    expect(areaSquareFeet(markups, cal)).toBeCloseTo(37500, 6)
+  })
+
+  it('handles a cutout across a corner', () => {
+    const markups = [
+      mk('area', rect(0.1, 0.1, 0.2, 0.2)),
+      mk('cutout', rect(0.25, 0.25, 0.1, 0.1)),  // 0.05 x 0.05 inside
+    ]
+    expect(areaSquareFeet(markups, cal)).toBeCloseTo(40000 - 2500, 6)
+  })
+
+  it('removes everything when a cutout covers the whole area', () => {
+    const markups = [
+      mk('area', rect(0.1, 0.1, 0.2, 0.2)),
+      mk('cutout', rect(0.05, 0.05, 0.3, 0.3)),
+    ]
+    expect(areaSquareFeet(markups, cal)).toBe(0)
+  })
+
+  it('lets one cutout open two areas', () => {
+    const markups = [
+      mk('area', rect(0.1, 0.1, 0.1, 0.1)),   // 10,000, x 0.1..0.2
+      mk('area', rect(0.3, 0.1, 0.1, 0.1)),   // 10,000, x 0.3..0.4
+      mk('cutout', rect(0.15, 0.12, 0.2, 0.02)),  // x 0.15..0.35, 20 tall: 50x20 in each
+    ]
+    expect(areaSquareFeet(markups, cal)).toBeCloseTo(20000 - 1000 - 1000, 6)
+  })
+
+  it('does not let two cutouts in one area cancel each other', () => {
+    const markups = [
+      mk('area', rect(0.1, 0.1, 0.2, 0.2)),
+      mk('cutout', rect(0.12, 0.12, 0.02, 0.02)),  // 400
+      mk('cutout', rect(0.2, 0.2, 0.02, 0.02)),    // 400
+    ]
+    expect(areaSquareFeet(markups, cal)).toBeCloseTo(40000 - 800, 6)
+  })
+
+  it('leaves an area exactly as drawn when no cutout touches it', () => {
+    const area = mk('area', rect(0.1, 0.1, 0.2, 0.2))
+    expect(areaSquareFeet([area, mk('cutout', rect(0.7, 0.7, 0.1, 0.1))], cal))
+      .toBe(areaSquareFeet([area], cal))
   })
 
   it('sums two disjoint area markups', () => {
@@ -274,5 +339,33 @@ describe('shape markups never reach a quantity', () => {
       mk('shape', rect(0.15, 0.15, 0.05, 0.05)),
     ]
     expect(areaSquareFeet(markups, cal)).toBeCloseTo(40000, 6)
+  })
+})
+
+describe('cutoutSquareFeet', () => {
+  it('is the cutout\'s own removal, clipped to the areas of its scope on its sheet', () => {
+    const area = mk('area', rect(0.1, 0.1, 0.2, 0.2))
+    const across = mk('cutout', rect(0.25, 0.15, 0.1, 0.05))
+    expect(cutoutSquareFeet(across, [area, across], cal)).toBeCloseTo(2500, 6)
+  })
+  it('is zero beside every area, and against an area of another scope', () => {
+    const area = mk('area', rect(0.1, 0.1, 0.2, 0.2))
+    expect(cutoutSquareFeet(mk('cutout', rect(0.7, 0.7, 0.1, 0.1)), [area], cal)).toBe(0)
+    expect(cutoutSquareFeet(mk('cutout', rect(0.15, 0.15, 0.05, 0.05), 's2'), [area], cal)).toBe(0)
+  })
+  it('is zero for a markup that is not a cutout', () => {
+    expect(cutoutSquareFeet(mk('area', rect(0.1, 0.1, 0.2, 0.2)), [], cal)).toBe(0)
+  })
+})
+
+describe('cutoutSubtracts', () => {
+  const area = mk('area', rect(0.1, 0.1, 0.2, 0.2))
+  it('is true for a cutout overlapping an area of its scope on its sheet', () => {
+    expect(cutoutSubtracts(mk('cutout', rect(0.25, 0.15, 0.1, 0.05)), [area])).toBe(true)
+  })
+  it('is false beside the area, on another sheet, or in another scope', () => {
+    expect(cutoutSubtracts(mk('cutout', rect(0.7, 0.7, 0.1, 0.1)), [area])).toBe(false)
+    expect(cutoutSubtracts(mk('cutout', rect(0.15, 0.15, 0.05, 0.05), 's1', 'p2'), [area])).toBe(false)
+    expect(cutoutSubtracts(mk('cutout', rect(0.15, 0.15, 0.05, 0.05), 's2'), [area])).toBe(false)
   })
 })

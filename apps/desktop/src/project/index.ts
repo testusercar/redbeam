@@ -34,8 +34,6 @@
 export { ProjectPicker } from './ProjectPicker.js'
 export type { ProjectPickerProps } from './ProjectPicker.js'
 
-export { RecentProjectList } from './RecentProjectList.js'
-export type { RecentProjectListProps } from './RecentProjectList.js'
 
 export { ProjectStartScreen } from './ProjectStartScreen.js'
 export type { ProjectStartScreenProps } from './ProjectStartScreen.js'

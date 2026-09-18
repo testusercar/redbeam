@@ -15,7 +15,10 @@ import type { Viewport } from '@redbeam/viewer'
  * seam.
  */
 export type Tool =
-  | 'pan' | 'area' | 'cutout' | 'polyline' | 'count' | 'shape'
+  // `select` picks markups: a click takes one, a drag takes a box of them.
+  // Pan does the same on a click and pans on a drag; Shift+drag in Pan is
+  // the same marquee, kept for the hand that already knows it.
+  | 'pan' | 'select' | 'area' | 'cutout' | 'polyline' | 'count' | 'shape'
   // `calibrate` measures a known length to derive ONE page's scale.
   // `scale-region` draws a box that carries its own scale, for the details
   // sheet where four details sit at four scales and one page number is right

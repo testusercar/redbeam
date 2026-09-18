@@ -29,6 +29,11 @@ pub struct Accent {
     pub base: String,
     /// False when Windows published no palette and the default below is in use.
     pub from_system: bool,
+    /// Where it came from: `palette` (the Explorer accent ramp), `dwm` (the
+    /// single DWM accent, lightened here), or `default`. Settings › About
+    /// says which, so "the accent is wrong" can be diagnosed from a
+    /// screenshot rather than a registry export.
+    pub source: &'static str,
 }
 
 /*
@@ -49,7 +54,32 @@ impl Default for Accent {
             light1: DEFAULT_LIGHT1.to_string(),
             base: DEFAULT_BASE.to_string(),
             from_system: false,
+            source: "default",
         }
+    }
+}
+
+/// One channel, moved a fraction of the way towards white.
+fn lighten(c: u8, by: f32) -> u8 {
+    (f32::from(c) + (255.0 - f32::from(c)) * by).round().clamp(0.0, 255.0) as u8
+}
+
+/// The accent from `DWM\AccentColor`, a DWORD laid out `0xAABBGGRR`.
+///
+/// Windows publishes only the base tone there, so the two lighter steps the
+/// dark theme paints with are made here: 20% and 40% towards white, which
+/// is close to the ramp Windows itself generates.
+fn from_dwm(value: u32) -> Accent {
+    let r = (value & 0xff) as u8;
+    let g = ((value >> 8) & 0xff) as u8;
+    let b = ((value >> 16) & 0xff) as u8;
+    let step = |by: f32| [lighten(r, by), lighten(g, by), lighten(b, by), 0];
+    Accent {
+        light2: hex(&step(0.4)).unwrap_or_else(|| DEFAULT_LIGHT2.to_string()),
+        light1: hex(&step(0.2)).unwrap_or_else(|| DEFAULT_LIGHT1.to_string()),
+        base: hex(&[r, g, b, 0]).unwrap_or_else(|| DEFAULT_BASE.to_string()),
+        from_system: true,
+        source: "dwm",
     }
 }
 
@@ -61,6 +91,14 @@ fn hex(entry: &[u8]) -> Option<String> {
 
 #[cfg(windows)]
 fn read() -> Option<Accent> {
+    // The ramp first; failing that, the one DWM colour. A machine that has
+    // an accent but no published palette (some managed images, some early
+    // sessions) was falling all the way to the default.
+    read_palette().or_else(read_dwm)
+}
+
+#[cfg(windows)]
+fn read_palette() -> Option<Accent> {
     let key = windows_registry::CURRENT_USER
         .open(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent")
         .ok()?;
@@ -75,7 +113,17 @@ fn read() -> Option<Accent> {
         light1: hex(&bytes[8..12])?,
         base: hex(&bytes[12..16])?,
         from_system: true,
+        source: "palette",
     })
+}
+
+#[cfg(windows)]
+fn read_dwm() -> Option<Accent> {
+    let key = windows_registry::CURRENT_USER
+        .open(r"Software\Microsoft\Windows\DWM")
+        .ok()?;
+    let value = key.get_u32("AccentColor").ok()?;
+    Some(from_dwm(value))
 }
 
 #[cfg(not(windows))]
@@ -112,6 +160,18 @@ mod tests {
     #[test]
     fn refuses_a_truncated_palette() {
         assert!(hex(&[0x11, 0x22]).is_none());
+    }
+
+    #[test]
+    fn reads_the_dwm_dword_as_abgr_and_makes_the_lighter_steps() {
+        // The same D6 B7 9F, as DWM stores it: alpha, blue, green, red.
+        let a = from_dwm(0xFF9F_B7D6);
+        assert_eq!(a.base, "#D6B79F");
+        assert_eq!(a.source, "dwm");
+        assert!(a.from_system);
+        // Each step is lighter than the last, and none overshoots white.
+        assert_eq!(a.light1, "#DEC5B2");
+        assert_eq!(a.light2, "#E6D4C5");
     }
 }
 

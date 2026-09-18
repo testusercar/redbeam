@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Start, Switcher, Search, Settings</title>
+<script src="fluent-icons.js"></script>
+<style>
+:root{
+  --canvas:#161719;--chrome:#1C1D1F;--panel:#232427;--raised:#2B2D30;--hover:#35383C;--selected:#3E4146;
+  --line:#313338;--line2:#44474C;
+  --ink:#F1F3F4;--ink2:#B8BDC3;--ink3:#93979C;--ink4:#6D7175;--dim:#55585B;
+  --accent:#4CC2FF;--accentink:#1B1B1B;--red:#e0533a;
+  --good:#6CCB5F;--warn:#FCE100;--bad:#FF99A4;--warnbg:#433519;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--mono:"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d0e;color:var(--ink);font:13px/18px var(--sans);padding:8px 24px 40px}
+h1{font:600 20px/26px var(--sans);margin:28px 0 4px}
+h1 small{font-weight:400;color:#888;font-size:13px;margin-left:10px}
+.note{color:#9a9a9a;font-size:12px;line-height:17px;max-width:1150px;margin:0 0 14px}
+.note b{color:#ddd}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.cap{font:11px var(--mono);color:#777;margin:0 0 6px}
+i.ic{display:inline-flex;width:20px;height:20px;flex:none;align-items:center;justify-content:center}
+i.ic svg{width:100%;height:100%;fill:currentColor}
+i.ic.s16{width:16px;height:16px}i.ic.s12{width:12px;height:12px}i.ic.s24{width:24px;height:24px}i.ic.s32{width:32px;height:32px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:4px;background:var(--raised);border:1px solid var(--line2);color:var(--ink2);font:11px var(--sans)}
+.rules{width:340px;color:#bbb;font-size:12px;line-height:16px;padding-top:22px}
+.rules p{margin:0 0 8px}.rules b{color:#ddd}
+
+/* window frame */
+.win{width:1440px;height:900px;background:var(--canvas);border:1px solid var(--line2);position:relative;overflow:hidden;display:flex;flex-direction:column}
+.wc{position:absolute;right:0;top:0;display:flex}
+.wc span{width:46px;height:32px;display:grid;place-items:center;color:var(--ink3);font-size:12px}
+.tb{height:40px;display:flex;align-items:center;gap:8px;padding:0 8px;background:var(--chrome);border-bottom:1px solid var(--line);flex:none}
+.tb .mark{width:20px;height:20px;border-radius:5px;background:var(--red);display:grid;place-items:center;color:#fff;font:700 9px var(--sans)}
+.tb .proj{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:4px;color:var(--ink);font-size:13px;background:var(--selected)}
+.tb .proj i.ic{width:16px;height:16px;color:var(--ink3)}
+.tb .tab{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-bottom:2px solid var(--accent);color:var(--ink);font-size:12px;margin-left:140px}
+.tb .tab i.ic{width:16px;height:16px;color:var(--ink3)}
+
+/* ---------- start page ---------- */
+.start{flex:1;display:grid;grid-template-columns:1fr 1fr;padding:56px 96px 48px;gap:64px}
+.sh{display:flex;align-items:center;gap:14px;margin-bottom:26px}
+.sh .mark{width:40px;height:40px;border-radius:9px;background:var(--red);display:grid;place-items:center;color:#fff;font:700 15px var(--sans)}
+.sh h2{margin:0;font:600 24px/28px var(--sans)}
+.sh .v{color:var(--ink3);font-size:12px}
+.sec{font:600 12px/16px var(--sans);color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px}
+.find{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--line);border-bottom-color:var(--line2);border-radius:4px;background:var(--raised);color:var(--ink4);margin-bottom:8px;width:100%}
+.find i.ic{width:16px;height:16px;color:var(--ink3)}
+.find .sp{flex:1}
+.pr{display:grid;grid-template-columns:36px minmax(0,1fr) auto auto;gap:12px;align-items:center;height:56px;padding:0 10px 0 6px;border-radius:6px}
+.pr:hover,.pr.sel{background:var(--raised)}
+.pr .ico{width:36px;height:36px;border-radius:6px;background:var(--raised);display:grid;place-items:center;color:var(--ink2)}
+.pr.sel .ico{background:var(--hover)}
+.pr .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .pt{font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+.pr .when{font-size:11px;color:var(--ink3);white-space:nowrap}
+.pr .pin{width:24px;height:24px;display:grid;place-items:center;color:var(--ink4)}
+.pr.miss .nm{color:var(--ink3)}.pr.miss .ico{color:var(--ink4)}
+.pr .locate{font-size:11px;color:var(--accent)}
+.card{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-bottom:10px}
+.card.primary{border-color:transparent;background:var(--accent);color:var(--accentink)}
+.card .ci{width:40px;height:40px;border-radius:8px;background:var(--raised);display:grid;place-items:center;color:var(--ink)}
+.card.primary .ci{background:rgba(0,0,0,.14);color:var(--accentink)}
+.card .ct{font-size:13px;font-weight:600}
+.card .cd{font-size:11px;line-height:14px;color:var(--ink3)}
+.card.primary .cd{color:rgba(0,0,0,.65)}
+.card kbd{background:transparent;border-color:rgba(255,255,255,.25);color:var(--ink2)}
+.card.primary kbd{border-color:rgba(0,0,0,.35);color:var(--accentink)}
+.drop{margin-top:6px;padding:22px;border:1px dashed var(--line2);border-radius:8px;color:var(--ink3);font-size:12px;text-align:center}
+.drop b{color:var(--ink2)}
+.foot{position:absolute;left:96px;right:96px;bottom:22px;display:flex;align-items:center;gap:18px;color:var(--ink4);font-size:11px}
+.foot .sp{flex:1}
+.foot a{color:var(--ink3);display:inline-flex;align-items:center;gap:5px}
+.foot a i.ic{width:14px;height:14px}
+.menu{position:absolute;background:#2C2E31;border:1px solid var(--line2);border-radius:6px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.5);width:250px;z-index:3}
+.mi{display:flex;align-items:center;gap:10px;height:28px;padding:0 8px;border-radius:3px;font-size:12px;white-space:nowrap}
+.mi i.ic{width:16px;height:16px;color:var(--ink2)}
+.mi .k{margin-left:auto;color:var(--ink3);font-size:11px}
+.mi.danger{color:var(--bad)}.mi.danger i.ic{color:var(--bad)}
+.msep{height:1px;background:var(--line);margin:4px 0}
+
+/* ---------- switcher flyout ---------- */
+.fly{position:absolute;left:8px;top:44px;width:380px;background:#2C2E31;border:1px solid var(--line2);border-radius:8px;box-shadow:0 12px 36px rgba(0,0,0,.6);overflow:hidden}
+.fh{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 12px 10px;border-bottom:1px solid var(--line)}
+.fh .ico{width:36px;height:36px;border-radius:6px;background:var(--hover);display:grid;place-items:center;color:var(--ink)}
+.fh .nm{font-size:14px;font-weight:600;line-height:18px}
+.fh .pt{font-size:11px;color:var(--ink3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fh .acts{display:flex;gap:2px}
+.fh .acts span{width:28px;height:28px;display:grid;place-items:center;border-radius:4px;color:var(--ink2)}
+.fh .acts i.ic{width:16px;height:16px}
+.fsub{display:flex;gap:14px;padding:0 12px 10px 60px;font-size:11px;color:var(--ink3);border-bottom:1px solid var(--line)}
+.ffind{display:flex;align-items:center;gap:8px;height:32px;margin:8px 8px 4px;padding:0 10px;border:1px solid var(--line);border-bottom-color:var(--line2);border-radius:4px;background:var(--raised);color:var(--ink4);font-size:12px}
+.ffind i.ic{width:14px;height:14px;color:var(--ink3)}
+.fg{padding:6px 12px 2px;font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--ink4)}
+.fr{display:grid;grid-template-columns:20px minmax(0,1fr) auto auto;gap:10px;align-items:center;height:40px;margin:0 4px;padding:0 8px;border-radius:5px}
+.fr.sel{background:var(--selected)}
+.fr i.ic{width:16px;height:16px;color:var(--ink3)}
+.fr .nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fr .pt{font-size:11px;color:var(--ink4);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fr .when{font-size:11px;color:var(--ink4);white-space:nowrap}
+.fr .nw{width:24px;height:24px;display:grid;place-items:center;color:var(--ink3)}
+.fr .nw i.ic{width:14px;height:14px}
+.fr.miss .nm{color:var(--ink4)}
+.ff{display:flex;align-items:center;gap:4px;padding:6px;border-top:1px solid var(--line);margin-top:4px}
+.ff span{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:4px;color:var(--ink2);font-size:12px;white-space:nowrap}
+.ff i.ic{width:16px;height:16px;color:var(--ink3)}
+.ff .sp{flex:1}
+
+/* ---------- search pane ---------- */
+.pane{width:380px;height:760px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;position:relative}
+.rail{display:flex;gap:2px;padding:6px;border-bottom:1px solid var(--line);background:var(--chrome)}
+.rail span{width:44px;height:36px;display:grid;place-items:center;border-radius:4px;color:var(--ink3)}
+.rail span.on{background:var(--selected);color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent);width:auto;padding:0 12px;grid-auto-flow:column;gap:8px;font-size:12px;font-weight:600}
+.pf{display:flex;align-items:center;gap:8px;height:32px;margin:8px 8px 6px;padding:0 10px;border:1px solid var(--line);border-bottom:2px solid var(--accent);border-radius:4px;background:var(--canvas);font-size:13px}
+.pf i.ic{width:16px;height:16px;color:var(--ink3)}
+.pf .sp{flex:1}
+.pf .cnt{font-size:11px;color:var(--ink3);font-family:var(--mono)}
+.sb{display:flex;gap:2px;padding:0 8px 6px}
+.sb span{padding:2px 8px 1px;font-size:11px;color:var(--ink3);border-bottom:2px solid transparent}
+.sb span.on{color:var(--ink);border-bottom-color:var(--accent)}
+.into{display:flex;align-items:center;gap:8px;height:36px;margin:0 8px 4px;padding:0 6px 0 10px;border-radius:4px;background:var(--raised);font-size:12px}
+.into .lab{color:var(--ink3)}
+.into .sel{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 8px;border:1px solid var(--line);border-bottom-color:var(--line2);border-radius:4px;background:var(--panel);color:var(--ink);font-size:12px;flex:1}
+.into .sel.unset{color:var(--ink4)}
+.into .sel .sp{flex:1}
+.into .dot{width:8px;height:8px;border-radius:50%}
+.into .hl{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:4px;background:var(--accent);color:var(--accentink);font-size:11px;font-weight:600}
+.into .hl.off{background:var(--hover);color:var(--ink4)}
+.into i.ic{width:14px;height:14px}
+.grp{display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border-top:1px solid var(--line);background:var(--raised);font-size:11px;color:var(--ink3)}
+.grp b{color:var(--ink);font-size:12px}
+.grp .sp{flex:1}
+.grp .doc{color:var(--ink4)}
+.hit{display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:6px;align-items:center;min-height:36px;padding:4px 8px 4px 12px;font-size:12px;line-height:15px;color:var(--ink2)}
+.hit.sel{background:var(--hover)}
+.hit mark{background:transparent;color:var(--accent);font-weight:600}
+.hit .hb{width:20px;height:20px;display:grid;place-items:center;color:var(--ink4);border-radius:3px}
+.hit.sel .hb{color:var(--ink2);background:var(--selected)}
+.hit .hb i.ic{width:14px;height:14px}
+.hit .n{font-family:var(--mono);color:var(--ink4);margin-right:6px;font-size:11px}
+.pfoot{margin-top:auto;display:flex;align-items:center;gap:10px;height:32px;padding:0 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink3)}
+.pfoot .sp{flex:1}
+.pfoot kbd{height:18px;min-width:18px;font-size:10px}
+.chooser{position:absolute;left:8px;right:8px;top:118px;background:#2C2E31;border:1px solid var(--line2);border-radius:6px;padding:6px;box-shadow:0 12px 36px rgba(0,0,0,.6);z-index:3}
+.chooser .ch{padding:6px 8px 8px;font-size:12px;color:var(--ink2);border-bottom:1px solid var(--line);margin-bottom:4px}
+.chooser .ch b{color:var(--ink)}
+.chooser .cr{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:10px;align-items:center;height:32px;padding:0 8px;border-radius:4px;font-size:12px}
+.chooser .cr.sel{background:var(--selected)}
+.chooser .cr .dot{width:8px;height:8px;border-radius:50%}
+.chooser .cr .sub{color:var(--ink3);margin-left:6px}
+.chooser .cr .k{color:var(--ink4);font-size:11px}
+.chooser .cn{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;color:var(--accent);font-size:12px;border-top:1px solid var(--line);margin-top:4px}
+.chooser .cn i.ic{width:14px;height:14px}
+
+/* ---------- settings v2 ---------- */
+.setwrap{flex:1;overflow:hidden;display:flex;justify-content:center}
+.setpage{width:920px;padding:24px 40px 0}
+.sethead{display:flex;align-items:center;gap:16px;height:48px;margin-bottom:8px}
+.sethead h2{margin:0;font:600 22px/28px var(--sans)}
+.sethead .sp{flex:1}
+.sethead .find{width:260px;margin:0}
+.sethead .reset{font-size:12px;color:var(--ink3)}
+.sethead .reset b{color:var(--ink2);font-weight:400}
+.sethead .x{width:32px;height:32px;display:grid;place-items:center;color:var(--ink2);border-radius:4px}
+.sg{margin:18px 0 0}
+.sg h3{margin:0 0 6px;font:600 13px/18px var(--sans)}
+.sgc{border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+.srow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;min-height:56px;padding:8px 16px;position:relative}
+.srow+.srow{border-top:1px solid var(--line)}
+.srow .lb{font-size:13px}
+.srow .d{font-size:12px;line-height:16px;color:var(--ink3)}
+.srow.child{padding-left:48px;background:var(--raised)}
+.srow.child::before{content:"";position:absolute;left:26px;top:0;bottom:0;width:1px;background:var(--line2)}
+.srow.child.last::before{bottom:50%}
+.srow.child::after{content:"";position:absolute;left:26px;top:50%;width:10px;height:1px;background:var(--line2)}
+.srow .ctl{display:flex;align-items:center;gap:12px}
+.srow .onoff{font-size:12px;color:var(--ink2);min-width:24px;text-align:right}
+.srow .undo{width:28px;height:28px;display:grid;place-items:center;border-radius:4px;color:var(--accent)}
+.srow .undo i.ic{width:16px;height:16px}
+.srow.mod{box-shadow:inset 3px 0 0 var(--accent)}
+.sw{width:40px;height:20px;border-radius:10px;border:1px solid var(--line2);position:relative;flex:none}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--ink3)}
+.sw.on{background:var(--accent);border-color:var(--accent)}
+.sw.on::after{left:auto;right:3px;background:#1b1b1b}
+.fld{display:inline-flex;align-items:center;height:32px;padding:0 10px;min-width:150px;border:1px solid var(--line);border-bottom-color:var(--line2);border-radius:4px;background:var(--raised);color:var(--ink);font-size:13px}
+.fld.num{font-family:var(--mono);min-width:96px;justify-content:space-between}
+.fld .chev{margin-left:auto;color:var(--ink3);font-size:11px}
+.fld .spin{display:flex;flex-direction:column;gap:2px;color:var(--ink3);font-size:8px;line-height:1}
+.exp{display:flex;align-items:center;justify-content:center;width:28px;height:28px;color:var(--ink3)}
+</style></head><body>
+
+<section id="b1">
+<h1>1 · The start page <small>rethought from first principles · a Fluent start window, not a card</small></h1>
+<p class="note">Before a project is open the window has one job: <b>get the estimator into the right job in one action</b>. Three ways in, in the order they happen: continue yesterday's job (nearly every launch), start a bid from a drawing set someone handed over, reopen an older job. Today's screen is a 600px card floating in the void, the action buttons and the recents fight for the same column, and three text links (rename · forget · remove data) sit on every recent row. The rethink is the Fluent start-window shape (Visual Studio, Terminal): <b>the recents on the left, with a filter, one row per job and a right-click for the rest; the ways in on the right as cards, with the primary one in the accent</b>; drop a PDF or a folder anywhere on the window; Enter reopens the last job; Ctrl+O browses. The mark, the version and the update state live in the footer, where a start window keeps them.</p>
+<div class="row">
+<div><div class="cap">start window · 1440 × 900 · Bentall is the most recent job, armed; the Barclays row shows the right-click menu</div>
+<div class="win">
+  <div class="wc"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="start">
+    <div>
+      <div class="sh"><div class="mark">RB</div><div><h2>REDBEAM</h2><div class="v">Quantity takeoff from construction drawings</div></div></div>
+      <div class="sec">Open recent</div>
+      <div class="find"><i class="ic" data-ic="Search16Regular"></i>Filter jobs<span class="sp"></span><kbd>↑↓</kbd><kbd>↵</kbd></div>
+      <div class="pr sel"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">Bentall Towers 1 &amp; 2</div><div class="pt">…\MAXXiT Systems Team Site - Ramp\Bentall Towers 1 &amp; 2</div></div><div class="when">1 h ago</div><div class="pin"><i class="ic s16" data-ic="Pin16Filled"></i></div></div>
+      <div class="pr"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">MSK Podium 1233 York Ave NYC</div><div class="pt">…\MAXXiT Systems Team Site - Ramp\MSK Podium 1233 York Ave NYC</div></div><div class="when">1 h ago</div><div class="pin"></div></div>
+      <div class="pr" style="position:relative"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">00045 - Barclays Toronto</div><div class="pt">…\Dev Projects\00045 - Barclays Toronto</div></div><div class="when">5 Sep</div><div class="pin"></div>
+        <div class="menu" style="left:300px;top:40px">
+          <div class="mi"><i class="ic" data-ic="Open16Regular"></i>Open<span class="k">↵</span></div>
+          <div class="mi"><i class="ic" data-ic="WindowNew16Regular"></i>Open in a new window<span class="k">Shift ↵</span></div>
+          <div class="msep"></div>
+          <div class="mi"><i class="ic" data-ic="Pin16Regular"></i>Pin to top</div>
+          <div class="mi"><i class="ic" data-ic="Rename16Regular"></i>Rename<span class="k">F2</span></div>
+          <div class="mi"><i class="ic" data-ic="FolderOpen16Regular"></i>Show in Explorer</div>
+          <div class="msep"></div>
+          <div class="mi"><i class="ic" data-ic="Dismiss16Regular"></i>Remove from this list</div>
+          <div class="mi danger"><i class="ic" data-ic="Delete16Regular"></i>Set REDBEAM data aside…</div>
+        </div>
+      </div>
+      <div class="pr"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">Turkish Airlines Lounge</div><div class="pt">…\MAXXiT Systems Team Site - Ramp\Turkish Airlines Lounge</div></div><div class="when">28 Aug</div><div class="pin"></div></div>
+      <div class="pr miss"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">Rogers Centre Suites</div><div class="pt">D:\Jobs\Rogers Centre Suites · not found</div></div><div class="locate">Locate…</div><div class="pin"></div></div>
+      <div class="pr"><div class="ico"><i class="ic" data-ic="Folder20Regular"></i></div><div><div class="nm">CoreWeave Data Hall 3</div><div class="pt">…\Dev Projects\CoreWeave Data Hall 3</div></div><div class="when">12 Aug</div><div class="pin"></div></div>
+      <div style="padding:10px 8px;color:var(--ink4);font-size:11px">6 of 14 · every job ever opened is in the prompt (~)</div>
+    </div>
+    <div style="padding-top:66px">
+      <div class="sec">Get started</div>
+      <div class="card primary"><div class="ci"><i class="ic s24" data-ic="DocumentPdf24Regular"></i></div><div><div class="ct">Open a drawing set</div><div class="cd">Pick a PDF. Its folder becomes the job, and REDBEAM writes one redbeam.db beside it.</div></div><kbd>Ctrl O</kbd></div>
+      <div class="card"><div class="ci"><i class="ic s24" data-ic="FolderOpen24Regular"></i></div><div><div class="ct">Open a project folder</div><div class="cd">A job that already has a redbeam.db, from any drive.</div></div><kbd>Ctrl Shift O</kbd></div>
+      <div class="card"><div class="ci"><i class="ic s24" data-ic="TextField24Regular"></i></div><div><div class="ct">Open a folder by path</div><div class="cd">For a remote session, or a path from a ticket.</div></div><i class="ic s16" data-ic="ChevronRight16Regular" style="color:var(--ink3)"></i></div>
+      <div class="drop"><b>Drop a PDF or a folder anywhere on this window</b> to open it</div>
+    </div>
+  </div>
+  <div class="foot"><span>REDBEAM 0.2.1</span><span>·</span><a><i class="ic" data-ic="ArrowSync16Regular"></i>Up to date</a><span class="sp"></span><a><i class="ic" data-ic="Settings16Regular"></i>Settings</a><a><i class="ic" data-ic="Info16Regular"></i>What's new</a></div>
+</div></div>
+<div class="rules">
+<p><b>Enter opens the armed job.</b> The most recent is armed on open, so launch → Enter is the whole morning routine. Typing filters.</p>
+<p><b>One row per job, 56px.</b> Name, the folder it lives in with the head elided, when it was last opened, a pin. Everything else is a right-click, not three links on the face.</p>
+<p><b>The primary action is in the accent</b> and says what it does with the file: the folder becomes the job. The database sentence moves under it, where it answers the question the button raises.</p>
+<p><b>A missing job says so and offers Locate…</b> instead of a greyed row.</p>
+<p><b>The path field is a card,</b> third, not a disclosure link under the list.</p>
+<p><b>Drop target is the whole window.</b> The dashed box only says so.</p>
+<p><b>Footer carries version, update state, Settings, What's new.</b> A start window is the one place these belong.</p>
+</div>
+</div>
+</section>
+
+<section id="b2">
+<h1>2 · The project switcher <small>a first-class flyout, not a content-heavy dropdown</small></h1>
+<p class="note">Today the project name in the title bar opens a menu that lists recent projects as menu items with full paths under them, then "Open another project…" and "More… every project, in the prompt". It reads as a menu that is carrying a page's worth of content. A switch of job deserves the same surface a project gets on the start page: <b>a Flyout that opens with the current job as its header</b> (name, folder, and what you can do to it), a filter, the recent jobs as rows with when they were last opened, and the two ways out in a footer bar. Choosing a job still opens it in a new window, because a window is a job; the row's trailing glyph says so on hover instead of a sentence at the bottom.</p>
+<div class="row">
+<div><div class="cap">title bar with the switcher open · 380px flyout</div>
+<div class="win" style="height:560px">
+  <div class="wc"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="tb"><span class="mark">RB</span><span class="proj"><i class="ic" data-ic="Folder16Regular"></i>Bentall Towers 1 &amp; 2<i class="ic" data-ic="ChevronUp16Regular"></i></span><span class="tab"><i class="ic" data-ic="DocumentPdf16Regular"></i>2025-02-21_IFC B1 (ARCH).pdf</span></div>
+  <div class="fly">
+    <div class="fh"><div class="ico"><i class="ic" data-ic="Folder20Filled"></i></div><div style="min-width:0"><div class="nm">Bentall Towers 1 &amp; 2</div><div class="pt">C:\Users\aaron\Maxxit Group\…\Bentall Towers 1 &amp; 2</div></div><div class="acts"><span title="Rename"><i class="ic" data-ic="Rename16Regular"></i></span><span title="Show in Explorer"><i class="ic" data-ic="FolderOpen16Regular"></i></span><span title="New window on this job"><i class="ic" data-ic="WindowNew16Regular"></i></span></div></div>
+    <div class="fsub"><span>452 documents</span><span>1 round · 3 scopes</span><span>opened 1 h ago</span></div>
+    <div class="ffind"><i class="ic" data-ic="Search16Regular"></i>Switch to another job…</div>
+    <div class="fg">Recent</div>
+    <div class="fr sel"><i class="ic" data-ic="Folder16Regular"></i><div style="min-width:0"><div class="nm">MSK Podium 1233 York Ave NYC</div><div class="pt">…\MAXXiT Systems Team Site - Ramp</div></div><div class="when">1 h ago</div><div class="nw" title="Opens in a new window"><i class="ic" data-ic="WindowNew16Regular"></i></div></div>
+    <div class="fr"><i class="ic" data-ic="Folder16Regular"></i><div style="min-width:0"><div class="nm">00045 - Barclays Toronto</div><div class="pt">…\Dev Projects</div></div><div class="when">5 Sep</div><div class="nw"></div></div>
+    <div class="fr"><i class="ic" data-ic="Folder16Regular"></i><div style="min-width:0"><div class="nm">Turkish Airlines Lounge</div><div class="pt">…\MAXXiT Systems Team Site - Ramp</div></div><div class="when">28 Aug</div><div class="nw"></div></div>
+    <div class="fr miss"><i class="ic" data-ic="Folder16Regular"></i><div style="min-width:0"><div class="nm">Rogers Centre Suites</div><div class="pt">D:\Jobs · not found</div></div><div class="when"></div><div class="nw"></div></div>
+    <div class="ff"><span><i class="ic" data-ic="FolderOpen16Regular"></i>Open another…<kbd style="margin-left:4px">Ctrl O</kbd></span><span><i class="ic" data-ic="Home16Regular"></i>Start page</span><span class="sp"></span><span style="color:var(--ink4);padding-right:4px"><kbd>~</kbd> every job</span></div>
+  </div>
+  <div style="position:absolute;left:420px;top:60px;width:320px" class="rules">
+    <p><b>Header = where you are.</b> The current job, its folder, and its three verbs: rename, show in Explorer, a second window on the same job.</p>
+    <p><b>One fact line.</b> Documents, rounds and scopes, when it was opened. What the start page could not say, this can, because the job is open.</p>
+    <p><b>Rows, not menu items.</b> 40px, the folder tail elided, last opened on the right; the new-window glyph appears on hover and says what Enter does.</p>
+    <p><b>Filter first.</b> Type a few letters; the list narrows; Enter opens. The prompt's <span class="mono">~</span> still reaches every job ever opened.</p>
+    <p><b>Footer = the ways out.</b> Open another, Start page. No "More…" item that opens a different surface.</p>
+  </div>
+</div></div>
+</div>
+</section>
+
+<section id="b3">
+<h1>3 · The search pane <small>usability, and highlights that ask which scope</small></h1>
+<p class="note">Two problems. The functional one you named: <b>Highlight puts shapes into whatever scope happens to be active</b>, and with no takeoff scope in hand it still picks one. A highlight is a markup that belongs to a scope, so the pane must know which before it makes one. The fix is a <b>"Highlight into" chooser at the head of the results</b>, empty by default: while it is empty the highlight buttons are disabled, and pressing one opens the chooser as a question rather than doing nothing. The choice is remembered for the pane, and it never changes the takeoff scope in the dock. The usability ones: the reach was a full-width select reading "the whole project"; groups were file names; hit rows were "p6 + snippet" with an icon button on each; the footer said "Matches appear as you type". Now the reach is a SelectorBar, groups are sheet numbers with their titles, hits are the snippet with the match in the accent and a page tag, Enter walks the hits, and the footer counts matches, sheets and coverage.</p>
+<div class="row">
+<div><div class="cap">A · results, no scope chosen yet · Highlight is disabled and says why</div>
+<div class="pane">
+  <div class="rail"><span><i class="ic" data-ic="FolderOpen20Regular"></i></span><span><i class="ic" data-ic="TextBulletListTree20Regular"></i></span><span><i class="ic" data-ic="Grid20Regular"></i></span><span class="on"><i class="ic" data-ic="DocumentSearch20Filled"></i>Search</span></div>
+  <div class="pf"><i class="ic" data-ic="Search16Regular"></i>acoustic<span class="sp"></span><span class="cnt">14</span></div>
+  <div class="sb"><span>This sheet</span><span>Document</span><span>Folder</span><span class="on">Project</span></div>
+  <div class="into"><span class="lab">Highlight into</span><span class="sel unset">Choose a scope…<span class="sp"></span><i class="ic" data-ic="ChevronDown16Regular"></i></span><span class="hl off"><i class="ic" data-ic="Highlight16Regular"></i>All 14</span></div>
+  <div class="grp"><b>A02.00</b>Schedules &amp; specifications<span class="sp"></span>6</div>
+  <div class="hit sel"><span><span class="n">¶3</span>…ceiling type CLG02: <mark>acoustic</mark> baffle, 4" o.c., black…</span><span class="hb"><i class="ic" data-ic="Highlight16Regular"></i></span></div>
+  <div class="hit"><span><span class="n">¶3</span>…<mark>acoustic</mark> performance NRC 0.85 min…</span><span class="hb"></span></div>
+  <div class="hit"><span><span class="n">¶7</span>…AC-1 <mark>acoustic</mark> wall panel, fabric wrapped…</span><span class="hb"></span></div>
+  <div class="grp"><b>A24.00</b>Finish plan<span class="sp"></span>5</div>
+  <div class="hit"><span>…CLG02 <mark>acoustic</mark> baffle ceiling, see A60.01…</span><span class="hb"></span></div>
+  <div class="hit"><span>…<mark>acoustic</mark> sealant at perimeter…</span><span class="hb"></span></div>
+  <div class="grp"><b>A60.01</b>Ceiling details &amp; sections<span class="sp"></span>3</div>
+  <div class="hit"><span>…<mark>acoustic</mark> baffle suspension detail 4/A60.01…</span><span class="hb"></span></div>
+  <div class="grp"><b>SPECIFICATIONS.pdf</b><span class="doc">· other document</span><span class="sp"></span>0 of 9 on screen</div>
+  <div class="pfoot"><span>14 matches · 3 sheets · 100% indexed</span><span class="sp"></span><kbd>↵</kbd> next <kbd>⇧↵</kbd> previous</div>
+</div></div>
+
+<div><div class="cap">B · pressing a highlight with no scope chosen · the question, not a silent guess</div>
+<div class="pane">
+  <div class="rail"><span><i class="ic" data-ic="FolderOpen20Regular"></i></span><span><i class="ic" data-ic="TextBulletListTree20Regular"></i></span><span><i class="ic" data-ic="Grid20Regular"></i></span><span class="on"><i class="ic" data-ic="DocumentSearch20Filled"></i>Search</span></div>
+  <div class="pf"><i class="ic" data-ic="Search16Regular"></i>acoustic<span class="sp"></span><span class="cnt">14</span></div>
+  <div class="sb"><span>This sheet</span><span>Document</span><span>Folder</span><span class="on">Project</span></div>
+  <div class="into"><span class="lab">Highlight into</span><span class="sel unset">Choose a scope…<span class="sp"></span><i class="ic" data-ic="ChevronDown16Regular"></i></span><span class="hl off"><i class="ic" data-ic="Highlight16Regular"></i>All 14</span></div>
+  <div class="chooser">
+    <div class="ch">Which scope do these highlights belong to? <b>They count nothing</b>; they mark where the words are.</div>
+    <div class="cr sel"><span class="dot" style="background:#5b8fd9"></span><span>CLG02<span class="sub">Baffle · 5 markups</span></span><span class="k">↵</span></div>
+    <div class="cr"><span class="dot" style="background:#d95f5f"></span><span>SF02<span class="sub">Panels · 6 markups</span></span><span class="k"></span></div>
+    <div class="cr"><span class="dot" style="background:#e0b642"></span><span>CL04<span class="sub">Panels · no markups</span></span><span class="k"></span></div>
+    <div class="cn"><i class="ic" data-ic="Add16Regular"></i>New scope for these…</div>
+  </div>
+  <div class="grp"><b>A02.00</b>Schedules &amp; specifications<span class="sp"></span>6</div>
+  <div class="hit sel"><span><span class="n">¶3</span>…ceiling type CLG02: <mark>acoustic</mark> baffle, 4" o.c., black…</span><span class="hb"><i class="ic" data-ic="Highlight16Regular"></i></span></div>
+  <div class="hit"><span><span class="n">¶3</span>…<mark>acoustic</mark> performance NRC 0.85 min…</span><span class="hb"></span></div>
+  <div class="hit"><span><span class="n">¶7</span>…AC-1 <mark>acoustic</mark> wall panel, fabric wrapped…</span><span class="hb"></span></div>
+  <div class="grp"><b>A24.00</b>Finish plan<span class="sp"></span>5</div>
+  <div class="hit"><span>…CLG02 <mark>acoustic</mark> baffle ceiling, see A60.01…</span><span class="hb"></span></div>
+  <div class="hit"><span>…<mark>acoustic</mark> sealant at perimeter…</span><span class="hb"></span></div>
+  <div class="pfoot"><span>14 matches · 3 sheets · 100% indexed</span><span class="sp"></span><kbd>↵</kbd> next <kbd>⇧↵</kbd> previous</div>
+</div></div>
+
+<div><div class="cap">C · a scope chosen · highlights are live; the dock's takeoff scope is untouched</div>
+<div class="pane">
+  <div class="rail"><span><i class="ic" data-ic="FolderOpen20Regular"></i></span><span><i class="ic" data-ic="TextBulletListTree20Regular"></i></span><span><i class="ic" data-ic="Grid20Regular"></i></span><span class="on"><i class="ic" data-ic="DocumentSearch20Filled"></i>Search</span></div>
+  <div class="pf"><i class="ic" data-ic="Search16Regular"></i>acoustic<span class="sp"></span><span class="cnt">14</span></div>
+  <div class="sb"><span>This sheet</span><span>Document</span><span>Folder</span><span class="on">Project</span></div>
+  <div class="into"><span class="lab">Highlight into</span><span class="sel"><span class="dot" style="background:#5b8fd9"></span>CLG02<span class="sp"></span><i class="ic" data-ic="ChevronDown16Regular"></i></span><span class="hl"><i class="ic" data-ic="Highlight16Regular"></i>All 14</span></div>
+  <div class="grp"><b>A02.00</b>Schedules &amp; specifications<span class="sp"></span>6 <span class="doc">· 3 highlighted</span></div>
+  <div class="hit sel"><span><span class="n">¶3</span>…ceiling type CLG02: <mark>acoustic</mark> baffle, 4" o.c., black…</span><span class="hb"><i class="ic" data-ic="Highlight16Filled"></i></span></div>
+  <div class="hit"><span><span class="n">¶3</span>…<mark>acoustic</mark> performance NRC 0.85 min…</span><span class="hb"><i class="ic" data-ic="Highlight16Filled"></i></span></div>
+  <div class="hit"><span><span class="n">¶7</span>…AC-1 <mark>acoustic</mark> wall panel, fabric wrapped…</span><span class="hb"><i class="ic" data-ic="Highlight16Filled"></i></span></div>
+  <div class="grp"><b>A24.00</b>Finish plan<span class="sp"></span>5</div>
+  <div class="hit"><span>…CLG02 <mark>acoustic</mark> baffle ceiling, see A60.01…</span><span class="hb"></span></div>
+  <div class="hit"><span>…<mark>acoustic</mark> sealant at perimeter…</span><span class="hb"></span></div>
+  <div class="grp"><b>A60.01</b>Ceiling details &amp; sections<span class="sp"></span>3</div>
+  <div class="hit"><span>…<mark>acoustic</mark> baffle suspension detail 4/A60.01…</span><span class="hb"></span></div>
+  <div class="pfoot"><span>14 matches · 3 sheets · 3 highlighted into CLG02</span><span class="sp"></span><kbd>↵</kbd> next</div>
+</div></div>
+</div>
+<div class="rules" style="width:1150px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;padding-top:12px">
+<p><b>The gate.</b> No scope chosen → every highlight control is disabled and the "All" button reads as such. Pressing one opens the question (B). Choosing sets the pane's scope for the session; it is not the dock's active scope and does not become it.</p>
+<p><b>The chooser lists the round's scopes with their colour and product,</b> and offers "New scope for these…" for a search that is itself a scope ("every note that says acoustic"). Escape backs out with nothing made.</p>
+<p><b>A hit that is highlighted shows the filled glyph,</b> the group counts them, and the footer says which scope got them. Pressing the filled glyph removes that highlight; the pane never leaves a highlight it cannot show you.</p>
+<p><b>Reach is a SelectorBar</b> under the field: This sheet · Document · Folder · Project. One tap, no dropdown.</p>
+<p><b>Groups are sheets</b> (number, then title) for the open document; other documents group under the file name and say how many of their hits can be shown on screen. Hits on a page that has readable paragraphs get a ¶ tag; elsewhere just the snippet.</p>
+<p><b>Enter walks the hits</b> and the sheet follows; Shift+Enter walks back. The footer states matches, sheets, coverage, and the keys.</p>
+</div>
+</section>
+
+<section id="b4">
+<h1>4 · Settings, second pass <small>what the screenshot showed, and the fix</small></h1>
+<p class="note">Built as drawn, the page failed on a real 1920px window: <b>the column sat in the corner</b> with two thirds of the window empty, <b>the rows were hairlines in a void</b> with nothing to hold them, <b>descriptions were cut mid-sentence</b> because one line at 760px is not enough for these sentences, and <b>a toggle with no On/Off word</b> is a shape, not a setting. The fix keeps everything that was right (one page, no rail, eight runs, the family drawn, Default inline, About last) and changes the frame: a <b>centred 920px column</b>, each run as a <b>Fluent SettingsCard group</b> — one raised card, rows divided by hairlines inside it — <b>56px rows with two-line descriptions</b> allowed, <b>On / Off beside every switch</b>, the changed row's <b>3px accent bar on the card edge</b> and a reset glyph, and the family's children on the card's lower fill with the connector.</p>
+<div class="row">
+<div><div class="cap">settings · 1440 × 900 · centred column · card groups · Recent projects kept is changed</div>
+<div class="win">
+  <div class="wc"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="tb"><span class="mark">RB</span><span class="proj"><i class="ic" data-ic="Folder16Regular"></i>Bentall Towers 1 &amp; 2<i class="ic" data-ic="ChevronDown16Regular"></i></span><span class="tab"><i class="ic" data-ic="DocumentPdf16Regular"></i>2025-02-21_IFC B1 (ARCH).pdf</span></div>
+  <div class="setwrap"><div class="setpage">
+    <div class="sethead"><h2>Settings</h2><span class="sp"></span><div class="find"><i class="ic" data-ic="Search16Regular"></i>Find a setting</div><span class="reset"><b>1 changed</b> · Reset all</span><span class="x"><i class="ic s16" data-ic="Dismiss16Regular"></i></span></div>
+
+    <div class="sg"><h3>Startup</h3><div class="sgc">
+      <div class="srow"><div><div class="lb">Reopen the last project on launch</div><div class="d">On, the app opens straight into the project you had open. Off, it opens on the start screen with that project at the top of the list.</div></div><div class="ctl"><span class="onoff">Off</span><span class="sw"></span></div></div>
+    </div></div>
+
+    <div class="sg"><h3>Recent projects</h3><div class="sgc">
+      <div class="srow mod"><div><div class="lb">Recent projects kept</div><div class="d">How many projects the start screen and the project menu list. Every project ever opened stays a keystroke away in the prompt (~).</div></div><div class="ctl"><span class="undo" title="Default 40"><i class="ic" data-ic="ArrowReset20Regular"></i></span><span class="fld num">60 <span class="spin">▲<br>▼</span></span></div></div>
+      <div class="srow"><div><div class="lb">Recent projects drop off</div><div class="d">A project not opened for this long leaves the lists. It is not forgotten: the prompt still finds it.</div></div><div class="ctl"><span class="fld">never<span class="chev">⌄</span></span></div></div>
+    </div></div>
+
+    <div class="sg"><h3>Navigation</h3><div class="sgc">
+      <div class="srow"><div><div class="lb">Scroll wheel zooms</div><div class="d">On, the wheel zooms. Off, it scrolls the sheet (Shift for sideways) and zooming is Ctrl+wheel or a pinch. A pinch always zooms either way.</div></div><div class="ctl"><span class="onoff">Off</span><span class="sw"></span></div></div>
+    </div></div>
+
+    <div class="sg"><h3>Drawing tools</h3><div class="sgc">
+      <div class="srow"><div><div class="lb">Snap while drawing</div><div class="d">Snap new vertices to nearby geometry. Hold Alt to place a point exactly where the cursor is.</div></div><div class="ctl"><span class="onoff">On</span><span class="sw on"></span></div></div>
+      <div class="srow"><div><div class="lb">Snap to the drawing's lines</div><div class="d">On, a vertex also snaps to where the sheet's own lines end and, closer in, to ink. Off, only to the vertices of your own markups.</div></div><div class="ctl"><span class="onoff">On</span><span class="sw on"></span></div></div>
+    </div></div>
+
+    <div class="sg"><h3>Layout preview</h3><div class="sgc">
+      <div class="srow"><div><div class="lb">Show the layout preview</div><div class="d">Draw the pieces the engine laid out, over the drawing. Applies to every scope and every sheet, and is remembered between sessions.</div></div><div class="ctl"><span class="onoff">On</span><span class="sw on"></span><span class="exp"><i class="ic s16" data-ic="ChevronUp16Regular"></i></span></div></div>
+      <div class="srow child"><div><div class="lb">Lay each area out on its own</div><div class="d">Start a whole panel at each area's own edge instead of sharing one grid across the sheet.</div></div><div class="ctl"><span class="onoff">Off</span><span class="sw"></span></div></div>
+      <div class="srow child"><div><div class="lb">Show material past the edge</div><div class="d">Draw the whole stock piece, including the overhang that is cut off and paid for.</div></div><div class="ctl"><span class="onoff">On</span><span class="sw on"></span></div></div>
+      <div class="srow child last"><div><div class="lb">Show seams</div><div class="d">Mark where two pieces meet. Every seam is a joiner, so this is the count you are reading made visible.</div></div><div class="ctl"><span class="onoff">On</span><span class="sw on"></span></div></div>
+    </div></div>
+    <div style="color:var(--ink4);font-size:11px;padding:10px 0 0">… Units, Lines, Diagnostics and About continue below in the same cards.</div>
+  </div></div>
+</div></div>
+</div>
+</section>
+
+<script>
+(function(){ var q = new URLSearchParams(location.search).get("board"); if (q) { document.querySelectorAll("section").forEach(function(sec){ if (sec.id !== "b" + q) sec.remove() }) } })();
+(function(){
+  var F = window.FLUENT || {};
+  document.querySelectorAll('i.ic[data-ic]').forEach(function(el){
+    var names = el.getAttribute('data-ic').split('|'); var paths = null, size = 20;
+    for (var i = 0; i < names.length; i++) { if (F[names[i]]) { paths = F[names[i]]; size = parseInt((names[i].match(/(\d+)(Regular|Filled)$/)||[0,20])[1], 10); break } }
+    if (!paths) { el.innerHTML = '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-dasharray="2 2"/></svg>'; el.title = 'missing ' + names[0]; return }
+    el.innerHTML = '<svg viewBox="0 0 ' + size + ' ' + size + '">' + paths.map(function(d){ return '<path d="' + d + '"/>' }).join('') + '</svg>';
+  });
+})();
+</script>
+</body></html>

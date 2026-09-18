@@ -8,11 +8,13 @@
  * that second row costs the axis there is least of. One row won.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import mark from './mark.png'
 import {
-  Bookmark, ChevronDown, Ellipsis, ExternalLink, FileText, Files, Folder, Glyph,
-  Grid2x2, PanelRight, Search, Settings2, X, Plus, ExternalLink as PopOut,
+  Bookmark, ChevronDown, Ellipsis, ExternalLink, FileText, Files, Folder, FolderOpen, Glyph,
+  Grid2x2, Home, ListTree, PanelRight, Rename, Search, SearchText, Settings2, WindowNew, X, Plus, ExternalLink as PopOut,
   SlidersHorizontal, Info,
 } from './icons.js'
+import { formatLastOpened } from '../project/recents.js'
 import type { Icon } from './icons.js'
 import {
   buildFileTree, filterFileTree, treeFiles, treeFolderPaths, treeRows, type TreeFolder,
@@ -72,12 +74,20 @@ export interface AppMenuActions {
 export interface ProjectMenuEntry {
   path: string
   name: string
+  /** A name the estimator gave it; shown over `name` when set. */
+  displayName?: string | null
   missing?: boolean
+  /** RFC 3339 UTC, when it was last opened here. */
+  lastOpenedAt?: string
 }
 
 export interface ProjectMenuProps {
   /** Path of the project this window is showing. */
   currentPath?: string
+  /** The current job's name, as the title bar shows it. */
+  currentName?: string
+  /** One line of facts about the open job — "452 documents · 1 round · 3 scopes". */
+  facts?: string
   recents: ProjectMenuEntry[]
   /**
    * Open a project. A project IS a window, so this opens a SECOND window and
@@ -85,6 +95,14 @@ export interface ProjectMenuProps {
    */
   onOpen: (path: string) => void
   onBrowse?: () => void
+  /** Every project, in the prompt at `~`: the flyout lists only the kept ones. */
+  onMore?: () => void
+  /** The current job's verbs, in the flyout's header. */
+  onRename?: (name: string) => void
+  onReveal?: () => void
+  onContextWindow?: () => void
+  /** Back to the start page. */
+  onStartPage?: () => void
 }
 
 // -------------------------------------------------------- window controls --
@@ -204,7 +222,7 @@ export function TitleBar({
           aria-label="Application menu"
           onClick={() => setAppOpen((v) => !v)}
           disabled={appMenu === undefined}
-        >RB</button>
+        ><img className="brandmark" src={mark} alt="" draggable={false} /></button>
         {appOpen && appMenu !== undefined && (
           <div className="titlemenu" role="menu" aria-label="Application">
             {item('Open project…', <Glyph icon={Folder} role="row" />, appMenu.onOpenProject, 'Ctrl+O')}
@@ -276,51 +294,146 @@ export function TitleBar({
  * "switch" would mean tearing all of that down. An estimator comparing two bid
  * packages wants both on screen, which is what two windows are for.
  */
+/*
+ * Built to board 2 of docs/design/prompt-settings-icons-2026-09-18 (round
+ * two): a Flyout, not a menu carrying a page of content. It opens with the
+ * current job as its header — name, folder, and its verbs — one line of
+ * facts, a filter, the recent jobs as rows with when they were last opened,
+ * and the two ways out in a footer. Choosing a job still opens it in a new
+ * window; the row's trailing glyph says so on hover instead of a sentence.
+ */
 function ProjectMenu({
-  currentPath, recents, onOpen, onBrowse, onDone,
+  currentPath, currentName, facts, recents, onOpen, onBrowse, onMore, onRename, onReveal, onContextWindow, onStartPage, onDone,
 }: ProjectMenuProps & { onDone: () => void }) {
-  const others = recents.filter((r) => r.path !== currentPath)
+  const [query, setQuery] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [draft, setDraft] = useState(currentName ?? '')
+  const [armed, setArmed] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { inputRef.current?.focus() }, [])
+  const q = query.trim().toLowerCase()
+  const others = recents
+    .filter((r) => r.path !== currentPath)
+    .filter((r) => q === '' || `${r.displayName ?? ''} ${r.name} ${r.path}`.toLowerCase().includes(q))
+  const at = Math.min(armed, Math.max(0, others.length - 1))
+  const open = (r: ProjectMenuEntry) => { if (r.missing !== true) { onDone(); onOpen(r.path) } }
+  const commitRename = () => {
+    const name = draft.trim()
+    setRenaming(false)
+    if (onRename !== undefined && name !== (currentName ?? '')) onRename(name)
+  }
   return (
-    <div className="titlemenu projectmenu" role="menu" aria-label="Projects">
-      {others.length === 0 && (
-        <div className="menuhead">No other projects yet</div>
-      )}
-      {others.length > 0 && <div className="menuhead">Recent</div>}
-      {others.map((r) => (
-        <button
-          key={r.path}
-          className={`menuitem${r.missing === true ? ' missing' : ''}`}
-          role="menuitem"
-          disabled={r.missing === true}
-          title={r.missing === true ? `${r.path} — folder not found` : r.path}
-          onClick={() => { onDone(); onOpen(r.path) }}
-        >
-          <Glyph icon={Folder} role="row" />
-          <span className="grow projectrow">
-            <span className="projectrowname">{r.name}</span>
-            <span className="projectrowpath">
-              {/* The project folder never truncates; the folders above it do. */}
-              <span className="projectrowhead">{splitProjectPath(r.path).head}</span>
-              <span className="projectrowtail">{splitProjectPath(r.path).tail}</span>
-            </span>
-          </span>
-          {/* Said, not only dimmed: a folder on an offline drive is a fact
-              about the entry, and a greyed row alone reads as "disabled". */}
-          {r.missing === true && <span className="hint">not found</span>}
-        </button>
-      ))}
-      {onBrowse !== undefined && (
+    <div
+      className="pf"
+      role="dialog"
+      aria-label="Projects"
+      onKeyDown={(e) => {
+        if (renaming) return
+        if (e.key === 'ArrowDown') { e.preventDefault(); setArmed((n) => Math.min(n + 1, Math.max(0, others.length - 1))) }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setArmed((n) => Math.max(n - 1, 0)) }
+        else if (e.key === 'Enter') { e.preventDefault(); const r = others[at]; if (r !== undefined) open(r) }
+      }}
+    >
+      {/* Header: where you are. */}
+      {currentPath !== undefined && (
         <>
-          <div className="menusep" />
-          <button className="menuitem" role="menuitem" onClick={() => { onDone(); onBrowse() }}>
-            <Glyph icon={Plus} role="row" />
-            <span className="grow">Open another project…</span>
-          </button>
+          <div className="pf-head">
+            <span className="pf-ico"><Glyph icon={Folder} role="card" filled /></span>
+            <div className="pf-headtext">
+              {renaming
+                ? (
+                  <input
+                    autoFocus
+                    className="pf-rename"
+                    value={draft}
+                    aria-label="Project name"
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename()
+                      if (e.key === 'Escape') { e.stopPropagation(); setDraft(currentName ?? ''); setRenaming(false) }
+                    }}
+                  />
+                  )
+                : <div className="pf-name">{currentName ?? splitProjectPath(currentPath).tail}</div>}
+              <div className="pf-path" title={currentPath}>{currentPath}</div>
+            </div>
+            <div className="pf-verbs">
+              {onRename !== undefined && (
+                <button className="pf-verb" title="Rename this job" aria-label="Rename this job" onClick={() => { setDraft(currentName ?? ''); setRenaming(true) }}>
+                  <Glyph icon={Rename} role="inline" />
+                </button>
+              )}
+              {onReveal !== undefined && (
+                <button className="pf-verb" title="Show in Explorer" aria-label="Show in Explorer" onClick={() => { onDone(); onReveal() }}>
+                  <Glyph icon={FolderOpen} role="inline" />
+                </button>
+              )}
+              {onContextWindow !== undefined && (
+                <button className="pf-verb" title="A second window on this job" aria-label="A second window on this job" onClick={() => { onDone(); onContextWindow() }}>
+                  <Glyph icon={WindowNew} role="inline" />
+                </button>
+              )}
+            </div>
+          </div>
+          {facts !== undefined && facts !== '' && <div className="pf-facts">{facts}</div>}
         </>
       )}
-      <div className="menunote">
-        <Glyph icon={Info} role="row" />
-        <span>Opens a second window. This one stays as it is.</span>
+
+      <label className="pf-find">
+        <Glyph icon={Search} role="row" />
+        <input
+          ref={inputRef}
+          value={query}
+          placeholder="Switch to another job…"
+          aria-label="Filter recent projects"
+          onChange={(e) => { setQuery(e.target.value); setArmed(0) }}
+        />
+      </label>
+
+      <div className="pf-group">{q === '' ? 'Recent' : `${others.length} match${others.length === 1 ? '' : 'es'}`}</div>
+      {others.length === 0 && <div className="pf-empty">{q === '' ? 'No other jobs yet' : `No job matches “${query.trim()}”`}</div>}
+      <div className="pf-list" role="listbox" aria-label="Recent projects">
+        {others.map((r, i) => (
+          <button
+            key={r.path}
+            role="option"
+            aria-selected={i === at}
+            className={`pf-row${i === at ? ' armed' : ''}${r.missing === true ? ' missing' : ''}`}
+            disabled={r.missing === true}
+            title={r.missing === true ? `${r.path} — folder not found` : `${r.path} — opens in a new window`}
+            onMouseEnter={() => setArmed(i)}
+            onClick={() => open(r)}
+          >
+            <Glyph icon={Folder} role="inline" />
+            <span className="pf-rowtext">
+              <span className="pf-rowname">{r.displayName ?? r.name}</span>
+              {/* The project folder never truncates; the folders above it do. */}
+              <span className="pf-rowpath">{r.missing === true ? `${splitProjectPath(r.path).head} · not found` : splitProjectPath(r.path).head}</span>
+            </span>
+            <span className="pf-when">{r.lastOpenedAt === undefined || r.missing === true ? '' : formatLastOpened(r.lastOpenedAt)}</span>
+            <span className="pf-new" aria-hidden="true"><Glyph icon={WindowNew} role="row" /></span>
+          </button>
+        ))}
+      </div>
+
+      <div className="pf-foot">
+        {onBrowse !== undefined && (
+          <button className="pf-footbtn" onClick={() => { onDone(); onBrowse() }}>
+            <Glyph icon={FolderOpen} role="inline" /> Open another…<kbd>Ctrl O</kbd>
+          </button>
+        )}
+        {onStartPage !== undefined && (
+          <button className="pf-footbtn" onClick={() => { onDone(); onStartPage() }}>
+            <Glyph icon={Home} role="inline" /> Start page
+          </button>
+        )}
+        <span className="grow" />
+        {onMore !== undefined && (
+          <button className="pf-footbtn subtle" title="Every job ever opened, in the prompt" onClick={() => { onDone(); onMore() }}>
+            <kbd>~</kbd> every job
+          </button>
+        )}
       </div>
     </div>
   )
@@ -553,9 +666,10 @@ const ADD_W = 48
 export type RailPanel = 'files' | 'thumbnails' | 'contents' | 'search'
 
 /** Tab order is narrowing: the project, then its sheets, then pictures of them. */
+/* The dictionary's nouns (board 3): a folder for the files, a tree for the contents, a grid for the thumbnails. */
 const TABS: Array<{ id: RailPanel; label: string; icon: Icon }> = [
-  { id: 'files', label: 'Files', icon: Files },
-  { id: 'contents', label: 'Contents', icon: Bookmark },
+  { id: 'files', label: 'Files', icon: FolderOpen },
+  { id: 'contents', label: 'Contents', icon: ListTree },
   { id: 'thumbnails', label: 'Thumbnails', icon: Grid2x2 },
 ]
 
@@ -576,11 +690,17 @@ const TABS: Array<{ id: RailPanel; label: string; icon: Icon }> = [
  * the three document views adjacent is what makes the strip scannable.
  */
 export function Sidebar({
-  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children,
+  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true,
 }: {
   active: RailPanel | null
   onSelect: (p: RailPanel) => void
   onSettings: () => void
+  /**
+   * Whether a drawing is open. Contents and Thumbnails are views OF a
+   * drawing, so with none open they are greyed rather than opening on an
+   * empty pane (Aaron, 2026-09-18). Files and Search stand on their own.
+   */
+  documentOpen?: boolean
   /**
    * The project-wide text indexer's progress, while it runs. The Search tab
    * wears a ring and says how far along it is, so a search that finds
@@ -612,7 +732,8 @@ export function Sidebar({
         + (indexing.document !== null ? ` — ${indexing.document}` : '')
       : undefined
     const note = notes[id]
-    const said = note ?? progress
+    const off = !documentOpen && (id === 'contents' || id === 'thumbnails')
+    const said = off ? 'open a drawing first' : note ?? progress
     const on = active === id
     /*
      * Progress has two faces. Collapsed, the tab is an icon and wears a
@@ -630,9 +751,11 @@ export function Sidebar({
         aria-label={said === undefined ? label : `${label}: ${said}`}
         aria-pressed={on}
         aria-busy={busy || undefined}
+        disabled={off}
         onClick={() => onSelect(id)}
       >
-        <Glyph icon={icon} role="card" />
+        {/* Regular idle, Filled when it is the current pane: the Windows 11 rule (board 3). */}
+        <Glyph icon={icon} role="card" filled={on} />
         {on && <span className="sidetablabel">{label}</span>}
         {on && busy && (
           <span className="sidetabprogress" aria-hidden="true">{indexing.done} of {indexing.total}</span>
@@ -651,7 +774,7 @@ export function Sidebar({
       <nav className="sidetabs" aria-label="Panels">
         {TABS.map((t) => tab(t.id, t.label, t.icon))}
         <span className="grow" />
-        {tab('search', 'Search', Search)}
+        {tab('search', 'Search', SearchText)}
       </nav>
 
       {head !== null && (
@@ -710,13 +833,15 @@ export interface PanelFolder {
  * "Not Used Yet". See `fileTree.ts` for the flat list it replaced.
  */
 export function FileList({
-  files, activeId, onOpen, onOpenContext, scanning = false, note = null,
+  files, activeId, onOpen, onOpenContext, onRefresh, scanning = false, note = null,
   openIds = [], focusNonce = 0,
 }: {
   files: PanelFile[]
   activeId: string | null
   onOpen: (id: string) => void
   onOpenContext?: (id: string) => void
+  /** Read the folder again, for drawings added since the project opened. */
+  onRefresh?: () => void
   /** The folder is still being read; an empty list means nothing yet. */
   scanning?: boolean
   /** What the scan itself reported — a refused reconcile, an unreadable folder. */
@@ -795,6 +920,11 @@ export function FileList({
         folded.size === 0
           ? <button className="hlink" onClick={foldAll}>Collapse all</button>
           : <button className="hlink" onClick={unfoldAll}>Expand all</button>
+      )}
+      {onRefresh !== undefined && (
+        <button className="hlink" title="Read the folder again for drawings added since it was opened (F5)" onClick={onRefresh} disabled={scanning}>
+          Refresh
+        </button>
       )}
     </div>
   )

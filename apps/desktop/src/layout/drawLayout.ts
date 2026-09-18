@@ -35,6 +35,15 @@ export interface LayoutDrawOptions {
   labels?: boolean
   /** Below this zoom, per-cell labels are noise rather than information. */
   labelMinZoom?: number
+  /** Multiplier on every stroke width: the line-weight setting, times zoom when weights follow it. */
+  lineWeight?: number
+  /**
+   * A run product's face width in PDF points. Pieces are drawn as bands that
+   * wide once the band would be at least 2px on screen, and as lines below
+   * that. Kenneth, 2026-09-10: "add a baffle width ... so the visual width
+   * shows on the drawings".
+   */
+  componentWidthPoints?: number
   /**
    * What of a RUN layout to draw. Each defaults to the reading an estimator
    * does most often, and each is a global preference rather than a per-scope
@@ -47,7 +56,10 @@ export interface LayoutDrawOptions {
   showSeams?: boolean
 }
 
-const DEFAULTS = { showFullCells: false, labels: true, labelMinZoom: 0.9 }
+// Labels off: the stock kind printed on every part panel ("half-width",
+// "half-length") read as tape stuck across the ceiling. The hatch says
+// which panels are cut, and the Parts page counts them.
+const DEFAULTS = { showFullCells: false, labels: false, labelMinZoom: 0.9 }
 
 /** PDF points -> screen, via normalized. */
 function toScreen(p: Point, v: Viewport, o: LayoutDrawOptions) {
@@ -85,33 +97,40 @@ export function drawPanelLayout(
 ): void {
   if (cells.length === 0) return
   const o = { ...DEFAULTS, ...options }
+  const lw = o.lineWeight ?? 1
 
   ctx.save()
 
   if (o.showFullCells) {
-    // The uncovered remainder of each cell, faint: what would be cut away.
-    ctx.beginPath()
-    for (const c of cells) tracePath(ctx, c.fullPath, view, o)
-    ctx.strokeStyle = o.color
-    ctx.globalAlpha = 0.25
-    ctx.lineWidth = 0.5
-    ctx.setLineDash([2, 3])
-    ctx.stroke()
-    ctx.setLineDash([])
+    // The uncovered remainder of each cell: the same fill at half strength,
+    // solid — material past the edge, drawn as material. No dashes anywhere
+    // in the preview (Aaron, 2026-09-11: "get rid of the dashed lines").
+    for (const c of cells) {
+      ctx.beginPath()
+      tracePath(ctx, c.fullPath, view, o)
+      ctx.fillStyle = o.color
+      ctx.globalAlpha = 0.07
+      ctx.fill()
+      ctx.globalAlpha = 0.25
+      ctx.strokeStyle = o.color
+      ctx.lineWidth = 0.6 * lw
+      ctx.stroke()
+    }
     ctx.globalAlpha = 1
   }
 
-  // The stock actually consumed, filled. Half pieces are hatched so the split
-  // is legible without reading a legend.
+  // The stock actually consumed, filled. Half pieces are darker so the split
+  // is legible without reading a legend. The outline is FAINT: the fill says
+  // where the panel is, and a bold grid over a plan hid the plan.
   for (const c of cells) {
     ctx.beginPath()
     tracePath(ctx, c.stockPath, view, o)
     ctx.fillStyle = o.color
     ctx.globalAlpha = c.stockKind === 'full' ? 0.14 : 0.26
     ctx.fill()
-    ctx.globalAlpha = 0.85
+    ctx.globalAlpha = c.stockKind === 'full' ? 0.4 : 0.6
     ctx.strokeStyle = o.color
-    ctx.lineWidth = c.stockKind === 'full' ? 0.8 : 1.4
+    ctx.lineWidth = (c.stockKind === 'full' ? 0.6 : 1) * lw
     ctx.stroke()
   }
   ctx.globalAlpha = 1
@@ -131,6 +150,28 @@ export function drawPanelLayout(
   }
 
   ctx.restore()
+}
+
+/**
+ * The parts of `full` not covered by `inside`, as up to two segments. Both
+ * lie on one line with `inside` within `full`, so the ends are compared by
+ * their distance along it.
+ */
+export function overhangs(
+  full: { a: Point; b: Point },
+  inside: { a: Point; b: Point },
+): Array<[Point, Point]> {
+  const dx = full.b.x - full.a.x, dy = full.b.y - full.a.y
+  const len2 = dx * dx + dy * dy
+  if (!(len2 > 0)) return []
+  const t = (p: Point) => ((p.x - full.a.x) * dx + (p.y - full.a.y) * dy) / len2
+  const [t0, t1] = [t(inside.a), t(inside.b)].sort((x, y) => x - y)
+  const at = (k: number): Point => ({ x: full.a.x + dx * k, y: full.a.y + dy * k })
+  const out: Array<[Point, Point]> = []
+  const eps = 1e-6
+  if (t0! > eps) out.push([at(0), at(Math.min(1, t0!))])
+  if (t1! < 1 - eps) out.push([at(Math.max(0, t1!)), at(1)])
+  return out
 }
 
 function centroid(ring: readonly Point[]): Point | null {
@@ -185,6 +226,7 @@ export function drawRunLayout(
     trim: o.showTrim ?? true,
     seams: o.showSeams ?? true,
   }
+  const lw = o.lineWeight ?? 1
   ctx.save()
 
   for (const entry of entries) {
@@ -196,19 +238,19 @@ export function drawRunLayout(
     if (show.trim) {
       ctx.strokeStyle = o.color
       ctx.globalAlpha = 0.5
-      ctx.lineWidth = 2
+      ctx.lineWidth = 2 * lw
       ctx.beginPath()
       for (const ring of entry.region) tracePath(ctx, ring, v, o)
       ctx.stroke()
     }
 
     // Rails next: they sit under the product, which is how they are installed
-    // and how they read.
+    // and how they read. Solid and faint — a dashed rail read as a hidden
+    // line on a plan that is full of them.
     if (show.rails && entry.layout.railPieces.length > 0) {
       ctx.strokeStyle = o.color
-      ctx.globalAlpha = 0.28
-      ctx.lineWidth = 1
-      ctx.setLineDash([4, 4])
+      ctx.globalAlpha = 0.22
+      ctx.lineWidth = 1 * lw
       ctx.beginPath()
       for (const rail of entry.layout.railPieces) {
         const a = toScreen(rail.insideSegment.a, v, o)
@@ -217,44 +259,59 @@ export function drawRunLayout(
         ctx.lineTo(b.x, b.y)
       }
       ctx.stroke()
-      ctx.setLineDash([])
     }
 
     /*
-     * The overhang: the part of the stock that runs past the region and gets
-     * cut off. It is the difference between what is INSTALLED and what is
-     * ORDERED, so it is the whole of a waste conversation — and it is drawn
-     * dashed and faint, because it is material that will not be there.
+     * Each piece is a BAND at the product's face width — a 4" baffle reads
+     * as a 4" baffle and the gap between two is the reveal — drawn along the
+     * FULL segment: the installed part at full strength, and the overhang
+     * past the region at half, solid, the same band. The overhang is the
+     * difference between what is installed and what is ordered, so it is the
+     * whole of a waste conversation; it was a dashed line at another weight
+     * and read as a different thing from the piece it is the end of
+     * (Kenneth: "the overflow is difficult to see"; Aaron: "the whole piece
+     * at 50% past the edge, and no dashes").
+     *
+     * Below 2px of band the piece is a line, and the overhang a fainter line.
      */
-    if (show.overflow) {
-      ctx.strokeStyle = o.color
-      // The same weight the panel path gives an uncovered cell: material that
-      // will be cut away reads the same whichever product it belongs to.
-      ctx.globalAlpha = 0.25
-      ctx.lineWidth = 1
-      ctx.setLineDash([2, 3])
-      ctx.beginPath()
-      for (const piece of entry.layout.pieces) {
-        const fa = toScreen(piece.fullSegment.a, v, o)
-        const fb = toScreen(piece.fullSegment.b, v, o)
-        ctx.moveTo(fa.x, fa.y)
-        ctx.lineTo(fb.x, fb.y)
-      }
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
     ctx.strokeStyle = o.color
-    ctx.globalAlpha = 0.85
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    for (const piece of entry.layout.pieces) {
-      const a = toScreen(piece.insideSegment.a, v, o)
-      const b = toScreen(piece.insideSegment.b, v, o)
-      ctx.moveTo(a.x, a.y)
-      ctx.lineTo(b.x, b.y)
+    const bandPx = (o.componentWidthPoints ?? 0) * v.zoom
+    const band = (pa: Point, pb: Point, fillAlpha: number, strokeAlpha: number) => {
+      const a = toScreen(pa, v, o)
+      const b = toScreen(pb, v, o)
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len = Math.hypot(dx, dy)
+      if (!(len > 0)) return
+      if (bandPx >= 2) {
+        const nx = (-dy / len) * (bandPx / 2), ny = (dx / len) * (bandPx / 2)
+        ctx.beginPath()
+        ctx.moveTo(a.x + nx, a.y + ny)
+        ctx.lineTo(b.x + nx, b.y + ny)
+        ctx.lineTo(b.x - nx, b.y - ny)
+        ctx.lineTo(a.x - nx, a.y - ny)
+        ctx.closePath()
+        ctx.fillStyle = o.color
+        ctx.globalAlpha = fillAlpha
+        ctx.fill()
+        ctx.globalAlpha = strokeAlpha
+        ctx.lineWidth = 1 * lw
+        ctx.stroke()
+      } else {
+        ctx.globalAlpha = strokeAlpha
+        ctx.lineWidth = 1.5 * lw
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
     }
-    ctx.stroke()
+    for (const piece of entry.layout.pieces) {
+      if (show.overflow) {
+        // The two ends past the region, if any: fullSegment minus insideSegment.
+        for (const [pa, pb] of overhangs(piece.fullSegment, piece.insideSegment)) band(pa, pb, 0.11, 0.42)
+      }
+      band(piece.insideSegment.a, piece.insideSegment.b, 0.22, 0.85)
+    }
 
     /*
      * Seams. A piece that does not start its run begins at a joiner, and a
@@ -263,7 +320,7 @@ export function drawRunLayout(
      */
     if (!show.seams) continue
     ctx.globalAlpha = 0.55
-    ctx.lineWidth = 1
+    ctx.lineWidth = 1 * lw
     ctx.beginPath()
     for (const piece of entry.layout.pieces) {
       if (piece.startCap) continue

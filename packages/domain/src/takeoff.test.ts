@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { calculatePieces, layoutGroupsFor, scopeDefaultDirectionFrom } from './takeoff.js'
+import { regionArea } from './geometry.js'
 import type { Calibration, Markup, Scope } from './scope.js'
 import type { NormalizedDirection } from './pattern.js'
 
@@ -154,7 +155,9 @@ describe('blockers rather than zeros', () => {
       const r = calculatePieces(
         base({ productType: t, spacing: '2', spacingUnit: 'ft', stockLength: '10',
                stockLengthUnit: 'ft', plankWidth: '1', plankWidthUnit: 'ft',
-               maxConnectorSpacing: '3', maxConnectorSpacingUnit: 'ft' }),
+               maxConnectorSpacing: '3', maxConnectorSpacingUnit: 'ft',
+               // A cassette is a module and needs its width (unread by the other two).
+               cassetteWidth: '4', cassetteWidthUnit: 'ft' }),
         [areaMarkup()], cal, { scopeDirection: dir, pageSize: page },
       )
       expect(r.blockers, t).toEqual([])
@@ -272,6 +275,37 @@ describe('layoutGroupsFor', () => {
     )
     expect(groups).toHaveLength(1)
     expect(groups[0]!.region).toHaveLength(2)
+  })
+
+  it('clips a cutout across the edge of its area to a notch, and one starting outside the same', () => {
+    // 2026-09-10: the part outside used to be laid out as material, and a
+    // cutout whose first vertex was outside found no owner at all.
+    const pageArea = 0.4 * 0.4 * page.width * page.height
+    const inside = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.4, 0.4)), mk('c', 'cutout', rect(0.4, 0.2, 0.2, 0.1))],
+      cal, { scopeDirection: dir, pageSize: page },
+    )
+    expect(inside).toHaveLength(1)
+    expect(inside[0]!.region).toHaveLength(1)   // a notch, not a hole
+    expect(regionArea(inside[0]!.region)).toBeCloseTo(pageArea - 0.1 * 0.1 * page.width * page.height, 6)
+
+    const ring = rect(0.4, 0.2, 0.2, 0.1)
+    const fromOutside = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.4, 0.4)), mk('c', 'cutout', [ring[1]!, ring[2]!, ring[3]!, ring[0]!])],
+      cal, { scopeDirection: dir, pageSize: page },
+    )
+    expect(regionArea(fromOutside[0]!.region)).toBeCloseTo(regionArea(inside[0]!.region), 6)
+  })
+
+  it('leaves a group with no cutout exactly as drawn', () => {
+    const [plain] = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.4, 0.4))], cal, { scopeDirection: dir, pageSize: page },
+    )
+    const [beside] = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.4, 0.4)), mk('c', 'cutout', rect(0.7, 0.7, 0.1, 0.1))],
+      cal, { scopeDirection: dir, pageSize: page },
+    )
+    expect(beside!.region).toEqual(plain!.region)
   })
 
   it('never shares a group across pages', () => {
@@ -504,5 +538,70 @@ describe('pattern direction precedence', () => {
       scopeDirection: across, pageDirections: new Map([['d-p0', down]]),
     }))
     expect(r.runs).toHaveLength(2)
+  })
+})
+
+describe('linear parts', () => {
+  // 1 pt = 0.1 ft on a 1000 x 1000 pt page, so a normalized width of 1.0 is
+  // 1000 pt is 100 ft, and 0.37 is 37 ft.
+  const cal: Calibration = { feetPerPoint: 0.1, pageWidth: 1000, pageHeight: 1000 }
+  const page = { width: 1000, height: 1000 }
+  const scope = (over: Record<string, unknown> = {}): Scope => ({
+    id: 's', label: 'Trough', scopeType: 'linear', color: '#000',
+    specifications: { productType: 'linear_parts', partLength: '10', partLengthUnit: 'ft', ...over },
+  })
+  const run = (id: string, y: number, x0: number, x1: number, pageId = 'p0'): Markup => ({
+    id, scopeId: 's', documentId: 'd', pageId, kind: 'polyline',
+    rings: [[{ x: x0, y }, { x: x1, y }]],
+  })
+  const q = (r: ReturnType<typeof calculatePieces>, key: string) =>
+    r.quantities.find((x) => x.itemKey === key)?.quantity
+
+  it('divides each run by the part length and rounds each up on its own', () => {
+    // Four runs of 100 ft at 10 ft parts: 40 parts, no offcut.
+    const four = calculatePieces(scope(), [run('a', 0.1, 0, 1), run('b', 0.2, 0, 1), run('c', 0.3, 0, 1), run('d', 0.4, 0, 1)],
+      cal, { scopeDirection: null, pageSize: page })
+    expect(four.blockers).toEqual([])
+    expect(q(four, 'linear_parts')).toBe(40)
+    expect(q(four, 'linear_measured')).toBeCloseTo(400, 6)
+    expect(q(four, 'linear_ordered')).toBeCloseTo(400, 6)
+    expect(q(four, 'linear_offcut')).toBeUndefined()
+
+    // Eleven runs of 37 ft: four parts each, 44, and 33 ft of offcut.
+    const eleven = Array.from({ length: 11 }, (_, i) => run(`r${i}`, 0.05 * (i + 1), 0.1, 0.47))
+    const r = calculatePieces(scope(), eleven, cal, { scopeDirection: null, pageSize: page })
+    expect(q(r, 'linear_parts')).toBe(44)
+    expect(q(r, 'linear_measured')).toBeCloseTo(407, 6)
+    expect(q(r, 'linear_ordered')).toBeCloseTo(440, 6)
+    expect(q(r, 'linear_offcut')).toBeCloseTo(33, 6)
+  })
+
+  it('needs no direction, and names a missing part length', () => {
+    const r = calculatePieces(scope({ partLength: '' }), [run('a', 0.1, 0, 1)], cal, { scopeDirection: null, pageSize: page })
+    expect(r.quantities).toEqual([])
+    expect(r.blockers).toEqual(['Part Len'])
+  })
+
+  it('counts only polylines, and each sheet at its own scale', () => {
+    const area: Markup = {
+      id: 'x', scopeId: 's', documentId: 'd', pageId: 'p0', kind: 'area',
+      rings: [[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]],
+    }
+    const calibrations = new Map<string, Calibration>([
+      ['p0', cal],
+      ['p1', { feetPerPoint: 0.2, pageWidth: 1000, pageHeight: 1000 }],  // twice the scale
+    ])
+    const r = calculatePieces(scope(), [area, run('a', 0.1, 0, 1), run('b', 0.1, 0, 1, 'p1')], cal,
+      { scopeDirection: null, pageSize: page, calibrations })
+    // 100 ft on p0 and 200 ft on p1: 10 + 20 parts.
+    expect(q(r, 'linear_parts')).toBe(30)
+    expect(q(r, 'linear_measured')).toBeCloseTo(300, 6)
+  })
+
+  it('is blocked, not zero, when no run has a scale', () => {
+    const r = calculatePieces(scope(), [run('a', 0.1, 0, 1)], cal,
+      { scopeDirection: null, pageSize: page, calibrations: new Map() })
+    expect(r.quantities).toEqual([])
+    expect(r.blockers).toHaveLength(1)
   })
 })

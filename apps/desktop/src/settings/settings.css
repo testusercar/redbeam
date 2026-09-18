@@ -1,392 +1,210 @@
 /**
- * Settings, the page — Windows 11 Settings' shape.
+ * Settings, to board 4 of docs/design/prompt-settings-icons-2026-09-18
+ * (round two, "Settings, second pass"):
  *
- * Same rules as `shell.css` and `palette.css`: every value is an `--ads-*` or
- * `--rb-*` token, a WinUI resource value quoted where it is used, or one of
- * the structural exceptions standards/04 enumerates. The root is `.prefs`,
- * which nothing else defines.
+ *   page     a centred 920px column with 40px gutters, one scrolling layer
+ *            with its gutter reserved
+ *   runs     a titled Fluent SettingsCard group per run: one raised card,
+ *            rows divided by hairlines inside it
+ *   rows     56px minimum, two-line descriptions allowed, the control on the
+ *            right with On / Off beside every switch
+ *   changed  a 3px accent bar on the card edge and a reset glyph
+ *   family   children on the card's lower fill, with a connector
  *
- * STANDARD sizing, not compact: the workspace runs WinUI's compact set
- * because a 75-sheet index is scrolled all day; a settings page is a place
- * you go, and Windows draws it at 36px navigation items and 68px cards.
- *
- * The page mounts inside the shell's `.settingsview` — fixed beneath the
- * title bar, z-index 250 — and fills it.
+ * Every value is an `--rb-*` or `--ads-*` token, or one of the structural
+ * exceptions (0, 1px, 2px, 3px, em/ch, calc over tokens). The retired
+ * two-column layout's `.settings` root still lives in shell.css and is not
+ * defined here.
  */
-
-/* ---------------------------------------------------------------- frame -- */
 
 .prefs {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  background: var(--rb-canvas);
-  color: var(--rb-ink-2);
-  font-size: var(--rb-text-body);
-  line-height: var(--rb-leading-body);
-}
-
-/* ------------------------------------------------------ navigation pane -- */
-
-/*
- * NavigationView, Left mode, on Mica: the pane paints nothing of its own.
- * 300px — the sidebar's column, so the shell's grid holds underneath.
- */
-.prefs-nav {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  width: var(--rb-pane-w);
-  padding: 0 var(--ads-sp-1) var(--ads-sp-2);
-  box-sizing: border-box;
-}
-.prefs-navhead {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-1);
-  height: var(--rb-topbar-h);
-  padding: 0 var(--ads-sp-1);
-}
-/* The NavigationView back button: 40 × 36, a subtle fill on hover. */
-.prefs-back {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 36px;
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-2);
-  cursor: pointer;
-}
-.prefs-back:hover { background: var(--rb-hover); color: var(--rb-ink); }
-.prefs-title {
-  margin: 0;
-  padding-left: var(--ads-sp-2);
-  font-size: 20px;          /* Subtitle */
-  line-height: 28px;
-  font-weight: 600;
-  color: var(--rb-ink);
-}
-/* AutoSuggestBox: 32 high, the query glyph at the right, the brighter bottom stroke. */
-.prefs-search {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  height: 32px;
-  margin: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3);
-  padding: 0 var(--ads-sp-3);
-  border: 1px solid var(--rb-line);
-  border-bottom-color: rgba(255, 255, 255, .5442);   /* ControlStrongStrokeColorDefault */
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-hover);
-  color: var(--rb-ink-3);
-}
-.prefs-search:focus-within { border-bottom: 2px solid var(--rb-accent); }
-.prefs-search > input {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--rb-ink);
-  font: inherit;
-}
-.prefs-search > input::placeholder { color: var(--rb-ink-4); }
-/* NavigationViewItem, standard: 36 high in a 40 slot, the 3×16 indicator when selected. */
-.prefs-navitem {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-4);
-  height: 36px;
-  margin: 2px var(--ads-sp-1);
-  padding: 0 var(--ads-sp-3);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.prefs-navitem:hover { background: var(--rb-hover); }
-.prefs-navitem.on { background: var(--rb-selected); }
-.prefs-navitem.on::before {
-  content: "";
   position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 16px;
-  margin-top: -8px;
-  border-radius: 2px;
-  background: var(--rb-accent);
+  inset: 0;
+  display: flex;
+  background: var(--rb-panel);
+  color: var(--rb-ink);
+  font-size: 13px;
+  line-height: 18px;
 }
-.prefs-navitem > svg { color: var(--rb-ink-2); flex: none; }
-.prefs-navitem.on > svg { color: var(--rb-ink); }
-.prefs-navitem > .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prefs-navcount { font-size: var(--ads-text-sm); color: var(--rb-ink-3); font-variant-numeric: tabular-nums; }
-.prefs-nav > .grow { flex: 1 1 auto; }
-.prefs-navsep { height: 1px; margin: var(--ads-sp-2) var(--ads-sp-3); background: var(--rb-line); }
+.prefs .grow { flex: 1 1 auto; min-width: 0; }
 
-/* --------------------------------------------------------- content layer -- */
-
-/* LayerFillColorDefault with the 8px top-left corner — the NavigationView content frame. */
+/* One scrolling layer; the gutter is reserved so the column never shifts. */
 .prefs-layer {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  background: var(--rb-layer);
-  border: 1px solid rgba(0, 0, 0, .1);        /* CardStrokeColorDefault */
-  border-right: 0;
-  border-bottom: 0;
-  border-top-left-radius: var(--ads-radius-l);
-}
-/* One column, 1000px at most, the way Settings lays a page out. */
-.prefs-page {
-  width: 100%;
-  max-width: 1000px;
-  padding: 36px 56px 40px;
-  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  gap: var(--ads-sp-1);
+  justify-content: center;
+}
+.prefs-page {
+  width: 920px;
+  max-width: 100%;
+  padding: var(--ads-sp-6) var(--ads-sp-8) var(--ads-sp-8);
 }
 
-/* BreadcrumbBar at Title size; the parent in secondary ink. */
-.prefs-crumbs {
+/* ------------------------------------------------------------- the head -- */
+.prefs-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-4);
+  height: 48px;
+  margin-bottom: var(--ads-sp-2);
+}
+.prefs-title { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; }
+.prefs-find {
   display: flex;
   align-items: center;
   gap: var(--ads-sp-2);
-  margin-bottom: var(--ads-sp-2);
-}
-.prefs-crumb { font-size: 28px; line-height: 36px; font-weight: 600; color: var(--rb-ink-3); }
-.prefs-crumbs > svg { color: var(--rb-ink-4); flex: none; }
-.prefs-pagetitle {
-  margin: 0;
-  font-size: 28px;          /* Title */
-  line-height: 36px;
-  font-weight: 600;
-  color: var(--rb-ink);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.prefs-crumbs > .grow { flex: 1 1 auto; }
-
-/* Reset all — a bordered Button, since it acts on the whole page. */
-.prefs-resetall {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ads-sp-1);
+  width: 260px;
   height: 32px;
   padding: 0 var(--ads-sp-3);
   border: 1px solid var(--rb-line);
   border-bottom-color: var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-hover);
-  color: var(--rb-ink);
-  font: inherit;
-  cursor: pointer;
-  white-space: nowrap;
+  border-radius: 4px;
+  background: var(--rb-raised);
+  color: var(--rb-ink-3);
 }
-.prefs-resetall:hover { background: var(--rb-selected); }
-.prefs-resetcount { color: var(--rb-ink-3); }
+.prefs-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
+.prefs-find > svg { flex: none; }
+.prefs-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: 13px var(--ads-sans); }
+.prefs-find > input:focus { outline: 0; }
+.prefs-find > input::placeholder { color: var(--rb-ink-4); }
+.prefs-resetall {
+  border: 0; background: transparent; padding: 0 var(--ads-sp-1);
+  color: var(--rb-ink-3); font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap;
+}
+.prefs-resetall > b { color: var(--rb-ink-2); font-weight: 400; }
+.prefs-resetall:hover { color: var(--rb-accent); }
+.prefs-close {
+  display: grid; place-items: center; width: 32px; height: 32px; flex: none;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-2); cursor: pointer;
+}
+.prefs-close:hover { background: var(--rb-hover); color: var(--rb-ink); }
 
-/* ------------------------------------------------------------- sections -- */
-
-.prefs-section { display: flex; flex-direction: column; gap: var(--ads-sp-1); margin-top: var(--ads-sp-5); }
-.prefs-section:first-of-type { margin-top: var(--ads-sp-3); }
-/* Body Strong section titles, as Windows Settings draws them. */
-.prefs-sectiontitle {
-  margin: 0 0 var(--ads-sp-1);
-  font-size: var(--rb-text-body);
-  line-height: var(--rb-leading-body);
-  font-weight: 600;
-  color: var(--rb-ink);
+/* ------------------------------------------------------------- the runs -- */
+.prefs-run { display: flex; flex-direction: column; margin-top: var(--ads-sp-5); }
+.prefs-about { margin-top: var(--ads-sp-7); }
+.prefs-runtitle {
+  display: flex; align-items: center; gap: var(--ads-sp-2);
+  margin: 0 0 var(--ads-sp-2);
+  font-size: 13px; line-height: 18px; font-weight: 600; color: var(--rb-ink);
+}
+.prefs-runtitle > svg { color: var(--rb-ink-3); }
+.prefs-version { color: var(--rb-ink-3); font-weight: 400; margin-left: var(--ads-sp-1); }
+/* The SettingsCard group: one raised card, rows divided inside it. */
+.prefs-group {
+  /* A card on Mica is the Layer fill, not a panel-coloured slab. */
+  border: 1px solid var(--rb-line);
+  border-radius: 8px;
+  background: var(--rb-raised);
+  overflow: hidden;
 }
 .prefs-empty { margin: var(--ads-sp-6) 0; color: var(--rb-ink-3); }
 
-/* ----------------------------------------------------------------- cards -- */
-
-/*
- * SettingsCard, standard: 68px minimum, 16px padding, a 20px icon 20px from
- * the words, CardBackgroundFillColorDefault on CardStrokeColorDefault.
- */
-.prefs-card {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-5);
-  min-height: 68px;
-  padding: var(--ads-sp-3) var(--ads-sp-4) var(--ads-sp-3) var(--ads-sp-5);
-  box-sizing: border-box;
-  border: 1px solid rgba(0, 0, 0, .1);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
-}
-.prefs-cardicon { flex: none; display: grid; place-items: center; width: 20px; color: var(--rb-ink-2); }
-.prefs-cardtext {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  cursor: default;
-}
-.prefs-cardtitle { color: var(--rb-ink); font-size: var(--rb-text-body); line-height: var(--rb-leading-body); }
-.prefs-cardnote {
-  color: var(--rb-ink-3);
-  font-size: var(--ads-text-sm);
-  line-height: var(--ads-leading-sm);
-}
-.prefs-cardwhere { color: var(--rb-ink-4); }
-.prefs-cardctl { flex: none; display: flex; align-items: center; gap: var(--ads-sp-3); }
-/* The switch's word, at Body: "On" / "Off" to the left of the switch, as Settings draws it. */
-.prefs-onoff { min-width: 3ch; text-align: right; color: var(--rb-ink); }
-/*
- * `attention` covers "no update channel" as well as "an update is waiting":
- * a build that cannot receive fixes is a fact about the copy someone is
- * bidding from. Caution colour on the edge AND a word in the text.
- */
-.prefs-card.attention { border-color: var(--rb-warn); }
-
-/* SettingsExpander: the parent's card, and its children on the lower fill. */
-.prefs-expander {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid rgba(0, 0, 0, .1);
-  border-radius: var(--ads-radius-s);
-  overflow: hidden;
-}
-.prefs-expander > .prefs-card { border: 0; border-radius: 0; }
-.prefs-chevron {
+/* ------------------------------------------------------------- the rows -- */
+.prefs-row {
+  position: relative;
   display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-2);
-  cursor: pointer;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--ads-sp-6);
+  align-items: center;
+  min-height: 56px;
+  padding: var(--ads-sp-2) var(--ads-sp-4);
 }
-.prefs-chevron:hover { background: var(--rb-hover); color: var(--rb-ink); }
-.prefs-chevron > svg { transition: transform 120ms ease; }
-@media (prefers-reduced-motion: reduce) { .prefs-chevron > svg { transition: none; } }
-/*
- * The family under a switch: ControlFillColorTertiary, the words indented to
- * the parent's words (icon plus gap), a hairline between rows. Dimmed, not
- * hidden, while the parent is off — see Family for why hiding would be a lie
- * about what is remembered.
- */
-.prefs-children { display: flex; flex-direction: column; transition: opacity .15s ease; }
-.prefs-children.off { opacity: .55; }
-.prefs-card.child {
-  min-height: 52px;
-  padding: var(--ads-sp-2) var(--ads-sp-4) var(--ads-sp-2) 56px;
-  border: 0;
-  border-top: 1px solid var(--rb-line);
-  border-radius: 0;
-  background: var(--rb-chrome);
+.prefs-row + .prefs-row, .prefs-card + .prefs-card, .prefs-row + .prefs-card { border-top: 1px solid var(--rb-line); }
+.prefs-rowtext { min-width: 0; display: flex; flex-direction: column; cursor: default; }
+.prefs-label { color: var(--rb-ink); font-size: 13px; }
+.prefs-desc { font-size: 12px; line-height: 16px; color: var(--rb-ink-3); }
+/* The family: children on the lower fill, with a connector. */
+.prefs-row.child { padding-left: 48px; background: var(--rb-raised); }
+.prefs-row.child::before {
+  content: ""; position: absolute; left: 26px; top: 0; bottom: 0; width: 1px; background: var(--rb-line-2);
 }
-
-/* "Default" — a per-row reset, present only when the row differs. */
+.prefs-row.child.last::before { bottom: 50%; }
+.prefs-row.child::after {
+  content: ""; position: absolute; left: 26px; top: 50%; width: 10px; height: 1px; background: var(--rb-line-2);
+}
+.prefs-row.dimmed .prefs-label, .prefs-row.dimmed .prefs-desc, .prefs-row.dimmed .prefs-onoff { color: var(--rb-ink-4); }
+/* Changed: the accent bar on the card's edge, and the reset glyph. */
+.prefs-row.mod { box-shadow: inset 3px 0 0 var(--rb-accent); }
+.prefs-row.flash { animation: prefs-flash 1.8s var(--rb-ease-standard); }
+@keyframes prefs-flash { 0%, 60% { background: var(--rb-hover); } 100% { background: transparent; } }
+.prefs-ctl { display: flex; align-items: center; gap: var(--ads-sp-3); flex: none; }
+.prefs-onoff { min-width: 24px; text-align: right; font-size: 12px; color: var(--rb-ink-2); }
 .prefs-default {
-  flex: none;
-  height: 32px;
-  padding: 0 var(--ads-sp-2);
-  border: 1px solid transparent;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-accent);
-  font: inherit;
-  cursor: pointer;
-  white-space: nowrap;
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-accent); cursor: pointer;
 }
 .prefs-default:hover { background: var(--rb-hover); }
-
-/* Number and choice controls, at the standard 32. */
-.prefs-control {
-  flex: none;
-  height: 32px;
-  min-width: 120px;
-  padding: 0 var(--ads-sp-3);
-  border: 1px solid var(--rb-line);
-  border-bottom-color: var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-hover);
-  color: var(--rb-ink);
-  font: inherit;
+.prefs-expander {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-3); cursor: pointer;
 }
+.prefs-expander:hover { background: var(--rb-hover); color: var(--rb-ink); }
 
-/* ---------------------------------------------------------------- infobar -- */
+/* ---------------------------------------------------------- the controls -- */
+/* ToggleSwitch, 40 × 20. */
+.prefs-sw {
+  position: relative; flex: none; width: 40px; height: 20px; padding: 0;
+  border: 1px solid var(--rb-line-2); border-radius: 10px; background: transparent; cursor: pointer;
+}
+.prefs-sw > span {
+  position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--rb-ink-3); transition: left var(--rb-motion-fast) var(--rb-ease-decel);
+}
+.prefs-sw.on { background: var(--rb-accent); border-color: var(--rb-accent); }
+.prefs-sw.on > span { left: 23px; background: var(--rb-accent-ink); }
+.prefs-sw:disabled { cursor: default; opacity: .5; }
+.prefs-sw:focus-visible, .prefs-num:focus-visible, .prefs-select:focus-visible, .prefs-default:focus-visible, .prefs-close:focus-visible, .prefs-expander:focus-visible {
+  outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner);
+}
+/* NumberBox and ComboBox: 32px, filled, the bottom rule brighter. */
+.prefs-num, .prefs-select {
+  height: 32px; padding: 0 var(--ads-sp-3);
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-raised); color: var(--rb-ink); font: 13px var(--ads-sans);
+}
+.prefs-num { width: 96px; font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.prefs-select { min-width: 150px; }
+.prefs-select > option { background: var(--rb-panel); color: var(--rb-ink); }
+.prefs-num:focus, .prefs-select:focus { outline: 0; background: var(--rb-canvas); border-bottom: 2px solid var(--rb-accent); }
 
-/* InfoBar: the severity ground, its bar, its glyph, primary-ink words, and a dismiss. */
+/* ------------------------------------------------------------ infobars -- */
 .prefs-infobar {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  min-height: 48px;
-  margin: var(--ads-sp-2) 0;
-  padding: var(--ads-sp-2) var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-4);
-  border: 1px solid rgba(0, 0, 0, .1);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-attention-bg);
-  color: var(--rb-ink);
-  box-shadow: inset 3px 0 0 var(--rb-attention);
+  display: flex; align-items: center; gap: var(--ads-sp-2);
+  min-height: 32px; margin-top: var(--ads-sp-3); padding: var(--ads-sp-1) var(--ads-sp-3);
+  border-radius: 4px; font-size: 12px; line-height: 16px;
 }
-.prefs-infobar.caution { background: var(--rb-warn-bg); box-shadow: inset 3px 0 0 var(--rb-warn); }
-.prefs-infobar.caution > svg { color: var(--rb-warn); }
-.prefs-infobar > .grow { flex: 1 1 auto; min-width: 0; }
+.prefs-infobar.caution { background: var(--rb-warn-bg); }
+.prefs-infobar.caution > svg { color: var(--rb-warn); flex: none; }
 .prefs-dismiss {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-3);
-  cursor: pointer;
+  display: grid; place-items: center; width: 24px; height: 24px; flex: none;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-2); cursor: pointer;
 }
-.prefs-dismiss:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.prefs-dismiss:hover { background: var(--rb-hover); }
 
-/* -------------------------------------------------------- problem reports -- */
-
-/* A prompt to send one, not a log viewer. */
-.prefs-reports {
-  list-style: none;
-  margin: var(--ads-sp-2) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ads-sp-1);
+/* ------------------------------------------------------------ about rows -- */
+/* The update, diagnostics, accent and notices rows share the settings' row shape. */
+.prefs-card {
+  display: flex; align-items: center; gap: var(--ads-sp-4);
+  min-height: 56px; padding: var(--ads-sp-2) var(--ads-sp-4);
 }
-.prefs-reports li {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: var(--ads-sp-2);
-  align-items: baseline;
-  font-size: var(--ads-text-sm);
-  line-height: var(--ads-leading-sm);
+.prefs-card.attention { box-shadow: inset 3px 0 0 var(--rb-accent); }
+.prefs-cardicon { display: none; }
+.prefs-cardtext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.prefs-cardtitle { color: var(--rb-ink); }
+.prefs-cardnote { font-size: 12px; line-height: 16px; color: var(--rb-ink-3); }
+.prefs-cardnote.selectable, .prefs-reportmsg.selectable { user-select: text; }
+.prefs-swatch { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--rb-line-2); }
+.prefs-card .act {
+  height: 32px; padding: 0 var(--ads-sp-3); flex: none;
+  border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink);
+  font: 13px var(--ads-sans); cursor: pointer; white-space: nowrap;
 }
+.prefs-card .act:hover { background: var(--rb-hover); }
+.prefs-card .act:disabled { color: var(--rb-ink-dim); cursor: default; }
+.prefs-reports { display: flex; flex-direction: column; gap: var(--ads-sp-1); margin-top: var(--ads-sp-1); font-size: 12px; line-height: 16px; }
 .prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
-.prefs-reportwhen {
-  color: var(--rb-ink-3);
-  font-family: var(--ads-mono);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.prefs-reportmsg {
-  color: var(--rb-ink-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }
+.prefs-reportmsg { color: var(--rb-ink-2); }

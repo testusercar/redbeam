@@ -20,7 +20,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { isTauri } from '../tauri/window.js'
 import type {
-  DrawingPickOutcome, PickOutcome, ProjectInfo, RecentProject, ScanResult,
+  DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, RecentProject, ScanResult,
 } from './types.js'
 
 /** The shape of `invoke` this module needs. Injectable so tests need no runtime. */
@@ -61,9 +61,27 @@ export interface ProjectBridge {
   pickFolder(): Promise<PickOutcome>
   /** Open a PDF and take its folder as the project. */
   pickDrawing(): Promise<DrawingPickOutcome>
+  /**
+   * Pick a PDF and nothing else: no project resolved, no database made, no
+   * recents touched. `path` is the file's absolute path. For quick view
+   * (Aaron, 2026-09-18: opening a drawing "should not create a project
+   * instantly. It should just open the file for quick viewing").
+   */
+  pickFile(): Promise<FilePickOutcome>
+  /** The same for a path that arrived without a dialog — a drawing dropped on the window. */
+  locateFile(path: string): Promise<FilePickOutcome>
   openProject(path: string, options?: { create?: boolean }): Promise<ProjectInfo>
   listRecents(): Promise<RecentProject[]>
   forgetRecent(path: string): Promise<RecentProject[]>
+  /** Name a recent project; an empty name goes back to the folder name. */
+  renameRecent(path: string, name: string): Promise<RecentProject[]>
+  /**
+   * Set the project's database aside (into `.redbeam/removed-<stamp>/`) and
+   * forget it. The drawings are untouched. Desktop only.
+   */
+  removeProjectData(path: string): Promise<RecentProject[]>
+  /** Show the folder in Explorer / Finder. Desktop only. */
+  revealProject(path: string): Promise<void>
   clearRecents(): Promise<void>
   scanProject(path: string, extensions?: string[]): Promise<ScanResult>
   /**
@@ -85,6 +103,17 @@ export function projectNameFromPath(path: string): string {
   const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
   const name = cut >= 0 ? trimmed.slice(cut + 1) : trimmed
   return name === '' ? trimmed : name
+}
+
+function toFilePick(raw: unknown): FilePickOutcome {
+  const r = asRecord(raw)
+  return {
+    supported: bool(r.supported),
+    path: nullableStr(r.path),
+    project: r.project === null || r.project === undefined ? null : toProjectInfo(r.project),
+    relativePath: nullableStr(r.relativePath),
+    reason: nullableStr(r.reason),
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -117,6 +146,7 @@ function toRecent(raw: unknown): RecentProject {
   return {
     path,
     name: str(r.name) || projectNameFromPath(path),
+    displayName: nullableStr(r.display_name ?? r.displayName),
     lastOpenedAt: str(r.last_opened_at),
     missing: bool(r.missing),
   }
@@ -163,6 +193,7 @@ function readBrowserRecents(storage: KeyValueStore | null): RecentProject[] {
       return {
         path,
         name: str(r.name) || projectNameFromPath(path),
+        displayName: nullableStr(r.displayName),
         lastOpenedAt: str(r.lastOpenedAt),
         // A browser cannot check whether the folder exists, so it never claims
         // one is missing. Saying "missing" on no evidence would be worse than
@@ -237,6 +268,20 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       }
     },
 
+    async pickFile(): Promise<FilePickOutcome> {
+      if (!desktop) {
+        return { supported: false, path: null, project: null, relativePath: null, reason: BROWSER_NO_DIALOG }
+      }
+      return toFilePick(await invoke<unknown>('project_pick_file'))
+    },
+
+    async locateFile(path): Promise<FilePickOutcome> {
+      if (!desktop) {
+        return { supported: false, path: null, project: null, relativePath: null, reason: BROWSER_NO_DIALOG }
+      }
+      return toFilePick(await invoke<unknown>('project_locate_file', { path }))
+    },
+
     async openProject(path, options = {}): Promise<ProjectInfo> {
       const trimmed = path.trim()
       if (trimmed === '') throw new Error('no project folder was given')
@@ -259,6 +304,8 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
           {
             path: info.path,
             name: info.name,
+            displayName: readBrowserRecents(storage)
+              .find((p) => p.path.toLowerCase() === trimmed.toLowerCase())?.displayName ?? null,
             lastOpenedAt: now().toISOString(),
             missing: false,
           },
@@ -291,6 +338,31 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       }
       const raw = await invoke<unknown>('project_forget_recent', { path })
       return Array.isArray(raw) ? raw.map(toRecent) : []
+    },
+
+    async renameRecent(path, name): Promise<RecentProject[]> {
+      const trimmed = name.trim()
+      if (!desktop) {
+        const list = readBrowserRecents(storage).map((p) =>
+          p.path.toLowerCase() === path.toLowerCase()
+            ? { ...p, displayName: trimmed === '' ? null : trimmed }
+            : p)
+        writeBrowserRecents(storage, list)
+        return list
+      }
+      const raw = await invoke<unknown>('project_rename_recent', { path, name: trimmed })
+      return Array.isArray(raw) ? raw.map(toRecent) : []
+    },
+
+    async removeProjectData(path): Promise<RecentProject[]> {
+      if (!desktop) throw new Error('The browser build keeps its data in IndexedDB and cannot set a project folder aside.')
+      const raw = await invoke<unknown>('project_remove_data', { path })
+      return Array.isArray(raw) ? raw.map(toRecent) : []
+    },
+
+    async revealProject(path): Promise<void> {
+      if (!desktop) throw new Error('The browser build has no file manager to show the folder in.')
+      await invoke<void>('project_reveal', { path })
     },
 
     async clearRecents(): Promise<void> {

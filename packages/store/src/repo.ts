@@ -91,6 +91,12 @@ export interface EstimateSummary extends EstimateRow {
   scopeCount: number
   /** Accepted, non-deleted markups across this estimate's scopes. */
   markupCount: number
+  /**
+   * The round's scope ids, in its order. The list level totals a round and
+   * says how much of it is committed, and it can only do that knowing which
+   * scopes are its own — without a query per row.
+   */
+  scopeIds: string[]
 }
 
 /**
@@ -104,11 +110,15 @@ export async function listEstimates(db: SqlDriver): Promise<EstimateSummary[]> {
   const rows = await db.all<{
     id: string; name: string; state: string; source_estimate_id: string | null
     created_at: string; updated_at: string; exported_at: string | null
-    scope_count: number; markup_count: number
+    scope_count: number; markup_count: number; scope_ids: string | null
   }>(
     `SELECT e.id, e.name, e.state, e.source_estimate_id, e.created_at, e.updated_at,
             e.exported_at,
             (SELECT COUNT(*) FROM estimate_scopes es WHERE es.estimate_id = e.id) AS scope_count,
+            (SELECT GROUP_CONCAT(scope_id, ' ')
+               FROM (SELECT scope_id FROM estimate_scopes es3
+                      WHERE es3.estimate_id = e.id
+                      ORDER BY es3.position, es3.created_at)) AS scope_ids,
             (SELECT COUNT(*) FROM markups m
                JOIN estimate_scopes es2 ON es2.scope_id = m.scope_id
               WHERE es2.estimate_id = e.id
@@ -127,6 +137,7 @@ export async function listEstimates(db: SqlDriver): Promise<EstimateSummary[]> {
     exportedAt: r.exported_at,
     scopeCount: r.scope_count,
     markupCount: r.markup_count,
+    scopeIds: r.scope_ids === null || r.scope_ids === '' ? [] : r.scope_ids.split(' '),
   }))
 }
 

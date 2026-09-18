@@ -481,8 +481,32 @@ describe('the scope roll-up', () => {
   })
 
   it('gives the piece calculation the project too', () => {
-    const pieces = workspace.slice(workspace.indexOf('setPieces('), workspace.indexOf('setPieces(') + 900)
-    expect(pieces).toContain('calculatePieces(s, projectMarkups, cal,')
+    const at = workspace.indexOf('setPieces(scopes.map(')
+    expect(at, 'the pieces roll-up is gone').toBeGreaterThan(-1)
+    const pieces = workspace.slice(at, at + 900)
+    expect(pieces).toContain('calculatePieces(s, projectMarkups, fallbackCal,')
+  })
+
+  /**
+   * The roll-up must not depend on the sheet ON SCREEN.
+   *
+   * It began `if (!cal) { setQuantities([]); return }`, where `cal` is the
+   * open page's calibration, while everything under it measured per page from
+   * the project's calibrations. So with no sheet open, or an unscaled one
+   * showing, every scope in the round read "No measurement", had no parts,
+   * and exported as "No takeoff yet" — and the numbers changed when you
+   * changed tabs. Found on 2026-09-18 by opening the Bentall project and
+   * looking at a scope with six scaled areas listed directly beneath a hero
+   * that said nothing was measured.
+   */
+  it('does not empty the round because the open sheet has no scale', () => {
+    // Comments stripped: the explanation of the old bug quotes it verbatim.
+    const code = workspace.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const from = code.indexOf('useEffect(() => {', code.indexOf('bucketByScale(') - 2000)
+    const effect = code.slice(from, code.indexOf('setQuantities(scopes.map('))
+    expect(effect.length, 'could not isolate the roll-up effect').toBeGreaterThan(0)
+    expect(effect).not.toContain('setQuantities([]); return')
+    expect(effect).not.toMatch(/if \(!cal\)/)
   })
 })
 

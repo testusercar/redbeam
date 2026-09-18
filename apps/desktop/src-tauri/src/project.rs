@@ -135,6 +135,12 @@ pub struct RecentProject {
     /// round-trips rather than losing the flag.
     #[serde(default)]
     pub missing: bool,
+    /// A name the estimator gave the project, shown instead of the folder
+    /// name. Lives in the recents list rather than the project folder: it is
+    /// how THIS estimator refers to the job, and the folder is shared with
+    /// everyone who has the drawings. `None` until one is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// What [`project_pick_folder`] managed to do.
@@ -822,11 +828,17 @@ pub fn promote_recent(
     when: String,
 ) -> Vec<RecentProject> {
     let key = project.path.to_ascii_lowercase();
+    // The name the estimator gave it survives a reopen.
+    let display_name = existing
+        .iter()
+        .find(|p| p.path.to_ascii_lowercase() == key)
+        .and_then(|p| p.display_name.clone());
     let mut out = vec![RecentProject {
         path: project.path.clone(),
         name: project.name.clone(),
         last_opened_at: when,
         missing: false,
+        display_name,
     }];
     out.extend(
         existing
@@ -1099,6 +1111,78 @@ pub async fn project_pick_drawing(app: AppHandle) -> Result<DrawingPickOutcome, 
     })
 }
 
+/// Pick a drawing TO VIEW, and nothing else.
+///
+/// No project is resolved into existence, no database is made, and the
+/// recents list is not touched. Aaron, 2026-09-18: opening a drawing "should
+/// not create a project instantly. It should just open the file for quick
+/// viewing. If any markup actions need to be taken it should prompt the user
+/// to select the file's project folder first." The outcome does say where the
+/// file WOULD belong — the folder resolved as a project, read-only — so the
+/// caller can tell a drawing that already lives in a job from one that does
+/// not, and open the job in the first case.
+#[tauri::command]
+pub async fn project_pick_file(app: AppHandle) -> Result<FilePickOutcome, String> {
+    let picked = match pick_drawing_native(&app) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            return Ok(FilePickOutcome { supported: true, path: None, project: None, relative_path: None, reason: None })
+        }
+        Err(reason) => {
+            return Ok(FilePickOutcome { supported: false, path: None, project: None, relative_path: None, reason: Some(reason) })
+        }
+    };
+    describe_file_for_viewing(&picked)
+}
+
+/// The same, for a path that arrived without a dialog — a PDF dropped on the
+/// start page. The file must exist and be a file.
+#[tauri::command]
+pub async fn project_locate_file(path: String) -> Result<FilePickOutcome, String> {
+    let file = PathBuf::from(path.trim());
+    if !file.is_file() {
+        return Err(format!("{} is not a file", file.display()));
+    }
+    describe_file_for_viewing(&file)
+}
+
+/// Where a drawing would belong, resolved without creating anything.
+fn describe_file_for_viewing(picked: &Path) -> Result<FilePickOutcome, String> {
+    let file = canonical_project_root(picked);
+    let folder = match file.parent() {
+        Some(dir) => dir.to_path_buf(),
+        None => return Err("that file has no containing folder".to_string()),
+    };
+    // Resolved, not created: `create = false` and no recents promotion.
+    let project = resolve_project(&folder.display().to_string(), false).ok();
+    let relative_path = project.as_ref().and_then(|info| {
+        file.strip_prefix(Path::new(&info.path))
+            .ok()
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+    });
+    Ok(FilePickOutcome {
+        supported: true,
+        path: Some(file.display().to_string()),
+        project,
+        relative_path,
+        reason: None,
+    })
+}
+
+/// What [`project_pick_file`] managed to do.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePickOutcome {
+    pub supported: bool,
+    /// The file's absolute path. None when cancelled or unsupported.
+    pub path: Option<String>,
+    /// Where the file would belong, resolved without creating anything.
+    pub project: Option<ProjectInfo>,
+    /// The file relative to that project's root, forward-slashed.
+    pub relative_path: Option<String>,
+    pub reason: Option<String>,
+}
+
 /// What [`project_pick_drawing`] managed to do.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1164,6 +1248,106 @@ pub async fn project_forget_recent(
 #[tauri::command]
 pub async fn project_clear_recents(app: AppHandle) -> Result<(), String> {
     write_recents(&recents_path(&app)?, &[])
+}
+
+/// Give a recent project a name of its own; an empty name clears it back to
+/// the folder name. Returns the list that results.
+#[tauri::command]
+pub async fn project_rename_recent(
+    app: AppHandle,
+    path: String,
+    name: String,
+) -> Result<Vec<RecentProject>, String> {
+    let file = recents_path(&app)?;
+    let mut list = read_recents(&file);
+    rename_recent(&mut list, &path, &name)?;
+    write_recents(&file, &list)?;
+    Ok(list)
+}
+
+/// Apply a display name to the entry at `path`. Separate from the command
+/// so it can be tested without an app handle.
+pub fn rename_recent(list: &mut [RecentProject], path: &str, name: &str) -> Result<(), String> {
+    let key = path.to_ascii_lowercase();
+    let trimmed = name.trim();
+    let entry = list
+        .iter_mut()
+        .find(|p| p.path.to_ascii_lowercase() == key)
+        .ok_or_else(|| format!("{path} is not in the recent projects list"))?;
+    entry.display_name = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    };
+    Ok(())
+}
+
+/// Set a project's bookkeeping aside and drop it from the recents list.
+///
+/// The database is MOVED, not deleted: into `.redbeam/removed-<stamp>/`
+/// beside the drawings, journals with it, so a takeoff removed by mistake is
+/// one move away from coming back and never appears in a scan (`.redbeam/`
+/// is internal at any depth). The drawings are never touched. Kenneth,
+/// 2026-09-10: "add crud capabilities to the projects. I can't add or
+/// remove them."
+#[tauri::command]
+pub async fn project_remove_data(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<RecentProject>, String> {
+    let root = canonical_project_root(Path::new(&path));
+    set_aside_project_data(&root)?;
+    project_forget_recent(app, path).await
+}
+
+/// Show a project folder in the system's file manager.
+#[tauri::command]
+pub async fn project_reveal(path: String) -> Result<(), String> {
+    let root = canonical_project_root(Path::new(&path));
+    if !root.is_dir() {
+        return Err(format!("{} is not a folder", root.display()));
+    }
+    #[cfg(windows)]
+    let program = "explorer";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let program = "xdg-open";
+    std::process::Command::new(program)
+        .arg(&root)
+        .spawn()
+        .map_err(|e| format!("could not open the folder: {e}"))?;
+    Ok(())
+}
+
+/// Move `redbeam.db` and its journals under `.redbeam/removed-<stamp>/`.
+/// Returns how many files moved; zero when the folder holds no database.
+pub fn set_aside_project_data(root: &Path) -> Result<usize, String> {
+    let entries = fs::read_dir(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let database: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .map(|n| is_project_database(&n.to_string_lossy()))
+                .unwrap_or(false)
+        })
+        .collect();
+    if database.is_empty() {
+        return Ok(0);
+    }
+    let stamp = now_iso().replace(':', "-");
+    let aside = root.join(INTERNAL_DIR).join(format!("removed-{stamp}"));
+    fs::create_dir_all(&aside).map_err(|e| format!("{}: {e}", aside.display()))?;
+    let mut moved = 0;
+    for from in database {
+        let name = from.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        let to = aside.join(&name);
+        fs::rename(&from, &to)
+            .map_err(|e| format!("could not set aside {}: {e}", name.to_string_lossy()))?;
+        moved += 1;
+    }
+    Ok(moved)
 }
 
 /// Read one document out of a project folder, as raw bytes.
@@ -1778,6 +1962,48 @@ mod tests {
     }
 
     #[test]
+    fn a_display_name_survives_a_reopen() {
+        let a = ProjectInfo {
+            path: "C:/jobs/a".into(),
+            name: "a".into(),
+            db_path: "C:/jobs/a/redbeam.db".into(),
+            created: false,
+            has_database: true,
+            redirected_from: None,
+        };
+        let mut list = promote_recent(&[], &a, "t1".into());
+        rename_recent(&mut list, "c:/JOBS/a", "  Midrise bid  ").unwrap();
+        assert_eq!(list[0].display_name.as_deref(), Some("Midrise bid"));
+        let list = promote_recent(&list, &a, "t2".into());
+        assert_eq!(list[0].display_name.as_deref(), Some("Midrise bid"));
+        let mut list = list;
+        rename_recent(&mut list, "C:/jobs/a", "").unwrap();
+        assert_eq!(list[0].display_name, None);
+        assert!(rename_recent(&mut list, "C:/jobs/zzz", "x").is_err());
+    }
+
+    #[test]
+    fn removing_data_sets_the_database_aside_and_leaves_the_drawings() {
+        let dir = temp_dir("remove-data");
+        write_file(&dir, "redbeam.db", b"db");
+        write_file(&dir, "redbeam.db-wal", b"wal");
+        write_file(&dir, "a.pdf", b"pdf");
+        let moved = set_aside_project_data(&dir).unwrap();
+        assert_eq!(moved, 2);
+        assert!(!dir.join("redbeam.db").exists());
+        assert!(!dir.join("redbeam.db-wal").exists());
+        assert!(dir.join("a.pdf").exists());
+        let aside = fs::read_dir(dir.join(INTERNAL_DIR)).unwrap().flatten().next().unwrap().path();
+        assert!(aside.join("redbeam.db").exists());
+        assert!(aside.join("redbeam.db-wal").exists());
+        // The scan never sees what was set aside.
+        let scan = scan_project(&dir, &[]).unwrap();
+        assert_eq!(scan.files.len(), 1);
+        assert_eq!(set_aside_project_data(&dir).unwrap(), 0);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn reopening_promotes_rather_than_duplicates() {
         let a = ProjectInfo {
             path: "C:/jobs/a".into(),
@@ -1812,6 +2038,7 @@ mod tests {
             name: "A".into(),
             last_opened_at: "t1".into(),
             missing: false,
+            display_name: None,
         }];
         let same = ProjectInfo {
             path: "c:/jobs/a".into(),
@@ -1854,6 +2081,7 @@ mod tests {
                 name: "gone".into(),
                 last_opened_at: "t1".into(),
                 missing: false,
+                display_name: None,
             }],
         )
         .unwrap();

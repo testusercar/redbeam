@@ -12,7 +12,7 @@
  * screen regardless of zoom — which is what feels right when drawing.
  */
 
-export type SnapKind = 'none' | 'vertex' | 'content' | 'ortho'
+export type SnapKind = 'none' | 'vertex' | 'anchor' | 'content' | 'ortho'
 
 export interface SnapResult {
   x: number
@@ -29,17 +29,31 @@ export interface SnapOptions {
   anchor: { x: number; y: number } | null
   /** Constrain to 0/45/90 degrees from the anchor (Shift). */
   ortho: boolean
-  /** Search radius in screen px. */
+  /** Search radius in screen px, for vertices and anchors. */
   radius: number
+  /**
+   * The ends of the drawing's own lines, near a screen point. Null when the
+   * sheet's geometry is not (yet) known. See snapAnchors.ts.
+   */
+  anchorAt?: (sx: number, sy: number, radius: number) => { x: number; y: number } | null
+  /**
+   * Radius for the ink fallback, smaller than `radius`: a line's end is a
+   * place worth reaching for, the middle of a line is only worth landing on.
+   */
+  inkRadius?: number
   /** Luminance below which a pixel counts as ink. 0-255. */
   inkThreshold: number
+  /** Whether ink and anchors are consulted at all; vertices always are. */
+  toLines?: boolean
   enabled: boolean
 }
 
-export const DEFAULT_SNAP: Pick<SnapOptions, 'radius' | 'inkThreshold' | 'enabled'> = {
+export const DEFAULT_SNAP: Pick<SnapOptions, 'radius' | 'inkRadius' | 'inkThreshold' | 'enabled' | 'toLines'> = {
   radius: 12,
+  inkRadius: 6,
   inkThreshold: 160,
   enabled: true,
+  toLines: true,
 }
 
 /** Perf budget mirroring the Qt build's 4ms scope for snapToContent. */
@@ -55,15 +69,30 @@ export function snapPoint(sx: number, sy: number, o: SnapOptions): SnapResult {
     const v = nearestVertex(sx, sy, o.vertices, o.radius)
     if (v) return { ...v, kind: 'vertex' }
 
-    // 2. orthogonal constraint from the anchor
+    const toLines = o.toLines ?? true
+
+    // 2. where the drawing's own lines END: a wall corner, a column face.
+    //    Ahead of ortho and well ahead of ink, because a corner is what the
+    //    estimator is reaching for and ink is merely what is under the cursor.
+    if (toLines && o.anchorAt) {
+      const a = o.anchorAt(sx, sy, o.radius)
+      if (a) return { ...a, kind: 'anchor' }
+    }
+
+    // 3. orthogonal constraint from the anchor
     if (o.ortho && o.anchor) {
       const p = constrainOrtho(sx, sy, o.anchor)
       return { ...p, kind: 'ortho' }
     }
 
-    // 3. snap to the nearest ink in the rendered page
-    const c = nearestInk(sx, sy, o)
-    if (c) return { ...c, kind: 'content' }
+    // 4. the nearest ink in the rendered page, on a shorter leash: this was
+    //    12px, and on a drawing that is ink everywhere it pulled the cursor
+    //    onto whatever line was nearest — the far face of a wall rather
+    //    than the corner. Kenneth: "it snaps to all the lines".
+    if (toLines) {
+      const c = nearestInk(sx, sy, { ...o, radius: o.inkRadius ?? Math.min(6, o.radius) })
+      if (c) return { ...c, kind: 'content' }
+    }
 
     return { x: sx, y: sy, kind: 'none' }
   } finally {
@@ -175,12 +204,23 @@ export function drawSnapIndicator(
   snap: SnapResult | null,
 ): void {
   if (!snap || snap.kind === 'none') return
-  const color = snap.kind === 'vertex' ? '#ffd24a' : snap.kind === 'ortho' ? '#8fd7ff' : '#5ec27a'
+  const color = snap.kind === 'vertex' ? '#ffd24a'
+    : snap.kind === 'anchor' ? '#ff9f43'
+    : snap.kind === 'ortho' ? '#8fd7ff' : '#5ec27a'
   ctx.save()
   ctx.strokeStyle = color
   ctx.lineWidth = 1.5
   if (snap.kind === 'vertex') {
     ctx.strokeRect(snap.x - 5, snap.y - 5, 10, 10)
+  } else if (snap.kind === 'anchor') {
+    // A diamond: a line's end, as distinct from a vertex of our own.
+    ctx.beginPath()
+    ctx.moveTo(snap.x, snap.y - 6)
+    ctx.lineTo(snap.x + 6, snap.y)
+    ctx.lineTo(snap.x, snap.y + 6)
+    ctx.lineTo(snap.x - 6, snap.y)
+    ctx.closePath()
+    ctx.stroke()
   } else {
     ctx.beginPath()
     ctx.moveTo(snap.x - 7, snap.y)

@@ -30,9 +30,13 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
         // and it reads as marker rather than as billed area precisely because
         // it has no edge.
         fillOpacity: m.kind === 'cutout' ? 0 : m.kind === 'shape' ? 0.32 : 0.16,
-        strokeOpacity: m.kind === 'shape' ? 0 : 0.9,
-        strokeWidth: 1.4,
-        dashed: m.kind === 'cutout',
+        strokeOpacity: m.kind === 'shape' ? 0 : m.kind === 'cutout' ? 1 : 0.9,
+        // A cutout is an opening: no fill, and a SOLID edge heavier than the
+        // area's, so it reads as a hole cut in the material rather than as a
+        // hidden line. It was dashed; Aaron, 2026-09-11: "the cutout should
+        // be bolder and solid".
+        strokeWidth: m.kind === 'cutout' ? 2 : 1.4,
+        dashed: false,
         cx,
         cy,
       })

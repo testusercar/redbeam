@@ -102,6 +102,14 @@ export interface SearchHit {
 export interface SearchOptions {
   /** Restrict to one document. Omit to search the whole project. */
   documentId?: string
+  /** Restrict to one page. */
+  pageId?: string
+  /**
+   * Restrict to documents under a folder: a forward-slashed path relative
+   * to the project root, no trailing slash. Kenneth, 2026-09-10: "restrict
+   * search results to a certain folder as opposed to the entire project".
+   */
+  pathPrefix?: string
   /** Hard cap on hits. Clamped to 1..500, matching the Qt build. */
   limit?: number
   /** Target snippet length in characters. */
@@ -353,6 +361,11 @@ export function toLikePattern(token: string): string {
   return `%${token.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 }
 
+/** LIKE pattern for every document under a folder: the prefix, a slash, anything. */
+export function folderPattern(prefix: string): string {
+  return `${prefix.replace(/\/+$/, '').replace(/[\\%_]/g, (c) => `\\${c}`)}/%`
+}
+
 // --------------------------------------------------------------- matching --
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -567,6 +580,14 @@ export async function searchProjectText(
       where.push('f.document_id = ?')
       params.push(opts.documentId)
     }
+    if (opts.pageId) {
+      where.push('f.page_id = ?')
+      params.push(opts.pageId)
+    }
+    if (opts.pathPrefix) {
+      where.push("d.relative_path LIKE ? ESCAPE '\\'")
+      params.push(folderPattern(opts.pathPrefix))
+    }
     // Project-wide, page number alone interleaves documents. Grouping by the
     // document's path first is what makes a project search readable; within a
     // document it is identical to ordering by page number.
@@ -593,6 +614,14 @@ export async function searchProjectText(
     if (opts.documentId) {
       where.push('t.document_id = ?')
       params.push(opts.documentId)
+    }
+    if (opts.pageId) {
+      where.push('t.page_id = ?')
+      params.push(opts.pageId)
+    }
+    if (opts.pathPrefix) {
+      where.push("d.relative_path LIKE ? ESCAPE '\\'")
+      params.push(folderPattern(opts.pathPrefix))
     }
     params.push(limit + 1)
     rows = await db.all<RawRow>(

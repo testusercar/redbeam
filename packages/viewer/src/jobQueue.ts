@@ -13,7 +13,7 @@
  */
 import type { NormClip } from './geometry.js'
 
-export type JobKind = 'tile' | 'thumb' | 'text' | 'geometry' | 'index'
+export type JobKind = 'tile' | 'thumb' | 'text' | 'geometry' | 'index' | 'annots'
 
 export interface TileJob {
   kind: 'tile'
@@ -77,7 +77,15 @@ export interface IndexJob {
   priority: number
 }
 
-export type Job = TileJob | ThumbJob | TextJob | GeometryJob | IndexJob
+/** The page's own annotations (see annots.ts). Same queue, same rules as text. */
+export interface AnnotsJob {
+  kind: 'annots'
+  key: string
+  page: number
+  priority: number
+}
+
+export type Job = TileJob | ThumbJob | TextJob | GeometryJob | IndexJob | AnnotsJob
 
 export class JobQueue {
   private readonly jobs = new Map<string, Job & { seq: number }>()

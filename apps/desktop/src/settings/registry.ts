@@ -34,7 +34,7 @@
  * category is a heading on one scrolling page now, and it earns its heading
  * by holding a setting somebody reads.
  */
-export type SettingCategory = 'viewer' | 'takeoff' | 'performance'
+export type SettingCategory = 'general' | 'viewer' | 'takeoff' | 'performance'
 
 /*
  * "Drawing", not "Viewer": the rest of the shell says the drawing and the
@@ -43,6 +43,7 @@ export type SettingCategory = 'viewer' | 'takeoff' | 'performance'
  * them by name.
  */
 export const CATEGORY_LABEL: Record<SettingCategory, string> = {
+  general: 'General',
   viewer: 'Drawing',
   takeoff: 'Takeoff',
   performance: 'Performance',
@@ -87,6 +88,48 @@ export type SettingDescriptor =
  */
 export const SETTINGS: readonly SettingDescriptor[] = [
   {
+    id: 'general.restoreProjectWindows',
+    category: 'general',
+    section: 'Startup',
+    type: 'bool',
+    // Off: the app opens on the start screen and the last project is the
+    // first row of it. It shipped reopening the last project unconditionally,
+    // which is fine for one person on one job and wrong for an estimator who
+    // opens the app to pick which of six bids to work on. Kenneth, 2026-09-10:
+    // "it should load to the start screen prompting the user to choose".
+    default: false,
+    label: 'Reopen the last project on launch',
+    description:
+      'On, the app opens straight into the project you had open. Off, it ' +
+      'opens on the start screen with that project at the top of the list.',
+  },
+  {
+    id: 'general.recentProjectLimit',
+    category: 'general',
+    section: 'Recent projects',
+    type: 'int',
+    default: 40,
+    min: 5,
+    max: 200,
+    label: 'Recent projects kept',
+    description: 'How many projects the start screen and the project menu list. Every project ever opened stays a keystroke away in the prompt (~).',
+  },
+  {
+    id: 'general.recentExpiry',
+    category: 'general',
+    section: 'Recent projects',
+    type: 'enum',
+    default: 'never',
+    choices: [
+      { value: 'never', label: 'never' },
+      { value: '30', label: 'after 30 days' },
+      { value: '90', label: 'after 90 days' },
+      { value: '365', label: 'after a year' },
+    ],
+    label: 'Recent projects drop off',
+    description: 'A project not opened for this long leaves the lists. It is not forgotten: the prompt still finds it.',
+  },
+  {
     id: 'viewer.scrollToZoom',
     category: 'viewer',
     section: 'Navigation',
@@ -108,7 +151,63 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     type: 'bool',
     default: true,
     label: 'Snap while drawing',
-    description: 'Snap new vertices to nearby geometry.',
+    description: 'Snap new vertices to nearby geometry. Hold Alt to place a point exactly where the cursor is.',
+  },
+  {
+    id: 'takeoff.snapToLines',
+    category: 'takeoff',
+    section: 'Drawing tools',
+    type: 'bool',
+    // On: the drawing's own line ends and, at short range, its ink are snap
+    // targets. Off: only your own markups' vertices are. Kenneth found the
+    // ink snap pulled him onto every line near the cursor; the line ends
+    // came first and the ink went on a shorter leash, but a sheet that is
+    // all hatching still wants a way to turn it off.
+    default: true,
+    label: "Snap to the drawing's lines",
+    description:
+      "On, a vertex also snaps to where the sheet's own lines end and, closer in, " +
+      'to ink. Off, only to the vertices of your own markups.',
+  },
+  {
+    id: 'takeoff.imperialPrecision',
+    category: 'takeoff',
+    section: 'Units',
+    type: 'enum',
+    default: '16',
+    choices: [
+      { value: '8', label: 'to 1/8″' },
+      { value: '16', label: 'to 1/16″' },
+      { value: '32', label: 'to 1/32″' },
+    ],
+    label: 'Imperial lengths shown',
+    description: 'How finely a length in feet and inches is written on the page. The stored value is not rounded.',
+  },
+  {
+    id: 'takeoff.lineWeight',
+    category: 'takeoff',
+    section: 'Lines',
+    type: 'int',
+    default: 100,
+    min: 50,
+    max: 300,
+    label: 'Line weight',
+    description:
+      'Markup and layout lines, as a percentage of the standard weight.',
+  },
+  {
+    id: 'takeoff.scaleLineWeightWithZoom',
+    category: 'takeoff',
+    section: 'Lines',
+    type: 'bool',
+    // Off: a line is the same width at every zoom, the way an overlay usually
+    // is. On: it thickens as you zoom in and thins as you zoom out, the way
+    // Bluebeam draws markups, because they are part of the drawing.
+    default: false,
+    label: 'Line weight follows zoom',
+    description:
+      'On, lines thicken as you zoom in and thin as you zoom out, the way the ' +
+      'drawing\'s own lines do. Off, they stay the same width at every zoom.',
   },
   /*
    * What the layout preview draws.
@@ -210,8 +309,6 @@ export const SETTINGS: readonly SettingDescriptor[] = [
  * settings file already uses.
  */
 export const RETIRED: ReadonlyMap<string, string> = new Map([
-  ['general.restoreProjectWindows', 'App.tsx reopens the last project unconditionally and never read this'],
-  ['general.recentProjectLimit', 'the recents list is capped in Rust (MAX_RECENTS) and nothing read this'],
   ['appearance.dimPageContent', 'no painter read it'],
   ['appearance.showPageStrip', 'the page strip renders unconditionally and never read this'],
   ['takeoff.defaultMeasureUnit', 'no specification or calibration field pre-selected from it'],

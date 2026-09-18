@@ -131,11 +131,14 @@ describe('required measures per product type', () => {
     expect(canCalculateLayout('planks', CL01)).toBe(false)
   })
 
-  it('labels the shared spacing key differently for cassettes and baffles', () => {
-    expect(requiredMeasures('baffle_cassette').map((m) => m.label)).toEqual(['Spacing OC', 'Stock', 'Backing Max'])
+  it('asks a cassette for its module: spacing, baffle length and width', () => {
+    // A cassette is a pre-assembled module (Aaron, 2026-09-18); its backing
+    // spacing is inside it and is not asked for.
+    expect(requiredMeasures('baffle_cassette').map((m) => m.label)).toEqual(['Spacing OC', 'Stock', 'Cassette W'])
+  })
+
+  it('asks a baffle for its connector spacing, which is also its rail pitch', () => {
     expect(requiredMeasures('baffle').map((m) => m.label)).toEqual(['Spacing OC', 'Stock', 'Conn. Max'])
-    // ...but it is one parameter, not two.
-    expect(requiredMeasures('baffle_cassette')[2]!.valueKey).toBe(requiredMeasures('baffle')[2]!.valueKey)
   })
 
   it('every required measure is also editable', () => {
@@ -312,15 +315,21 @@ describe('deriveRunTriple', () => {
 describe('each product type offers only what it reads', () => {
   /** Keys `resolveRunInputs` and `layoutPanels` actually consume, per product. */
   const CONSUMED: Record<string, string[]> = {
-    panels: ['panelWidth', 'panelLength'],
+    // calculatePieces reads the trim length for panels (a panel order is panels and trim — Aaron, 2026-09-18).
+    panels: ['panelWidth', 'panelLength', 'perimeterTrimLength'],
     planks: [
       'plankWidth', 'stockLength', 'spacing', 'revealSpacing',
       'railLength', 'maxRailSpacing', 'minRailSpacing', 'perimeterTrimLength',
+      // Read since 2026-09-18: several rails can cross one plank.
+      'maxConnectorSpacing',
     ],
-    baffle: ['spacing', 'stockLength', 'maxConnectorSpacing', 'profileWidthInches'],
-    baffle_cassette: [
-      'spacing', 'stockLength', 'maxConnectorSpacing', 'profileWidthInches', 'cassetteWidth',
+    // resolveRunInputs reads a rail length for baffles; the rail pitch is the connector spacing.
+    baffle: [
+      'spacing', 'stockLength', 'maxConnectorSpacing', 'profileWidth', 'profileWidthInches', 'railLength',
     ],
+    // A cassette is a module laid as a whole panel: calculatePieces reads its width, the baffle length and the spacing.
+    baffle_cassette: ['spacing', 'stockLength', 'cassetteWidth'],
+    linear_parts: ['partLength'],
     custom_assembly: [],
   }
 

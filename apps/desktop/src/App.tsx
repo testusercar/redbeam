@@ -11,13 +11,15 @@
  * it a picker would be wrong.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ProjectStartScreen, useProject } from './project/index.js'
+import { ProjectStartScreen, useProject, type RecentProject } from './project/index.js'
 import { getWindowRole, isTauri, openProjectWindow } from './tauri/window.js'
 import { useWindowControls } from './tauri/useWindowControls.js'
 import Workspace from './Workspace.js'
 import { WindowControls } from './shell/Shell.js'
 import { ShellHarness } from './shell/ShellHarness.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
+import { SettingsStore, browserStorage } from './settings/store.js'
+import { visibleRecents } from './project/recents.js'
 
 export default function App() {
   const identity = useMemo(() => getWindowRole(), [])
@@ -83,12 +85,16 @@ export default function App() {
   }, [project.open])
 
   /**
-   * Reopen the last project on launch.
+   * Reopen the last project on launch — when asked to.
    *
-   * Every launch used to land on the picker, including the overwhelmingly
-   * common one where you are coming back to the job you were on ten minutes
-   * ago. The start screen is for the first run and for switching projects; it
-   * is not a toll gate on every start.
+   * This reopened the last project unconditionally, on the reasoning that the
+   * start screen "is not a toll gate on every start". Kenneth's first bug of
+   * the 2026-09-10 review was exactly that toll gate's absence: the app opens
+   * on whatever job was open last, and an estimator with six bids on the go
+   * wants to be asked. So the start screen is the default and the old
+   * behaviour is a setting, `general.restoreProjectWindows`, off unless
+   * turned on. The last project is the first row of the start screen either
+   * way.
    *
    * Only a live entry qualifies — a `missing: true` recent means the folder
    * moved or a drive is offline, and silently failing to open it would look
@@ -109,9 +115,20 @@ export default function App() {
     if (identity.projectId !== null) return
     if (project.loading || openPath !== null) return
     attempted.current = true
+    if (!SettingsStore.open(browserStorage()).bool('general.restoreProjectWindows')) return
     const last = project.recents.find((p) => !p.missing)
     if (last !== undefined) void project.openRecent(last)
   }, [project, identity.role, openPath])
+  /*
+   * The lists show the newest N, less the expired, from Settings › General.
+   * Re-read whenever the list or the open project changes: the panel that
+   * changes these lives inside the project, and leaving it is the moment the
+   * start screen is next seen.
+   */
+  const shownRecents = useMemo(() => {
+    const store = SettingsStore.open(browserStorage())
+    return visibleRecents(project.recents, store.int('general.recentProjectLimit'), store.str('general.recentExpiry'))
+  }, [project.recents, openPath])
 
   /*
    * A window opened FOR a project opens that project, whatever its role.
@@ -128,9 +145,96 @@ export default function App() {
     }
   }, [identity.projectId, openPath])
 
+  /**
+   * QUICK VIEW: a drawing open with no project behind it.
+   *
+   * Aaron, 2026-09-18: opening a drawing set "should not create a project
+   * instantly. It should just open the file for quick viewing. If any markup
+   * actions need to be taken it should prompt the user to select the file's
+   * project folder first." So a picked or dropped PDF that no job already
+   * holds opens here, in memory; one that a job holds opens that job.
+   */
+  const [quick, setQuick] = useState<{ folder: string; file: string; relativePath: string } | null>(null)
+  /** The document to open first once a project comes up — the drawing that was just viewed or picked. */
+  const [firstDocument, setFirstDocument] = useState<string | null>(null)
+
   const closeProject = useCallback(() => {
     setOpenPath(null)
+    setQuick(null)
+    setFirstDocument(null)
     project.close()
+  }, [project])
+
+  /** A drawing, picked or dropped: the job that holds it, or quick view. */
+  const showDrawing = useCallback((pick: { path: string | null; project: { path: string; hasDatabase: boolean } | null; relativePath: string | null }) => {
+    if (pick.path === null) return
+    if (pick.project !== null && pick.project.hasDatabase && pick.relativePath !== null) {
+      setFirstDocument(pick.relativePath)
+      void project.open(pick.project.path)
+      return
+    }
+    const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
+    const folder = pick.path.slice(0, cut)
+    const name = pick.path.slice(cut + 1)
+    setQuick({ folder, file: pick.path, relativePath: name })
+  }, [project])
+
+  const viewDrawing = useCallback(() => {
+    void project.viewDrawing().then((pick) => { if (pick !== null) showDrawing(pick) })
+  }, [project, showDrawing])
+
+  /** A dropped path: a PDF is viewed, a folder is opened as a job. */
+  const dropPath = useCallback((path: string) => {
+    if (/\.pdf$/i.test(path)) { void project.locateFile(path).then((pick) => { if (pick !== null) showDrawing(pick) }); return }
+    void project.open(path, { create: false })
+  }, [project, showDrawing])
+
+  /**
+   * Quick view's way out: the drawing's project folder. It has to contain the
+   * drawing — a project cannot hold a file outside itself — and then the job
+   * opens on that drawing, created if the folder had no database yet.
+   */
+  const adoptProject = useCallback(() => {
+    if (quick === null) return
+    void (async () => {
+      const outcome = await project.browse()
+      if (outcome.path === null) return
+      const folder = outcome.path.replace(/[\\/]+$/, '')
+      const norm = (p: string) => p.replace(/\//g, '\\').toLowerCase()
+      if (!norm(quick.file).startsWith(`${norm(folder)}\\`)) {
+        setQuickNote(`${folder} does not contain this drawing. Choose the folder the drawing is in, or one above it.`)
+        return
+      }
+      const rel = quick.file.slice(folder.length + 1).replace(/\\/g, '/')
+      setFirstDocument(rel)
+      await project.open(folder, { create: true })
+      setQuick(null)
+    })()
+  }, [project, quick])
+  const [quickNote, setQuickNote] = useState<string | null>(null)
+
+  /**
+   * A window asked to view a file from outside — `?view=<path>` in its URL,
+   * the road a "redbeam://open" link or a shell association will take. The
+   * same road a drop takes, so it lands in a job or in quick view alike.
+   */
+  const viewedFromUrl = useRef(false)
+  useEffect(() => {
+    if (viewedFromUrl.current || !project.desktop) return
+    const wanted = new URLSearchParams(location.search).get('view')
+    if (wanted === null || wanted === '') return
+    viewedFromUrl.current = true
+    dropPath(wanted)
+  }, [project.desktop, dropPath])
+
+  /** A recent job that moved: pick where it went, open it there, and forget the stale entry. */
+  const locateRecent = useCallback((recent: RecentProject) => {
+    void (async () => {
+      const outcome = await project.browse()
+      if (outcome.path === null) return
+      await project.open(outcome.path)
+      void project.forget(recent)
+    })()
   }, [project])
 
   /**
@@ -167,7 +271,8 @@ export default function App() {
       )
     : null
 
-  if (openPath) {
+  if (openPath || quick !== null) {
+    const path = openPath ?? quick!.folder
     // Keyed on the path so switching projects tears the workspace down rather
     // than leaving one project's markups in another's state.
     return (
@@ -177,15 +282,23 @@ export default function App() {
           Keyed on the path as well, so closing a broken project and opening
           another gets a fresh boundary rather than the old error.
         */}
-        <ErrorBoundary key={`boundary-${openPath}`} onCloseProject={closeProject}>
+        <ErrorBoundary key={`boundary-${openPath ?? `view:${quick?.file}`}`} onCloseProject={closeProject}>
           <Workspace
-            key={openPath}
-            projectPath={openPath}
+            key={openPath ?? `view:${quick?.file}`}
+            projectPath={path}
             onCloseProject={closeProject}
-            recentProjects={project.recents}
+            recentProjects={shownRecents}
             onOpenProject={openProjectElsewhere}
-            {...(project.desktop ? { onBrowseProject: browseForProject } : {})}
-            initialDocumentPath={identity.documentPath}
+            {...(project.desktop && openPath ? { onBrowseProject: browseForProject, onRevealProject: () => void project.reveal(openPath) } : {})}
+            onRenameProject={(name) => {
+              const mine = project.recents.find((r) => r.path === openPath)
+              if (mine !== undefined) void project.rename(mine, name)
+            }}
+            onRecentsChanged={project.refreshRecents}
+            initialDocumentPath={openPath ? (firstDocument ?? identity.documentPath) : quick!.relativePath}
+            {...(openPath === null && quick !== null
+              ? { quickView: { file: quick.file, relativePath: quick.relativePath, onAdopt: adoptProject } }
+              : {})}
           />
         </ErrorBoundary>
       </>
@@ -196,18 +309,27 @@ export default function App() {
     <>
     {controls}
     <ProjectStartScreen
-      recents={project.recents}
+      recents={shownRecents}
       onOpenPath={(path, options) => project.open(path, options)}
       onOpenRecent={(p) => void project.openRecent(p)}
+      onOpenRecentElsewhere={(p) => openProjectElsewhere(p.path)}
       onForgetRecent={(p) => void project.forget(p)}
+      onRenameRecent={(p, name) => void project.rename(p, name)}
+      {...(project.desktop
+        ? {
+            onRemoveData: (p: RecentProject) => void project.removeData(p),
+            onRevealRecent: (p: RecentProject) => void project.reveal(p.path),
+            onLocateRecent: locateRecent,
+            onViewDrawing: viewDrawing,
+            onDropPath: dropPath,
+          }
+        : {})}
       // exactOptionalPropertyTypes: an optional prop must be absent, not
       // explicitly undefined — so this is spread in rather than passed as null.
-      {...(project.desktop
-        ? { onBrowse: project.browse, onOpenDrawing: project.openDrawing }
-        : {})}
+      {...(project.desktop ? { onBrowse: project.browse } : {})}
       busy={project.busy}
       busyPath={project.busyPath}
-      error={project.error}
+      error={quickNote ?? project.error}
       notice={
         project.desktop
           ? null

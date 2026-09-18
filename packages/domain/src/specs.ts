@@ -17,15 +17,22 @@ import { parseNumberOrFraction, unitToFeet } from './units.js'
 /**
  * The product types the layout engine actually branches on.
  *
- * There are FIVE, not seven. redbeamscopepanel.cpp branches on exactly
- * "Panels", "Planks", "Baffle Cassette", "Baffle" and "Custom Assembly";
+ * The Qt build had FIVE, not seven: redbeamscopepanel.cpp branches on exactly
+ * "Panels", "Planks", "Baffle Cassette", "Baffle" and "Custom Assembly", and
  * projectScopeType normalizes every input to one of the corresponding
  * snake_case ids, falling back to `baffle`.
+ *
+ * `linear_parts` is the sixth, and new here: a product bought as fixed-length
+ * pieces along a measured run (trough, trim, a strip of product on an RCP),
+ * counted as length / part length, per run. Kenneth, 2026-09-10: "this is
+ * not an area takeoff, this is a linear takeoff. We need a product type for
+ * this." The workaround was a panel sized to the trough's width, which
+ * double-counts the moment the run is an eighth of an inch wide.
  */
-export type ProductType = 'panels' | 'planks' | 'baffle_cassette' | 'baffle' | 'custom_assembly'
+export type ProductType = 'panels' | 'planks' | 'baffle_cassette' | 'baffle' | 'custom_assembly' | 'linear_parts'
 
 export const PRODUCT_TYPES: readonly ProductType[] = [
-  'panels', 'planks', 'baffle_cassette', 'baffle', 'custom_assembly',
+  'panels', 'planks', 'baffle_cassette', 'baffle', 'linear_parts', 'custom_assembly',
 ] as const
 
 /** Display names, matching the QStringLiteral labels the engine compares against. */
@@ -35,6 +42,7 @@ export const PRODUCT_TYPE_LABEL: Record<ProductType, string> = {
   baffle_cassette: 'Baffle Cassette',
   baffle: 'Baffle',
   custom_assembly: 'Custom Assembly',
+  linear_parts: 'Linear parts',
 }
 
 /**
@@ -50,6 +58,7 @@ export function canonicalProductType(type: string): ProductType {
   if (n === 'baffle_cassette' || n === 'cassette' || n === 'cassettes') return 'baffle_cassette'
   if (n === 'panel' || n === 'panels') return 'panels'
   if (n === 'plank' || n === 'planks') return 'planks'
+  if (n === 'linear_parts' || n === 'linear' || n === 'linearparts') return 'linear_parts'
   if (n === 'custom' || n === 'custom_assembly' || n === 'customassembly') return 'custom_assembly'
   return 'baffle'
 }
@@ -132,17 +141,20 @@ export function requiredMeasures(product: ProductType): MeasureField[] {
   switch (product) {
     case 'custom_assembly':
       return []
+    case 'linear_parts':
+      return [measure('partLength', 'Part Len')]
     case 'panels':
       return [measure('panelWidth', 'Panel W'), measure('panelLength', 'Panel L')]
     case 'planks':
       return [measure('plankWidth', 'Plank W'), measure('stockLength', 'Stock')]
     case 'baffle_cassette':
+      // A cassette is a module: its width, the baffle length, and the
+      // spacing that says how many baffles it holds (Aaron, 2026-09-18).
+      // Backing spacing is inside the module and is not asked for.
       return [
         measure('spacing', 'Spacing OC'),
         measure('stockLength', 'Stock'),
-        // The same key, relabelled: a cassette backing spacing and a baffle
-        // connector spacing are one parameter with two names.
-        { valueKey: 'maxConnectorSpacing', unitKey: 'maxConnectorSpacingUnit', label: 'Backing Max' },
+        measure('cassetteWidth', 'Cassette W'),
       ]
     case 'baffle':
       return [
@@ -246,16 +258,33 @@ export function measureHelp(valueKey: string): string {
     case 'maxRailSpacing': return 'rail limit'
     case 'maxConnectorSpacing': return 'hanger limit'
     case 'perimeterTrimLength': return 'trim stock'
+    case 'partLength': return 'length you buy'
+    case 'profileWidth': return 'face width'
     default: return ''
   }
 }
 
 export function editableMeasures(product: ProductType): MeasureField[] {
-  // Planks are the only product that reads a generic trim length.
+  // Planks and panels read a generic trim length; a cassette reads its own width.
   const common = [measure('perimeterTrimLength', 'Trim Len')]
+  /* What a ceiling hangs from: read for planks and for baffles alike. */
+  const rails = [
+    measure('railLength', 'Rail Len'),
+    { valueKey: 'maxRailSpacing', unitKey: 'maxRailSpacingUnit', label: 'Rail Max' },
+  ]
+  /*
+   * A baffle's face width. Presentation only: the count comes from spacing
+   * and stock, and the width is what the layout preview draws the baffle at,
+   * so a 4" profile reads as a 4" profile on the sheet. It was stored in
+   * inches under `profileWidthInches` with no way to set it; this is the
+   * value-and-unit pair the editor can offer, read first by resolveRunInputs.
+   */
+  const profileWidth = measure('profileWidth', 'Profile W')
   switch (product) {
     case 'custom_assembly':
       return []
+    case 'linear_parts':
+      return [measure('partLength', 'Part Len')]
     case 'panels':
       /*
        * No "Conn. Max" here either, for the same reason it is absent from
@@ -267,25 +296,23 @@ export function editableMeasures(product: ProductType): MeasureField[] {
        * Qt build still round-trips.
        */
       /*
-       * No Trim Len either. `perimeterTrimLength` is read by the RUN products
-       * only — `layoutPanels` never looks at it and no panel output reports
-       * trim — so on a panel scope it is one more field that cannot change the
-       * number beside it.
+       * Trim Len IS here now. A panel order is panels and trim (Aaron,
+       * 2026-09-18), and calculatePieces reports perimeter trim for panels
+       * from the scope's perimeter and this length — so the field changes
+       * the number beside it, which is the test for offering one.
        */
       return [
         measure('panelWidth', 'Panel W'),
         measure('panelLength', 'Panel L'),
+        ...common,
       ]
     case 'planks':
       /*
-       * No "Conn. Max" here, and that is not an omission.
-       *
-       * The layout engine overwrites a plank's connector spacing with its stock
-       * length unconditionally (see resolveRunInputs, and the Qt original it is
-       * ported from). The Qt editor offers the field anyway, so a value typed
-       * into it changes nothing — an input that cannot affect the number beside
-       * it is worse than a missing one. The stored key is untouched either way,
-       * so a project written by the Qt build still round-trips.
+       * "Conn. Max" is offered again. The engine used to overwrite a plank's
+       * connector spacing with its stock length, so the field changed nothing
+       * and was withheld; resolveRunInputs reads it now (Aaron, 2026-09-18:
+       * several rails can cross one plank), falling back to the rail spacing
+       * and then the stock length.
        *
        * Rails ARE here: they are what a plank ceiling hangs from, the engine has
        * always laid them out, and nothing offered a way to specify them.
@@ -295,22 +322,29 @@ export function editableMeasures(product: ProductType): MeasureField[] {
         measure('stockLength', 'Stock'),
         measure('spacing', 'Spacing OC'),
         measure('revealSpacing', 'Reveal'),
-        measure('railLength', 'Rail Len'),
-        { valueKey: 'maxRailSpacing', unitKey: 'maxRailSpacingUnit', label: 'Rail Max' },
+        ...rails,
+        { valueKey: 'maxConnectorSpacing', unitKey: 'maxConnectorSpacingUnit', label: 'Conn. Max' },
         ...common,
       ]
     case 'baffle_cassette':
       // A cassette's perimeter trim length is read from `cassetteWidth`, not
       // from `perimeterTrimLength` — so that is the field to offer, and the
       // generic Trim Len would be inert.
-      return [...requiredMeasures(product), measure('cassetteWidth', 'Cassette W')]
+      // Nothing beyond the module's three measures: cassettes are laid as
+      // whole panels, so a profile width (the run preview's band) and a rail
+      // length (rails are inside the module) would change no number.
+      return [...requiredMeasures(product)]
     case 'baffle':
       /*
-       * And not here. resolveRunInputs reads a trim length for planks and, as
-       * `cassetteWidth`, for a cassette — a plain baffle reads none, and so
-       * never reports trim. The field was offered anyway.
+       * No Trim Len here. resolveRunInputs reads a trim length for planks and,
+       * as `cassetteWidth`, for a cassette — a plain baffle reads none, and so
+       * never reports trim. Rail Len IS here: a baffle ceiling hangs from
+       * suspension rails and its order lists them (Aaron, 2026-09-18). No
+       * Rail Max, because a baffle's rails sit at its connector locations —
+       * the pitch is Conn. Max, and a second field for it would be a
+       * contradiction waiting to happen.
        */
-      return [...requiredMeasures(product)]
+      return [...requiredMeasures(product), profileWidth, rails[0]!]
   }
 }
 
@@ -332,6 +366,23 @@ export function readProductType(specs: Specifications): ProductType {
 
 export function writeProductType(specs: Specifications, product: ProductType): Specifications {
   return { ...specs, [PRODUCT_TYPE_KEY]: product }
+}
+
+/**
+ * What a product is measured as, when the product decides it.
+ *
+ * Every laid-out product is an area of ceiling; linear parts are a length.
+ * Only a custom assembly, quantified by hand, can be any of the three, and
+ * that is the one place the estimator is asked. The "Measured as" control
+ * used to show for every product, and for every product but one it could
+ * not change the number. Aaron: "I don't see what it's doing."
+ */
+export function scopeTypeForProduct(product: ProductType): 'area' | 'linear' | 'count' | null {
+  switch (product) {
+    case 'linear_parts': return 'linear'
+    case 'custom_assembly': return null
+    default: return 'area'
+  }
 }
 
 /**

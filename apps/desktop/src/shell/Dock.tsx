@@ -1,10 +1,16 @@
 /**
- * The dock — three pills in one floating row over the drawing.
+ * The dock — TWO floating surfaces in one row over the drawing (boards 1–3b,
+ * approved by Aaron 2026-09-18, reassessed against Fluent's CommandBar):
  *
- * The left pill is how you READ the sheet: pan, and a one-off dimension. The
- * middle pill is what you are DOING: the round and scope markups land in, and
- * the tools that make them. The right pill is where you ARE: sheet, scale,
- * zoom.
+ * 1. the WORK surface: how you read the sheet (pan, select, a one-off
+ *    dimension), the scope markups land in, and in takeoff the tools that
+ *    make them, with Direction behind a divider and Done at the end;
+ * 2. the SHEET surface: where you are — sheet, zoom, and the sheet's scale.
+ *
+ * Nothing that is not a tool. Layout preview, Specifications and Quantities
+ * left on 2026-09-13 (Aaron's QA note): they are commands and sidebar pages,
+ * and the prompt and the scope page have them. Each surface's "…" holds only
+ * what a narrower drawing shed — never a panel opener.
  *
  * Separate pills because they answer different questions and get reached for
  * at different moments — you move the sheet between every action, pick a tool
@@ -30,9 +36,9 @@ import {
 import type { Tool } from '../draw.js'
 import { PRODUCT_TYPE_LABEL, readProductType } from '@redbeam/domain'
 import {
-  Check, ChevronDown, ChevronRight, Compass, Crop, Crosshair, Ellipsis,
-  Glyph, Hand, Highlighter, Maximize, Minus, MoveHorizontal, Pentagon, Plus, Ruler, Scissors,
-  SlidersHorizontal, StretchHorizontal, Tally, X, LayoutGrid, Calculator,
+  Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
+  Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
+  StretchHorizontal,
 } from './icons.js'
 import type { Icon } from './icons.js'
 import { useClampedPopover } from './popover.js'
@@ -48,10 +54,12 @@ import { ScalePicker } from '../scale/ScalePicker.js'
  * Mixing them in implied that calibrating draws something.
  */
 const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
-  { id: 'area', label: 'Area', icon: Pentagon },
-  { id: 'polyline', label: 'Linear', icon: Ruler },
-  { id: 'count', label: 'Count', icon: Tally },
-  { id: 'cutout', label: 'Cutout', icon: Scissors },
+  { id: 'area', label: 'Area', icon: Area },
+  // Beside Area: a cutout is the other half of an area takeoff, and it sat
+  // three buttons away from it.
+  { id: 'cutout', label: 'Cutout', icon: Cutout },
+  { id: 'polyline', label: 'Linear', icon: Polyline },
+  { id: 'count', label: 'Count', icon: Count },
   { id: 'shape', label: 'Highlight', icon: Highlighter },
 ]
 
@@ -67,10 +75,13 @@ const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
  * `'dimension'` is typed loosely here on purpose: the workspace is gaining the
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
-export type ReadTool = 'pan' | 'dimension'
+export type ReadTool = 'pan' | 'select' | 'dimension'
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
-  { id: 'pan', label: 'Pan', title: 'Move the sheet (V)', icon: Hand },
-  { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: MoveHorizontal },
+  { id: 'pan', label: 'Pan', title: 'Move the sheet (H)', icon: Hand },
+  // Marquee selection existed as Shift+drag in Pan and nobody found it.
+  // Kenneth, 2026-09-10: "I need a select tool for marquee selections".
+  { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several (V)', icon: Cursor },
+  { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: Ruler },
 ]
 
 /**
@@ -122,40 +133,6 @@ function useDismiss(open: boolean, close: () => void) {
   return ref
 }
 
-// ------------------------------------------------------------ read pill --
-
-export interface ReadPillProps {
-  /** The tool in hand — any tool; this pill only lights its own two. */
-  tool: Tool | ReadTool
-  onTool: (t: ReadTool) => void
-}
-
-/**
- * Pan and Dimension, in their own pill, always on screen.
- *
- * Aaron: "the PAN button should be its own floating button, separate from
- * the takeoff tools." Pan produces no markup and no quantity; grouping it
- * with Area and Count said it was one of them.
- */
-export function ReadPill({ tool, onTool }: ReadPillProps) {
-  return (
-    <div className="dockgroup dockread" role="toolbar" aria-label="Read the sheet">
-      {READ_TOOLS.map((t) => (
-        <button
-          key={t.id}
-          className="dockbtn dockicon"
-          aria-pressed={tool === t.id}
-          aria-label={t.label}
-          title={t.title}
-          onClick={() => onTool(t.id)}
-        >
-          <Glyph icon={t.icon} role="inline" />
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // ------------------------------------------------------------ tool pill --
 
 /** A bidding round, as the takeoff pill needs to name and switch it. */
@@ -167,24 +144,13 @@ export interface ToolPillProps {
   scopes: Scope[]
   activeScope: string | null
   onScope: (id: string) => void
-  onSpecifications: () => void
-  onQuantities: () => void
-  /**
-   * The layout preview: show the pieces the engine laid out, over the drawing.
-   *
-   * It had no control at all — the state existed and only the automation
-   * bridge could set it — so the one feature that lets a piece count be
-   * checked by eye was unreachable from the application.
-   */
-  layoutOn: boolean
-  onToggleLayout: (on: boolean) => void
   /**
    * Whether the drawing tools are showing.
    *
-   * The dock rests as a scope pill and a Take off button; the tool rails only
-   * exist once takeoff has been entered. This is the Qt build's behaviour
-   * (`RedbeamScopeDock::updateTakeoffPresentation`) and it is the difference
-   * between three controls over the drawing and twelve.
+   * The surface rests as the read tools, a scope pill and a Take off button;
+   * the tool row only exists once takeoff has been entered. This is the Qt
+   * build's behaviour (`RedbeamScopeDock::updateTakeoffPresentation`) and it
+   * is the difference between five controls over the drawing and twelve.
    */
   takeoff: boolean
   onTakeoff: (on: boolean) => void
@@ -205,27 +171,46 @@ export interface ToolPillProps {
   markupCountFor?: (scopeId: string) => number
   /** Open the estimates panel, for a project with no round yet. */
   onOpenEstimates?: () => void
+  /**
+   * Whether a drawing is open. With none, the read tools and Take off are
+   * disabled in place rather than hidden (board 3, 2026-09-18): the surface
+   * keeps its shape in every state so the hand learns one layout.
+   */
+  documentOpen?: boolean
 }
 
 /**
- * The dock reports no problems.
+ * The WORK surface: how you read the sheet, what you are doing, and the
+ * tools that do it — one acrylic surface with separators, not three.
  *
- * A tool mismatch and a paused layout both used to surface here — a warning
- * strip floating above the pill, and a blocker bar inside it. Both are gone,
- * and neither is gone silently: they moved to the estimates sidebar, beside the
- * scope and the number they are actually about.
+ * Reassessed against Fluent's CommandBar (boards 1–3b, approved by Aaron
+ * 2026-09-18). What changed and why:
  *
- * Two reasons. A warning that appears and disappears as the tool changes
- * reflows the pill and moves the tools out from under the cursor, so the fix
- * for "you cannot draw that here" was to make drawing harder. And a condition
- * belongs to the SCOPE, not to the moment — it is still true when you switch
- * sheets, put the tool down, or come back tomorrow, and the sidebar is where a
- * number that cannot be trusted gets read.
+ *  - Pan · Select · Dimension are the first segment. They were a surface of
+ *    their own; a CommandBar's groups are separators.
+ *  - Labels. Fluent shows icon + label when there is room and drops the label
+ *    before the command; the five takeoff tools carry a `.docklabel` that the
+ *    stylesheet shows only at the Spacious tier.
+ *  - The tool in hand is a FILL (ControlFillColorSecondary) with the Filled
+ *    glyph in the accent — a checked AppBarToggleButton — not the 16×3
+ *    NavigationView pill it wore, which marks a selected page, not a tool.
+ *  - Take off and Done are one slot with two states. Leaving takeoff was an
+ *    × at the far end of the tool row, beside Direction, which read as
+ *    "undo the last one".
+ *  - An overflow. Every tier that sheds a command puts it in this surface's
+ *    "…" — Direction from the Compact tier, the two read tools not in hand
+ *    from the Minimum tier. A command is never unreachable. (The menu the
+ *    dock had before 2026-09-11 held panel openers, which are commands and
+ *    sidebar pages; this one holds only what a narrower drawing pushed out.)
+ *
+ * Which tier applies is CSS — `shell.css` keys it off a container query on
+ * the viewport — so the component renders every control and every overflow
+ * item, and `data-collapse` / `data-from` say which tier hides or reveals it.
  */
 export function ToolPill({
-  tool, onTool, scopes, activeScope, onScope,
-  onSpecifications, onQuantities, layoutOn, onToggleLayout, takeoff, onTakeoff,
+  tool, onTool, scopes, activeScope, onScope, takeoff, onTakeoff,
   estimates = [], openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
+  documentOpen = true,
 }: ToolPillProps) {
   const [scopeOpen, setScopeOpen] = useState(false)
   /*
@@ -239,12 +224,7 @@ export function ToolPill({
   const [moreOpen, setMoreOpen] = useState(false)
   const scopeRef = useDismiss(scopeOpen, () => setScopeOpen(false))
   const moreRef = useDismiss(moreOpen, () => setMoreOpen(false))
-  /*
-   * Anchored to the pill, kept inside the viewport. The overflow menu hangs
-   * off the LAST button in the row and opens to the right of it, which at any
-   * width where the dock is near the viewport's edge is straight into the
-   * clipping — see popover.ts.
-   */
+  /* Anchored to the pill, kept inside the viewport — see popover.ts. */
   const scopeClamp = useClampedPopover<HTMLDivElement>(scopeOpen)
   const moreClamp = useClampedPopover<HTMLDivElement>(moreOpen)
   const active = scopes.find((s) => s.id === activeScope) ?? null
@@ -252,40 +232,51 @@ export function ToolPill({
   const switchable = onEstimate !== undefined && estimates.length > 0
 
   /*
-   * Icon only, with the name in the tooltip and in the overflow menu.
-   *
-   * The row carried a visible label on every button, and measured 1442px doing
-   * it — wider than the drawing area at ANY window size this app supports, so
-   * the labels were never actually on screen; they only pushed the two halves
-   * of the dock into each other until one was clipped. An icon and a tooltip is
-   * what every drawing application does with a tool row, and it is what the
-   * comps drew.
+   * A tool button: the glyph, Filled when in hand, and a label the Spacious
+   * tier shows. `collapse` names the tier that hides it; the read tools and
+   * the takeoff tools are never hidden — only the ones not in hand fold at
+   * Minimum, which the stylesheet decides from `aria-pressed`.
    */
-  const toolButton = (t: { id: Tool; label: string; icon: Icon; title?: string }, collapse?: string) => (
+  const toolButton = (t: { id: Tool | ReadTool; label: string; icon: Icon; title?: string }, collapse?: string) => (
     <button
       key={t.id}
-      className="dockbtn dockicon"
+      className="dockbtn docktool"
       data-collapse={collapse}
       aria-pressed={tool === t.id}
       aria-label={t.label}
-      title={t.title ?? t.label}
-      onClick={() => onTool(t.id)}
+      title={documentOpen ? (t.title ?? t.label) : 'Open a drawing first'}
+      disabled={!documentOpen}
+      onClick={() => onTool(t.id as Tool)}
     >
-      <Glyph icon={t.icon} role="inline" />
+      <Glyph icon={t.icon} role="inline" filled={tool === t.id} />
+      <span className="docklabel">{t.label}</span>
     </button>
   )
 
+  /* What the pill says when no scope is active: the state, not a blank. */
+  const pillText = active?.label
+    ?? (round === null ? 'No round open' : scopes.length === 0 ? 'Add a scope…' : 'Choose a scope…')
+  const wantsScope = active === null && round !== null && scopes.length === 0
+  const takeoffTitle = !documentOpen
+    ? 'Open a drawing first'
+    : round === null
+      ? 'Start a round first'
+      : active === null ? 'Choose a scope first' : `Start takeoff on ${active.label}`
+
   return (
     /*
-     * Order, left to right: WHAT this lands in, then what you draw with, then
-     * setup, then out. The scope came after the tools once, which put the
-     * answer to "where does this measurement go" at the far end of the row
-     * from the tool about to make one.
+     * Order, left to right: how you move, WHAT this lands in, then what you
+     * draw with, then setup, then out. The scope came after the tools once,
+     * which put the answer to "where does this measurement go" at the far
+     * end of the row from the tool about to make one.
      */
-    <div className="dockgroup" role="toolbar" aria-label="Takeoff tools">
+    <div className="dockgroup dockwork" role="toolbar" aria-label="Read the sheet and take off">
+      {READ_TOOLS.map((t) => toolButton(t, 'read'))}
+      <span className="dockrule" aria-hidden="true" />
+
       <div ref={scopeRef} className="dockscopewrap" style={{ position: 'relative' }}>
         <button
-          className="dockscope"
+          className={active === null ? 'dockscope muted' : 'dockscope'}
           aria-haspopup="listbox"
           aria-expanded={scopeOpen}
           title={active === null
@@ -293,18 +284,22 @@ export function ToolPill({
             : `${round === null ? '' : `${round.name} › `}${active.label}`}
           onClick={() => setScopeOpen((v) => !v)}
         >
-          <span
-            className="scopedot"
-            style={{ background: active?.color ?? 'transparent' }}
-            aria-hidden="true"
-          />
+          {wantsScope
+            ? <Glyph icon={Plus} role="small" />
+            : (
+              <span
+                className="scopedot"
+                style={active === null ? undefined : { background: active.color }}
+                aria-hidden="true"
+              />
+            )}
           {/*
             One line. It carried a second line reading "Active" under the scope
             name — inside a 32px control, on the only scope the pill can show.
             The dot already says which scope; nothing needed to say that the
             selected one was selected.
           */}
-          <span className="dockscopename">{active?.label ?? (round === null ? 'No estimate' : 'No scope')}</span>
+          <span className="dockscopename">{pillText}</span>
           <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
         </button>
         {scopeOpen && (
@@ -315,13 +310,6 @@ export function ToolPill({
             ref={scopeClamp.ref}
             style={scopeClamp.style}
           >
-            {/*
-              The round first, and switchable. A scope belongs to a bidding
-              round, and switching scope without knowing which round you are
-              in is how takeoff lands in the wrong estimate. Every round is a
-              row, the open one checked; picking another is the same gesture
-              as picking a scope.
-            */}
             {/*
               THE ROUND, then ITS SCOPES. Markups land in a scope OF a round, so
               the popover answers both questions in that order: which bid am I
@@ -339,7 +327,7 @@ export function ToolPill({
                 title={switchable ? 'Switch round' : undefined}
                 onClick={() => { if (switchable) setRoundsOpen((v) => !v) }}
               >
-                <Glyph icon={Calculator} role="row" />
+                <Glyph icon={Round} role="row" />
                 <span className="scopemenuname">{round?.name ?? 'No estimate open'}</span>
                 {switchable && estimates.length > 1 && <Glyph icon={ChevronDown} role="small" />}
               </button>
@@ -353,7 +341,7 @@ export function ToolPill({
                 onClick={() => { onEstimate(e.id); setRoundsOpen(false) }}
               >
                 <span className="grow">{e.name}</span>
-                {e.id === openEstimateId && <Glyph icon={Check} role="small" />}
+                {e.id === openEstimateId && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
               </button>
             ))}
             <div className="menusep" />
@@ -386,7 +374,8 @@ export function ToolPill({
                       {n !== undefined && ` · ${n} markup${n === 1 ? '' : 's'}`}
                     </span>
                   </span>
-                  {sc.id === activeScope && <Glyph icon={Check} role="small" />}
+                  {/* The Filled glyph in the accent: the same rule the rail follows. */}
+                  {sc.id === activeScope && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
                 </button>
               )
             })}
@@ -394,7 +383,7 @@ export function ToolPill({
               <>
                 <div className="menusep" />
                 <button className="menuitem" onClick={() => { onOpenEstimates(); setScopeOpen(false) }}>
-                  <Glyph icon={Calculator} role="inline" /><span className="grow">Open the estimates panel</span>
+                  <Glyph icon={Round} role="inline" /><span className="grow">Open the estimates panel</span>
                 </button>
               </>
             )}
@@ -411,144 +400,93 @@ export function ToolPill({
       </div>
 
       {/*
-        Not in takeoff: one action. The button IS the affordance — there is
-        nothing else to reach for, which is the whole point of resting here.
+        ONE SLOT, TWO STATES. At rest it is the accent Take off — the one
+        primary action on the sheet. In takeoff the same place holds an
+        outlined Done, after the tools. Nothing else on the surface is filled.
       */}
       {!takeoff && (
         <button
           className="docktakeoff"
-          disabled={active === null}
-          title={active === null ? 'Choose a scope first' : `Start takeoff on ${active.label}`}
+          disabled={active === null || !documentOpen}
+          title={takeoffTitle}
           onClick={() => onTakeoff(true)}
         >
           <Glyph icon={Crosshair} role="inline" />
-          <span>Take off</span>
+          <span className="docktakeofflabel">Take off</span>
         </button>
       )}
 
-      {takeoff && <span className="dockrule" data-collapse="tools" aria-hidden="true" />}
-      {takeoff && TOOLS.map((t) => toolButton(t, 'tools'))}
+      {takeoff && <span className="dockrule" aria-hidden="true" />}
+      {/* Never shed: they are what the mode is for. */}
+      {takeoff && TOOLS.map((t) => toolButton(t))}
 
       {takeoff && <span className="dockrule" data-collapse="setup" aria-hidden="true" />}
       {takeoff && SETUP.map((t) => toolButton(t, 'setup'))}
 
       {takeoff && (
         <button
-          className="dockbtn dockicon"
-          data-collapse="setup"
-          aria-pressed={layoutOn}
-          title={layoutOn ? 'Hide the layout preview' : 'Show the layout preview'}
-          aria-label={layoutOn ? 'Hide the layout preview' : 'Show the layout preview'}
-          onClick={() => onToggleLayout(!layoutOn)}
-        ><Glyph icon={LayoutGrid} role="inline" /></button>
-      )}
-
-      {takeoff && <span className="dockrule" data-collapse="setup" aria-hidden="true" />}
-      {takeoff && (
-        <button
-          className="dockbtn dockicon"
-          data-collapse="setup"
-          title="Scope specifications"
-          aria-label="Scope specifications"
-          onClick={onSpecifications}
-        ><Glyph icon={SlidersHorizontal} role="inline" /></button>
-      )}
-      {takeoff && (
-        <button
-          className="dockbtn dockicon"
-          data-collapse="setup"
-          title="Quantities and bill of materials"
-          aria-label="Quantities and bill of materials"
-          onClick={onQuantities}
-        ><Glyph icon={Calculator} role="inline" /></button>
-      )}
-
-      {takeoff && (
-        <button
-          className="dockbtn dockicon"
-          data-collapse="setup"
+          className="docktakeoff done"
           title="Leave takeoff"
-          aria-label="Leave takeoff"
+          aria-label="Done — leave takeoff"
           onClick={() => { onTakeoff(false); onTool('pan') }}
-        ><Glyph icon={X} role="inline" /></button>
+        >
+          <Glyph icon={Check} role="inline" />
+          <span className="docktakeofflabel">Done</span>
+        </button>
       )}
 
-      {/* Revealed by the same container query that hides the items above. */}
-      {takeoff && <div ref={moreRef} style={{ position: 'relative' }}>
+      {/*
+        The overflow, shown only when a tier has put something in it: from
+        Compact, the read tools not in hand and, in takeoff, Direction. Each
+        item names the tier it appears from.
+      */}
+      <div
+        ref={moreRef}
+        className="dockmorewrap"
+        data-from="compact"
+        style={{ position: 'relative' }}
+      >
         <button
           className="dockbtn dockicon dockmore"
           aria-haspopup="menu"
           aria-expanded={moreOpen}
+          aria-label="More"
           title="More"
-          aria-label="More tools"
           onClick={() => setMoreOpen((v) => !v)}
         ><Glyph icon={Ellipsis} role="inline" /></button>
         {moreOpen && (
-          <div className="dockmenu left" role="menu" ref={moreClamp.ref} style={moreClamp.style}>
-            {/*
-              Everything the width took away, in the order it sits in the row.
-              The menu only appears once something has collapsed, so listing the
-              tools here unconditionally costs nothing at a width where they are
-              on screen.
-            */}
-            <div className="menuhead">Tools</div>
-            {TOOLS.map((t) => (
+          <div className="dockmenu right" role="menu" ref={moreClamp.ref} style={moreClamp.style}>
+            {READ_TOOLS.map((t) => (
               <button
                 key={t.id}
                 className="menuitem"
                 role="menuitemradio"
                 aria-checked={tool === t.id}
-                onClick={() => { onTool(t.id); setMoreOpen(false) }}
+                data-from="minimum"
+                disabled={!documentOpen}
+                onClick={() => { onTool(t.id as Tool); setMoreOpen(false) }}
               >
-                <Glyph icon={t.icon} role="row" />
+                <Glyph icon={t.icon} role="inline" filled={tool === t.id} />
                 <span className="grow">{t.label}</span>
-                {tool === t.id && <Glyph icon={Check} role="small" />}
               </button>
             ))}
-            <div className="menusep" />
-            <div className="menuhead">Setup</div>
-            <button
-              className="menuitem"
-              role="menuitemcheckbox"
-              aria-checked={layoutOn}
-              onClick={() => { onToggleLayout(!layoutOn); setMoreOpen(false) }}
-            >
-              <Glyph icon={LayoutGrid} role="row" />
-              <span className="grow">Layout preview</span>
-              {layoutOn && <Glyph icon={Check} role="small" />}
-            </button>
-            {SETUP.map((t) => (
+            {takeoff && SETUP.map((t) => (
               <button
                 key={t.id}
                 className="menuitem"
                 role="menuitemradio"
                 aria-checked={tool === t.id}
+                data-from="compact"
+                title={t.title}
                 onClick={() => { onTool(t.id); setMoreOpen(false) }}
               >
-                <Glyph icon={t.icon} role="row" />
+                <Glyph icon={t.icon} role="inline" filled={tool === t.id} />
                 <span className="grow">{t.label}</span>
-                {tool === t.id && <Glyph icon={Check} role="small" />}
               </button>
             ))}
-            <div className="menusep" />
-            <button className="menuitem" role="menuitem" onClick={() => { onSpecifications(); setMoreOpen(false) }}>
-              <Glyph icon={SlidersHorizontal} role="row" /><span className="grow">Specifications</span>
-            </button>
-            <button className="menuitem" role="menuitem" onClick={() => { onQuantities(); setMoreOpen(false) }}>
-              <Glyph icon={Calculator} role="row" /><span className="grow">Quantities</span>
-            </button>
-            <div className="menusep" />
-            {/* Exit collapses with the rest, so the way out has to be in here too. */}
-            <button
-              className="menuitem"
-              role="menuitem"
-              onClick={() => { setMoreOpen(false); onTakeoff(false); onTool('pan') }}
-            >
-              <Glyph icon={X} role="row" /><span className="grow">Leave takeoff</span>
-            </button>
           </div>
         )}
-      </div>}
+      </div>
     </div>
   )
 }
@@ -622,6 +560,7 @@ export function DocumentPill({
   const [scaleOpen, setScaleOpen] = useState(false)
   const [allScales, setAllScales] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   /*
    * PINNED: the control is open because a gesture is half-finished, and a
    * click elsewhere must not close it — closing would throw away the line or
@@ -633,6 +572,7 @@ export function DocumentPill({
   const open = pinned || scaleOpen
   const scaleRef = useDismiss(scaleOpen && !pinned, () => setScaleOpen(false))
   const viewRef = useDismiss(viewOpen, () => setViewOpen(false))
+  const moreRef = useDismiss(moreOpen, () => setMoreOpen(false))
   /*
    * The scale menu is anchored `right: 0` — right for a pill at the right of
    * the viewport, and two-thirds off screen once the dock wraps and this pill
@@ -641,61 +581,151 @@ export function DocumentPill({
    */
   const scaleClamp = useClampedPopover<HTMLDivElement>(open, [allScales, pinned])
   const viewClamp = useClampedPopover<HTMLDivElement>(viewOpen)
+  const moreClamp = useClampedPopover<HTMLDivElement>(moreOpen)
 
   const current = feetPerPoint === null ? null : matchPreset(feetPerPoint)
   const empty = pageCount === 0
   const regionCount = regions?.list.length ?? countOnly
 
   return (
-    <div className="dockgroup" role="group" aria-label="Document">
+    <div className="dockgroup docksheet" role="group" aria-label="Sheet, zoom and scale">
       {/*
-        DENSE. The pill carried eleven controls — page nav, the scale, minus,
-        percentage, plus, fit, and five rules between them — for three
-        questions: which sheet, what scale, how big. Page nav is used between
-        every markup and stays; the scale is one chip; the zoom is one chip
-        whose menu holds in, out, fit and the presets, because ctrl+wheel and
-        pinch do the stepping and Ctrl+0 does the fit.
+        Which sheet, how big, at what scale — where you ARE, on one surface
+        (board 1, 2026-09-18). The scale had a surface of its own for one
+        control; it describes the sheet, so it sits with the sheet. Page nav
+        is used between every markup; the zoom is a stepper around a value
+        whose menu holds the presets and both fits; the fit-sheet button
+        stands beside it because it is the one pressed most.
       */}
       <button
         className="dockbtn dockicon"
+        data-collapse="pagestep"
         title="Previous sheet"
         aria-label="Previous sheet"
         disabled={empty || page <= 0}
         onClick={() => onPage(page - 1)}
       ><Glyph icon={ChevronDown} role="inline" style={{ transform: 'rotate(90deg)' }} /></button>
-      <span className="dockvalue">{empty ? '—' : `${page + 1}/${pageCount}`}</span>
+      <span className={empty ? 'dockvalue off' : 'dockvalue'}>{empty ? '— / —' : `${page + 1} / ${pageCount}`}</span>
       <button
         className="dockbtn dockicon"
+        data-collapse="pagestep"
         title="Next sheet"
         aria-label="Next sheet"
         disabled={empty || page >= pageCount - 1}
         onClick={() => onPage(page + 1)}
       ><Glyph icon={ChevronRight} role="inline" /></button>
 
-      <span className="dockrule" aria-hidden="true" />
+      <span className="dockrule" data-collapse="zoom" aria-hidden="true" />
+
+      <button
+        className="dockbtn dockicon"
+        data-collapse="zoomstep"
+        title="Zoom out (Ctrl+-)"
+        aria-label="Zoom out"
+        disabled={empty}
+        onClick={() => onZoom(zoom / 1.25)}
+      ><Glyph icon={Minus} role="inline" /></button>
+      <div ref={viewRef} data-collapse="zoom" style={{ position: 'relative' }}>
+        <button
+          className="dockvalue dockzoom"
+          aria-haspopup="menu"
+          aria-expanded={viewOpen}
+          title="Zoom and fit"
+          disabled={empty}
+          onClick={() => setViewOpen((v) => !v)}
+        >
+          {empty ? '—' : `${Math.round(zoom * 100)}%`}
+          <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
+        </button>
+        {viewOpen && (
+          <div className="dockmenu right" role="menu" ref={viewClamp.ref} style={viewClamp.style}>
+            <button className="menuitem" role="menuitem" onClick={() => { onFitPage(); setViewOpen(false) }}>
+              <Glyph icon={Maximize} role="inline" />
+              <span className="grow">Fit sheet</span>
+              <span className="hint">Ctrl+0</span>
+            </button>
+            <button className="menuitem" role="menuitem" onClick={() => { onFitWidth(); setViewOpen(false) }}>
+              <Glyph icon={StretchHorizontal} role="inline" />
+              <span className="grow">Fit width</span>
+              <span className="hint">Ctrl+1</span>
+            </button>
+            {/* The steppers, once the Compact tier has taken them off the surface. */}
+            <div className="menusep" data-from="compact" />
+            <button className="menuitem" role="menuitem" data-from="compact" onClick={() => { onZoom(zoom * 1.25); setViewOpen(false) }}>
+              <Glyph icon={Plus} role="inline" />
+              <span className="grow">Zoom in</span>
+              <span className="hint">Ctrl+=</span>
+            </button>
+            <button className="menuitem" role="menuitem" data-from="compact" onClick={() => { onZoom(zoom / 1.25); setViewOpen(false) }}>
+              <Glyph icon={Minus} role="inline" />
+              <span className="grow">Zoom out</span>
+              <span className="hint">Ctrl+-</span>
+            </button>
+            <div className="menusep" />
+            {[0.5, 1, 2, 4].map((z) => (
+              <button
+                key={z}
+                className="menuitem"
+                role="menuitemradio"
+                aria-checked={Math.abs(zoom - z) < 0.005}
+                onClick={() => { onZoom(z); setViewOpen(false) }}
+              ><span className="grow">{z * 100}%</span></button>
+            ))}
+          </div>
+        )}
+      </div>
+      <button
+        className="dockbtn dockicon"
+        data-collapse="zoomstep"
+        title="Zoom in (Ctrl+=)"
+        aria-label="Zoom in"
+        disabled={empty}
+        onClick={() => onZoom(zoom * 1.25)}
+      ><Glyph icon={Plus} role="inline" /></button>
+      <button
+        className="dockbtn dockicon"
+        data-collapse="fit"
+        title="Fit sheet (Ctrl+0)"
+        aria-label="Fit sheet"
+        disabled={empty}
+        onClick={onFitPage}
+      ><Glyph icon={Maximize} role="inline" /></button>
+
+      <span className="dockrule" data-collapse="scale" aria-hidden="true" />
 
       {/*
         Scale is a control, not a readout. The Qt build had 26 named presets
         and this had calibrate-from-drawing only, which meant measuring a line
         and typing a dimension on every sheet of a 110-sheet set to learn
         something the title block already says.
+
+        The wrapper stays in the row at every tier — a pinned entry anchors
+        to it — while the Minimum tier hides the button and the overflow's
+        "Scale…" opens the same flyout.
       */}
-      <div ref={scaleRef} className="dockscalewrap" style={{ position: 'relative' }} data-collapse="scale">
+      <div ref={scaleRef} className={pinned ? 'dockscalewrap pinned' : 'dockscalewrap'} style={{ position: 'relative' }}>
         <button
           className={`dockscale${feetPerPoint === null ? ' unset' : ''}`}
+          data-collapse="scale"
           aria-haspopup="dialog"
           aria-expanded={open}
-          title={regionCount > 0
-            ? `Drawing scale — ${regionCount} region${regionCount === 1 ? '' : 's'} at other scales`
-            : 'Drawing scale'}
+          disabled={empty && !pinned}
+          title={empty
+            ? 'Open a drawing first'
+            : regionCount > 0
+              ? `Drawing scale — ${regionCount} region${regionCount === 1 ? '' : 's'} at other scales`
+              : 'Drawing scale'}
           onClick={() => { if (!pinned) setScaleOpen((v) => !v) }}
         >
           <Glyph icon={Ruler} role="inline" />
-          <span>
-            {feetPerPoint === null ? 'Unset' : scaleLabel(feetPerPoint)}
+          <span className="dockscalefull">
+            {empty ? 'Scale' : feetPerPoint === null ? 'Unset' : scaleLabel(feetPerPoint)}
             {/* Counted, briefly: "+2" says the sheet holds scales this
                 button is not showing; the tooltip says what. */}
             {regionCount > 0 && <span className="dockscaleregions">{' '}+{regionCount}</span>}
+          </span>
+          <span className="dockscaleshort">
+            {empty ? 'Scale' : feetPerPoint === null ? 'Unset' : scaleLabel(feetPerPoint).split(' =')[0]}
           </span>
           <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
         </button>
@@ -835,54 +865,47 @@ export function DocumentPill({
         )}
       </div>
 
-      <span className="dockrule" data-collapse="scale" aria-hidden="true" />
-
-      <div ref={viewRef} style={{ position: 'relative' }}>
+      {/* The overflow: page arrows and Fit from the Compact tier; zoom, fit width and the scale from Minimum. */}
+      <div ref={moreRef} className="dockmorewrap" data-from="compact" style={{ position: 'relative' }}>
         <button
-          className="dockvalue dockzoom"
+          className="dockbtn dockicon dockmore"
           aria-haspopup="menu"
-          aria-expanded={viewOpen}
-          title="Zoom and fit"
-          onClick={() => setViewOpen((v) => !v)}
-        >
-          {Math.round(zoom * 100)}%
-          <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
-        </button>
-        {viewOpen && (
-          <div className="dockmenu right" role="menu" ref={viewClamp.ref} style={viewClamp.style}>
-            <button className="menuitem" role="menuitem" onClick={() => { onFitPage(); setViewOpen(false) }}>
-              <Glyph icon={Maximize} role="inline" />
-              <span className="grow">Fit sheet</span>
-              <span className="hint">Ctrl+0</span>
+          aria-expanded={moreOpen}
+          aria-label="More"
+          title="More"
+          onClick={() => setMoreOpen((v) => !v)}
+        ><Glyph icon={Ellipsis} role="inline" /></button>
+        {moreOpen && (
+          <div className="dockmenu right" role="menu" ref={moreClamp.ref} style={moreClamp.style}>
+            <button className="menuitem" role="menuitem" data-from="compact" disabled={empty || page <= 0} onClick={() => { onPage(page - 1); setMoreOpen(false) }}>
+              <Glyph icon={ChevronDown} role="inline" style={{ transform: 'rotate(90deg)' }} />
+              <span className="grow">Previous sheet</span>
+              <span className="hint">PgUp</span>
             </button>
-            <button className="menuitem" role="menuitem" onClick={() => { onFitWidth(); setViewOpen(false) }}>
-              <Glyph icon={StretchHorizontal} role="inline" />
-              <span className="grow">Fit width</span>
-              <span className="hint">Ctrl+1</span>
+            <button className="menuitem" role="menuitem" data-from="compact" disabled={empty || page >= pageCount - 1} onClick={() => { onPage(page + 1); setMoreOpen(false) }}>
+              <Glyph icon={ChevronRight} role="inline" />
+              <span className="grow">Next sheet</span>
+              <span className="hint">PgDn</span>
             </button>
-            <div className="menusep" />
-            {/* The stepper, as rows: the buttons it replaced are the third
-                way to do what the wheel and the pinch already do. */}
-            <button className="menuitem" role="menuitem" onClick={() => onZoom(zoom * 1.25)}>
-              <Glyph icon={Plus} role="inline" />
-              <span className="grow">Zoom in</span>
-              <span className="hint">Ctrl+=</span>
+            <button className="menuitem" role="menuitem" data-from="compact" disabled={empty} onClick={() => { onFitPage(); setMoreOpen(false) }}>
+              <Glyph icon={Maximize} role="inline" /><span className="grow">Fit sheet</span><span className="hint">Ctrl+0</span>
             </button>
-            <button className="menuitem" role="menuitem" onClick={() => onZoom(zoom / 1.25)}>
-              <Glyph icon={Minus} role="inline" />
-              <span className="grow">Zoom out</span>
-              <span className="hint">Ctrl+-</span>
+            <div className="menusep" data-from="minimum" />
+            <button className="menuitem" role="menuitem" data-from="minimum" disabled={empty} onClick={() => { onZoom(zoom * 1.25); setMoreOpen(false) }}>
+              <Glyph icon={Plus} role="inline" /><span className="grow">Zoom in</span><span className="hint">Ctrl+=</span>
             </button>
-            <div className="menusep" />
-            {[0.5, 1, 2, 4].map((z) => (
-              <button
-                key={z}
-                className="menuitem"
-                role="menuitemradio"
-                aria-checked={Math.abs(zoom - z) < 0.005}
-                onClick={() => { onZoom(z); setViewOpen(false) }}
-              ><span className="grow">{z * 100}%</span></button>
-            ))}
+            <button className="menuitem" role="menuitem" data-from="minimum" disabled={empty} onClick={() => { onZoom(zoom / 1.25); setMoreOpen(false) }}>
+              <Glyph icon={Minus} role="inline" /><span className="grow">Zoom out</span><span className="hint">Ctrl+-</span>
+            </button>
+            <button className="menuitem" role="menuitem" data-from="minimum" disabled={empty} onClick={() => { onFitWidth(); setMoreOpen(false) }}>
+              <Glyph icon={StretchHorizontal} role="inline" /><span className="grow">Fit width</span><span className="hint">Ctrl+1</span>
+            </button>
+            <div className="menusep" data-from="minimum" />
+            <button className="menuitem" role="menuitem" data-from="minimum" disabled={empty} onClick={() => { setMoreOpen(false); setScaleOpen(true) }}>
+              <Glyph icon={Ruler} role="inline" />
+              <span className="grow">Scale…</span>
+              <span className="hint">{feetPerPoint === null ? 'Unset' : scaleLabel(feetPerPoint).split(' =')[0]}</span>
+            </button>
           </div>
         )}
       </div>
@@ -893,23 +916,23 @@ export function DocumentPill({
 // ---------------------------------------------------------------- dock --
 
 /**
- * ONE bar. `read`, `left` and `right` are GROUPS inside it, told apart by
- * separators rather than by being separate floating surfaces — see the note on
- * `.dock` in shell.css for why three islands had to become one object.
+ * The row: TWO floating surfaces (board 1, 2026-09-18) — the work surface
+ * and the sheet surface — 8px apart. The row itself is transparent and lets
+ * pointer events through to the drawing between them.
+ *
+ * `pinned` is a half-finished gesture on the sheet surface — a reference
+ * line waiting for its length, a box waiting for its scale. While it holds,
+ * the work surface dims and stops taking clicks: a tool picked mid-gesture
+ * would draw into a sheet whose scale is about to change.
  */
-export function Dock({ read, left, right }: {
-  read?: React.ReactNode
+export function Dock({ left, right, pinned = false }: {
   left: React.ReactNode
   right: React.ReactNode
+  pinned?: boolean
 }) {
   return (
-    <div className="dock">
-      <div className="dockside">
-        {read}
-        {read !== undefined && <span className="dockrule" aria-hidden="true" />}
-        {left}
-      </div>
-      <span className="dockrule" aria-hidden="true" />
+    <div className="dock" data-pinned={pinned || undefined}>
+      {left}
       {right}
     </div>
   )

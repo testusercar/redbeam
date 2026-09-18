@@ -45,17 +45,20 @@ describe('resolveRunInputs', () => {
   })
 
   /**
-   * A quirk of the Qt engine, ported deliberately: the plank spec editor offers
-   * "Conn. Max" and the layout ignores it. If this ever starts passing with the
-   * typed value, our counts have silently diverged from the oracle.
+   * The Qt engine forced a plank's connector spacing to its stock length and
+   * ignored the editor's Conn. Max — a quirk this port carried deliberately
+   * until Aaron, 2026-09-18: "connector spacing can be much less than stock
+   * length in the case that multiple rails need to happen along the length
+   * of a plank." An explicit Conn. Max wins; else the rail spacing; else the
+   * stock length. This is a known, chosen divergence from the oracle.
    */
-  it('ignores a plank’s own connector spacing and uses the stock length', () => {
-    const inputs = resolveRunInputs('planks', {
-      plankWidth: '6', plankWidthUnit: 'in',
-      stockLength: '10', stockLengthUnit: 'ft',
-      maxConnectorSpacing: '18', maxConnectorSpacingUnit: 'in',
-    })
-    expect(inputs?.maxConnectorSpacingFeet).toBe(10)
+  it('reads a plank’s own connector spacing, then its rail spacing, then the stock length', () => {
+    const base = { plankWidth: '6', plankWidthUnit: 'in', stockLength: '10', stockLengthUnit: 'ft' }
+    expect(resolveRunInputs('planks', { ...base, maxConnectorSpacing: '18', maxConnectorSpacingUnit: 'in' })?.maxConnectorSpacingFeet)
+      .toBeCloseTo(1.5, 10)
+    expect(resolveRunInputs('planks', { ...base, maxRailSpacing: '4', maxRailSpacingUnit: 'ft' })?.maxConnectorSpacingFeet)
+      .toBe(4)
+    expect(resolveRunInputs('planks', base)?.maxConnectorSpacingFeet).toBe(10)
   })
 
   /** Another one: a cassette's trim length is its cassetteWidth. */
@@ -178,17 +181,17 @@ describe('summarizeRuns', () => {
   })
 
   /**
-   * The area fallback. With a rail pitch and length but no laid rails, the Qt
-   * build estimates rail from the area — an approximation, kept because it is
-   * what the shipped numbers are.
+   * No area fallback. The Qt build estimated rail from the area when a pitch
+   * and a length were known but no rails had been laid — the approximation
+   * Aaron ruled out on 2026-09-18 ("never take the complete linear footage
+   * and divide it by the rail length"). A rail exists only as a laid run.
    */
-  it('estimates rail from the area when no rail runs were laid', () => {
+  it('reports no rail at all when no rail runs were laid', () => {
     const inputs = { ...BAFFLE_INPUTS, railSpacingFeet: 4, railLengthFeet: 10 }
     const entries = layoutRuns([ACROSS], BAFFLE_INPUTS) // laid WITHOUT rails
     const summary = summarizeRuns(entries, inputs)
-    // 100 sf / 4ft pitch = 25 lf; 25 / 10ft sticks = 2.5 -> 3.
-    expect(summary.suspensionRailLinearFeet).toBeCloseTo(25, 6)
-    expect(summary.suspensionRailCount).toBe(3)
+    expect(summary.suspensionRailLinearFeet).toBe(0)
+    expect(summary.suspensionRailCount).toBe(0)
   })
 
   it('is empty rather than wrong on an uncalibrated page', () => {

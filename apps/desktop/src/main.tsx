@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { applySystemAccent } from './accent.js'
+import { applySystemAccent, followSystemAccent } from './accent.js'
 import { applyBackdropClass } from './backdrop.js'
 import { installCrashHandlers } from './crash.js'
 import App from './App.js'
@@ -43,6 +43,7 @@ void applyBackdropClass()
  * awaited. Until it answers the theme carries Windows' default blue.
  */
 void applySystemAccent()
+followSystemAccent()
 
 /**
  * The webview's own context menu never belongs to this app.

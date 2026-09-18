@@ -30,7 +30,7 @@ import type { Point, Region } from './geometry.js'
 import type { Segment } from './pattern.js'
 import { buildRunLayout, type Piece, type RegionLayout } from './pieces.js'
 import { fractionApproximately, orderStockPieceCount, roundUpQuantity } from './panels.js'
-import { regionArea } from './geometry.js'
+import { regionArea, regionEdgeLengths, trimPiecesForEdges } from './geometry.js'
 import {
   measureToFeet, readBool, readString, type ProductType, type Specifications,
 } from './specs.js'
@@ -103,25 +103,52 @@ export function resolveRunInputs(
       // whatever reveal is specified between them.
       spacingFeet = componentWidthFeet + Math.max(0, optionalFeet(specs, 'revealSpacing'))
     }
-    maxConnectorSpacingFeet = stockLengthFeet
     perimeterTrimLengthFeet = optionalFeet(specs, 'perimeterTrimLength')
     railLengthFeet = optionalFeet(specs, 'railLength')
     railSpacingFeet = optionalFeet(specs, 'maxRailSpacing')
     if (!(railSpacingFeet > 0)) railSpacingFeet = optionalFeet(specs, 'minRailSpacing')
+    /*
+     * A plank's connector spacing was its stock length, unconditionally — the
+     * Qt engine's quirk, ported on purpose. Aaron, 2026-09-18: "connector
+     * spacing can be much less than stock length in the case that multiple
+     * rails need to happen along the length of a plank." So: an explicit
+     * Conn. Max first, else the rail spacing (a plank is fixed where a rail
+     * crosses it), else the stock length as before.
+     */
+    const explicitConnector = optionalFeet(specs, 'maxConnectorSpacing')
+    maxConnectorSpacingFeet = explicitConnector > 0
+      ? explicitConnector
+      : railSpacingFeet > 0 ? railSpacingFeet : stockLengthFeet
   } else if (product === 'baffle' || product === 'baffle_cassette') {
     spacingFeet = optionalFeet(specs, 'spacing')
     stockLengthFeet = optionalFeet(specs, 'stockLength')
     maxConnectorSpacingFeet = optionalFeet(specs, 'maxConnectorSpacing')
     if (!(spacingFeet > 0) || !(stockLengthFeet > 0) || !(maxConnectorSpacingFeet > 0)) return null
 
-    // Stored in INCHES under its own key, not as a value+unit pair.
-    const profileWidthInches = parseNumberOrFraction(readString(specs, 'profileWidthInches') ?? '')
-    if (profileWidthInches !== null && profileWidthInches > 0) {
-      componentWidthFeet = unitToFeet(profileWidthInches, 'in') ?? 0
+    // The editor's value-and-unit pair first; else the Qt build's key, which
+    // is INCHES under its own name rather than a pair.
+    componentWidthFeet = optionalFeet(specs, 'profileWidth')
+    if (!(componentWidthFeet > 0)) {
+      const profileWidthInches = parseNumberOrFraction(readString(specs, 'profileWidthInches') ?? '')
+      if (profileWidthInches !== null && profileWidthInches > 0) {
+        componentWidthFeet = unitToFeet(profileWidthInches, 'in') ?? 0
+      }
     }
     if (product === 'baffle_cassette') {
       perimeterTrimLengthFeet = optionalFeet(specs, 'cassetteWidth')
     }
+    /*
+     * Rails for baffles too. They were read for planks only, so a baffle
+     * ceiling — which hangs from suspension rails, and whose order lists them
+     * — could never report one. Aaron, 2026-09-18: "Rail should be basically
+     * perpendicular to the baffle at each connector location." So a baffle's
+     * rail pitch IS its connector spacing — there is no separate Rail Max —
+     * and the rails are laid as geometry, one run across the region per
+     * connector line, each cut from rail stock with its own offcut. Never
+     * area over spacing over length.
+     */
+    railLengthFeet = optionalFeet(specs, 'railLength')
+    railSpacingFeet = maxConnectorSpacingFeet
   } else {
     return null
   }
@@ -280,6 +307,14 @@ export function summarizeRuns(
     if (!(feetPerPoint > 0)) continue
     summary.totalSquareFeet += Math.abs(regionArea(entry.region)) * feetPerPoint * feetPerPoint
     summary.perimeterLinearFeet += regionPerimeterPoints(entry.region) * feetPerPoint
+    // Trim is cut per EDGE — each edge rounds up to whole sticks on its own
+    // (Aaron, 2026-09-18), the same rule the panels follow.
+    if (inputs.perimeterTrimLengthFeet > 0) {
+      summary.perimeterTrimPieces += trimPiecesForEdges(
+        regionEdgeLengths(entry.region).map((d) => d * feetPerPoint),
+        inputs.perimeterTrimLengthFeet,
+      )
+    }
 
     for (const piece of entry.layout.pieces) {
       summary.placedPieceCount++
@@ -326,31 +361,17 @@ export function summarizeRuns(
    */
   summary.primaryStockCount = orderStockPieceCount(stockFractions)
 
-  if (inputs.perimeterTrimLengthFeet > 0) {
-    summary.perimeterTrimPieces = roundUpQuantity(
-      summary.perimeterLinearFeet / inputs.perimeterTrimLengthFeet,
-    )
-  }
-
   /*
-   * Rails without geometry.
-   *
-   * When no rail runs were laid out — because the region produced none, or
-   * because only one of the two rail specs is set — but a spacing and a length
-   * are both known, the Qt build falls back to an AREA estimate: linear feet of
-   * rail is the area divided by the rail pitch. It is an approximation and it
-   * is deliberately kept, because it is what the shipped numbers are.
+   * No whole-length formulas. Trim was once the perimeter over the trim
+   * length, and rails — when no rail runs had been laid — the area over the
+   * rail pitch over the rail length, the Qt build's approximation. Both are
+   * gone (Aaron, 2026-09-18: "never take the complete linear footage and
+   * divide it by the rail length, because that will never get you the
+   * correct quantity"). Trim is cut per edge in the loop above, and a rail
+   * exists only as a laid run, cut from stock with its own offcut. Without
+   * a rail length there are no rails, not an estimate of them.
    */
-  if (
-    !hasExplicitRailPieces &&
-    inputs.railSpacingFeet > 0 &&
-    inputs.railLengthFeet > 0
-  ) {
-    summary.suspensionRailLinearFeet = summary.totalSquareFeet / inputs.railSpacingFeet
-    summary.suspensionRailCount = roundUpQuantity(
-      summary.suspensionRailLinearFeet / inputs.railLengthFeet,
-    )
-  }
+  void hasExplicitRailPieces
 
   return summary
 }
@@ -419,6 +440,23 @@ export function runQuantities(product: ProductType, summary: RunSummary): PieceQ
     summary.primaryStockCount,
     'EA',
   )
+  /*
+   * What is ORDERED per product — Aaron, 2026-09-18:
+   *   planks    planks, carrier rails and trim
+   *   baffles   baffles, suspension rails, connectors, joiners, end caps
+   *   cassettes cassette qty, baffle qty, end caps, etc.
+   * The engine counts connector locations, joints and caps for planks too
+   * (a plank's connector spacing is its stock length, so every joint is a
+   * "connector"), but a plank ceiling is not bought that way, and a count
+   * nobody orders on the list is a number someone will price. Planks report
+   * the three things a plank order has. The rail a plank hangs from is a
+   * carrier rail; a baffle's is a suspension rail.
+   */
+  if (product === 'planks') {
+    add('suspension_rails', 'Carrier rails', summary.suspensionRailCount, 'EA')
+    add('perimeter_trim', 'Perimeter trim', summary.perimeterTrimPieces, 'EA')
+    return out
+  }
   add('perimeter_trim', 'Perimeter trim', summary.perimeterTrimPieces, 'EA')
   add('connectors', 'Connectors', summary.uniqueConnectorCount, 'EA')
   add('end_caps', 'End caps', summary.endCapCount, 'EA')

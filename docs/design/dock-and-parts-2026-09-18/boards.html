@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><title>Dock and Parts</title>
+<script src="fluent-icons.js"></script>
+<style>
+:root{
+  --canvas:#161719;--chrome:#1C1D1F;--panel:#232427;
+  --raised:rgba(255,255,255,.0512);--hover:rgba(255,255,255,.0605);--selected:rgba(255,255,255,.0837);
+  --line:rgba(255,255,255,.0837);--line2:rgba(255,255,255,.14);--stroke:rgba(117,117,117,.4);
+  --ink:#F1F3F4;--ink2:#B8BDC3;--ink3:#93979C;--ink4:#6D7175;--dim:#55585B;
+  --accent:#FFAE35;--accentink:#1B1B1B;--red:#FF4D4D;--good:#6CCB5F;--warn:#FCE100;--bad:#FF99A4;
+  --flyout:rgba(44,44,44,.72);--acrylic:rgba(44,44,44,.60);
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--mono:"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d0e;color:var(--ink);font:13px/18px var(--sans);padding:6px 22px 30px}
+h1{font:600 20px/26px var(--sans);margin:14px 0 2px}
+h1 small{font-weight:400;color:#888;font-size:13px;margin-left:10px}
+h2{font:600 13px/18px var(--sans);color:var(--ink2);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em}
+.note{color:#9a9a9a;font-size:12px;line-height:17px;max-width:1500px;margin:0 0 10px}
+.note b{color:#ddd}
+.cap{font:11px var(--mono);color:#777;margin:0 0 6px}
+.row{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px}
+i.ic{display:inline-flex;width:20px;height:20px;flex:none;align-items:center;justify-content:center}
+i.ic svg{width:100%;height:100%;fill:currentColor}
+i.ic.s16{width:16px;height:16px}i.ic.s12{width:12px;height:12px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:3px;background:var(--raised);border:1px solid var(--line2);font:10px var(--mono);color:var(--ink2)}
+.findings{width:520px;font-size:12px;line-height:16px;color:#bbb}
+.findings ol{margin:0;padding-left:18px}
+.findings li{margin:0 0 7px}
+.findings b{color:#eee}
+.findings .f{color:var(--ink3);font-family:var(--mono);font-size:10.5px}
+
+/* a piece of drawing to float the dock over */
+.sheet{position:relative;overflow:hidden;border:1px solid var(--line2);border-radius:6px;background:var(--canvas)}
+.sheet .paper{position:absolute;inset:14px 14px 0 14px;background:#F2F0EB;border-radius:2px 2px 0 0;
+  background-image:linear-gradient(rgba(60,60,60,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(60,60,60,.18) 1px,transparent 1px);background-size:34px 34px}
+.sheet .paper::after{content:"";position:absolute;left:10%;top:18%;width:52%;height:64%;border:2px solid #b83c2a;background:rgba(240,171,66,.28)}
+.sheet .paper::before{content:"";position:absolute;left:66%;top:30%;width:22%;height:34%;border:2px solid #2a6db8;background:rgba(42,109,184,.18)}
+.dk{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;max-width:calc(100% - 28px)}
+.dk.pin{left:8px;right:8px;transform:none;max-width:none}
+.g{display:flex;align-items:center;gap:2px;padding:4px;border:1px solid var(--stroke);border-radius:8px;
+  background:var(--acrylic);backdrop-filter:blur(40px) saturate(130%);box-shadow:0 8px 20px rgba(0,0,0,.35);min-width:0}
+.b{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;min-width:32px;padding:0 6px;border-radius:4px;color:var(--ink2);white-space:nowrap;position:relative;font-size:12px}
+.b.l{padding:0 10px 0 8px}
+.b.on{background:var(--selected);color:var(--ink)}
+.b.on i{color:var(--accent)}
+.b.pill.on::after{content:"";position:absolute;left:50%;bottom:1px;width:16px;height:3px;margin-left:-8px;border-radius:2px;background:var(--accent)}
+.b.pill.on i{color:var(--ink)}
+.b.off{color:var(--dim)}
+.b.v{font-family:var(--mono);font-variant-numeric:tabular-nums;padding:0 10px}
+.b.dots{width:32px;padding:0}
+.r{width:1px;height:20px;background:var(--line2);margin:0 4px;flex:none}
+.sc{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 10px;border-radius:4px;background:var(--hover);color:var(--ink);font-size:12px;min-width:0}
+.sc .dot{width:8px;height:8px;border-radius:50%;background:#F0AB42;flex:none}
+.sc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc.muted{color:var(--ink3)}.sc.muted .dot{background:var(--ink4)}
+.to{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;border-radius:4px;background:var(--accent);color:var(--accentink);font-weight:600;font-size:12px;white-space:nowrap}
+.to.off{background:var(--hover);color:var(--dim);font-weight:400}
+.done{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:4px;border:1px solid var(--line2);color:var(--ink);font-size:12px;background:transparent;white-space:nowrap}
+.fly{position:absolute;bottom:calc(100% + 8px);right:0;width:250px;padding:6px;border:1px solid var(--stroke);border-radius:8px;background:var(--flyout);backdrop-filter:blur(40px) saturate(130%);box-shadow:0 8px 24px rgba(0,0,0,.42);font-size:12px;text-align:left;white-space:normal}
+.fly .h{padding:6px 8px 2px;font-weight:600;color:var(--ink)}
+.fly .s{padding:0 8px 6px;color:var(--ink3);font-size:11px}
+.fly .in{display:flex;gap:6px;padding:4px 8px}
+.fly .in span{flex:1;height:28px;border:1px solid var(--line2);border-bottom-color:var(--ink3);border-radius:4px;background:var(--hover);display:flex;align-items:center;padding:0 8px;color:var(--ink);font-family:var(--mono)}
+.fly .acts{display:flex;gap:6px;justify-content:flex-end;padding:6px 8px 2px}
+.fly .acts b{height:26px;padding:0 10px;border-radius:4px;background:var(--accent);color:var(--accentink);display:flex;align-items:center;font-weight:600}
+.fly .acts u{height:26px;padding:0 10px;border-radius:4px;border:1px solid var(--line2);display:flex;align-items:center;text-decoration:none;color:var(--ink2)}
+.fly .mi{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:4px;color:var(--ink)}
+.fly .mi.sel{background:var(--hover)}
+.fly .mi i{color:var(--ink3)}
+.fly .mi .k{margin-left:auto;color:var(--ink4);font-family:var(--mono);font-size:10.5px}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;background:var(--raised);color:var(--ink3);font:10.5px var(--mono);margin-left:6px;vertical-align:1px}
+.tiers{display:grid;grid-template-columns:120px 1fr 1fr 1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);font-size:11.5px;line-height:15px;max-width:1500px;border-radius:6px;overflow:hidden}
+.tiers div{background:#141416;padding:6px 10px;color:var(--ink2)}
+.tiers .hd{background:#1d1d20;color:var(--ink);font-weight:600}
+.tiers .k{color:var(--ink3)}
+.tiers .no{color:var(--bad)}
+.tiers .yes{color:var(--good)}
+
+/* parts */
+.pane{width:330px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);padding:8px 0 6px;font-size:12px}
+.pane .ph{display:flex;align-items:center;gap:8px;padding:0 10px 6px;font-weight:600}
+.pane .ph .dot{width:8px;height:8px;border-radius:50%;background:#F0AB42}
+.pane .ph small{color:var(--ink3);font-weight:400;margin-left:2px}
+.qs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;padding:0 10px 6px}
+.q{padding:4px 8px 4px 0}
+.q .v{font:600 15px/18px var(--mono);color:var(--ink)}
+.q .v small{font-size:10px;color:var(--ink3);margin-left:2px;font-weight:400}
+.q .v.un{color:var(--dim);font-weight:400}
+.q .l{font-size:10.5px;color:var(--ink3)}
+.sh{display:flex;align-items:center;gap:6px;padding:6px 10px 2px;border-top:1px solid var(--line);font-weight:600;color:var(--ink2);font-size:11.5px}
+.sh .n{color:var(--ink3);font-weight:400}
+.tr{display:grid;grid-template-columns:minmax(0,1fr) auto 26px;gap:8px;align-items:center;height:24px;padding:0 10px;color:var(--ink2)}
+.tr.h{height:20px;color:var(--ink3);font-size:10.5px}
+.tr .n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right}
+.tr .u{color:var(--ink3);font-size:10.5px}
+.tr.sub{height:18px;color:var(--ink3);font-size:11px;margin-top:-4px}
+.tr.sub .n{color:var(--ink3);font-size:11px}
+.tr.dup{background:rgba(255,77,77,.10)}
+.tr.dup .n{color:var(--bad)}
+.tr.meas{background:rgba(252,225,0,.08)}
+.tr .chip{display:inline-block;padding:0 5px;border-radius:3px;background:var(--raised);color:var(--ink3);font:10px var(--mono);margin-left:6px}
+.tr.acc{color:var(--ink3)}
+.why{width:300px;font-size:11.5px;line-height:15px;color:#aaa;padding-top:4px}
+.why b{color:#ddd}
+.why p{margin:0 0 6px}
+.diff{color:var(--bad)}.ok{color:var(--good)}
+.rules{font-size:11.5px;line-height:15px;color:#aaa;max-width:1500px;column-count:2;column-gap:28px}
+.rules p{margin:0 0 6px;break-inside:avoid}.rules b{color:#ddd}
+</style></head><body>
+
+<!-- ============================================================ 1 -->
+<section id="b1">
+<h1>Board 1 · The dock, reassessed <small>what is there today, what Fluent's CommandBar says, and the proposal at full width</small></h1>
+<p class="note">The dock is four floating acrylic groups over the drawing, icon-only, with a NavigationView pill under the tool in hand and no overflow. Fluent's CommandBar is the pattern it is closest to: <b>one surface, commands with an icon and a label, labels collapse before commands do, and commands that no longer fit go into a "…" overflow — never away.</b> The proposal keeps what earns its place (floating, acrylic, the accent Take off, the scope as a control) and fixes seven things the code does that the pattern does not.</p>
+<div class="row">
+<div class="col">
+  <div class="cap">TODAY · at rest · 1300px drawing</div>
+  <div class="sheet" style="width:1300px;height:150px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b pill on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span></div>
+      <div class="g"><span class="sc" style="max-width:120px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7/12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span></div>
+      <div class="g"><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8" = 1'-0" <i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">TODAY · takeoff · 1300px drawing</div>
+  <div class="sheet" style="width:1300px;height:150px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span></div>
+      <div class="g"><span class="sc" style="max-width:110px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b pill on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i></span><span class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></span><span class="b"><i class="ic" data-ic="Line20Regular"></i></span><span class="b"><i class="ic" data-ic="Location20Regular"></i></span><span class="b"><i class="ic" data-ic="Highlight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="CompassNorthwest20Regular"></i></span><span class="b"><i class="ic" data-ic="Dismiss20Regular"></i></span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7/12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span></div>
+      <div class="g"><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8" = 1'-0" <i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+
+  <div class="cap" style="margin-top:8px">PROPOSED · at rest · Spacious (drawing ≥ 1280px)</div>
+  <div class="sheet" style="width:1300px;height:150px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:240px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8" = 1'-0"<span class="tag" style="margin-left:2px">+2</span><i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">PROPOSED · takeoff · Spacious — labels on the tools, the toggle is a fill, Done where Take off was</div>
+  <div class="sheet" style="width:1300px;height:150px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b l on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i>Area</span><span class="b l"><i class="ic" data-ic="ShapeSubtract20Regular"></i>Cutout</span><span class="b l"><i class="ic" data-ic="Line20Regular"></i>Linear</span><span class="b l"><i class="ic" data-ic="Location20Regular"></i>Count</span><span class="b l"><i class="ic" data-ic="Highlight20Regular"></i>Highlight</span><span class="r"></span><span class="b l"><i class="ic" data-ic="CompassNorthwest20Regular"></i>Direction</span><span class="done"><i class="ic s16" data-ic="Checkmark16Regular"></i>Done</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+</div>
+<div class="findings">
+  <h2 style="margin-top:0">Findings, against Fluent's CommandBar</h2>
+  <ol>
+    <li><b>Four surfaces for one bar.</b> Four shadows, four strokes and three gaps sit on the sheet; the eye counts islands before it reads controls. A CommandBar is one surface whose groups are <i>separators</i>. Proposed: <b>two surfaces</b> — what you are doing (read tools · scope · takeoff tools) and where you are (sheet · zoom · scale). The scale group, a whole surface for one control, joins the sheet it describes. <span class="f">Dock.tsx: four .dockgroup</span></li>
+    <li><b>No labels, ever.</b> Fluent shows icon + label when there is room and drops the label first, the command last. Five takeoff tools an estimator meets weekly are icons with tooltips at every width. Proposed: labels at Spacious on the tools, Direction and Done; icons from Standard down; tooltips always.</li>
+    <li><b>The tool in hand wears a navigation pill.</b> The 16×3 accent bar is NavigationView's <i>selected page</i> mark, borrowed for a toggle. An AppBarToggleButton that is checked is a fill (ControlFillColorSecondary) and nothing under it. Proposed: the fill, with the Filled glyph in the accent — the rule the rail already follows. <span class="f">.dockbtn[aria-pressed]::after</span></li>
+    <li><b>Collapse discards commands.</b> Under 900px the zoom steppers vanish; under 560px Fit; under 400px every takeoff tool — and there is no overflow menu ("There is no overflow menu any more", shell.css). Fluent moves what does not fit into "…"; it never hides a command. Proposed: each surface owns a "…" that fills as tiers collapse (board 2).</li>
+    <li><b>The scope name yields first.</b> With 1400px of drawing the pill shows "C-MT-01 Met…" because it is the only flexible thing in a row of fixed ones. The scope is where markups land — the one context worth reading. Proposed: a 160px floor and a 240px ceiling; it truncates last, and the read tools go behind "…" before it does.</li>
+    <li><b>Leaving takeoff is ×.</b> Dismiss, at the end of a row of drawing tools, next to Direction, reads as "undo the last one". Proposed: Take off and Done are <b>one slot with two states</b> — the accent button becomes an outlined Done in the same place.</li>
+    <li><b>Zoom is four controls.</b> −, value, +, Fit. The value already opens a menu with both fits and presets. Proposed: at Standard the steppers stay (they are used); at Compact they go to the menu and <kbd>Ctrl</kbd><kbd>±</kbd>; Fit stays to Minimum because it is the one pressed most.</li>
+  </ol>
+  <p style="margin:6px 0 0;color:#8a8a8a">Kept on purpose: floating over the drawing (Whiteboard, Figma), acrylic, 32px buttons on a 40px surface (WinUI compact CommandBar), the accent Take off as the one primary, Pan · Select · Dimension as read tools apart from the scope's tools.</p>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="b2">
+<h1>Board 2 · Density <small>the same dock, in takeoff, at four widths of drawing — nothing disappears, it moves</small></h1>
+<p class="note">Width is the drawing's, not the window's: a 1280 window with both panes open leaves about 560px. Each tier sheds the <b>least load-bearing thing</b>, and everything shed lands in that surface's "…" — a control is never unreachable. Heights do not change: density here is horizontal; 32px is already WinUI's compact.</p>
+<div class="col">
+  <div class="cap">SPACIOUS · ≥ 1280px — labels on tools and Direction; zoom steppers; scale with its regions count</div>
+  <div class="sheet" style="width:1300px;height:110px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:240px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b l on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i>Area</span><span class="b l"><i class="ic" data-ic="ShapeSubtract20Regular"></i>Cutout</span><span class="b l"><i class="ic" data-ic="Line20Regular"></i>Linear</span><span class="b l"><i class="ic" data-ic="Location20Regular"></i>Count</span><span class="b l"><i class="ic" data-ic="Highlight20Regular"></i>Highlight</span><span class="r"></span><span class="b l"><i class="ic" data-ic="CompassNorthwest20Regular"></i>Direction</span><span class="done"><i class="ic s16" data-ic="Checkmark16Regular"></i>Done</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8" = 1'-0"<span class="tag" style="margin-left:2px">+2</span><i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">STANDARD · 900–1279px — tool labels go (tooltips keep them); Direction is icon; the scale keeps its label</div>
+  <div class="sheet" style="width:1000px;height:110px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i></span><span class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></span><span class="b"><i class="ic" data-ic="Line20Regular"></i></span><span class="b"><i class="ic" data-ic="Location20Regular"></i></span><span class="b"><i class="ic" data-ic="Highlight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="CompassNorthwest20Regular"></i></span><span class="done"><i class="ic s16" data-ic="Checkmark16Regular"></i>Done</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">COMPACT · 600–899px — zoom steppers into the zoom menu; Direction into "…"; scale is the ruler alone; scope at its 160px floor</div>
+  <div class="sheet" style="width:760px;height:110px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="min-width:160px;max-width:160px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i></span><span class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></span><span class="b"><i class="ic" data-ic="Line20Regular"></i></span><span class="b"><i class="ic" data-ic="Location20Regular"></i></span><span class="b"><i class="ic" data-ic="Highlight20Regular"></i></span><span class="r"></span><span class="done"><i class="ic s16" data-ic="Checkmark16Regular"></i>Done</span><span class="b dots"><i class="ic" data-ic="MoreHorizontal20Regular"></i></span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">MINIMUM · &lt; 600px — read tools fold to the one in hand + "…"; Done is a check; the sheet surface keeps page and a "…" with zoom, fit and scale. One row, pinned to the edges, never wrapped</div>
+  <div class="sheet" style="width:560px;height:110px"><div class="paper"></div>
+    <div class="dk pin">
+      <div class="g" style="flex:1 1 auto"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="r"></span><span class="sc" style="min-width:160px;max-width:200px;flex:1"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b on"><i class="ic" data-ic="DrawShape20Filled|DrawShape20Regular"></i></span><span class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></span><span class="b"><i class="ic" data-ic="Line20Regular"></i></span><span class="b"><i class="ic" data-ic="Location20Regular"></i></span><span class="b"><i class="ic" data-ic="Highlight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Checkmark20Regular"></i></span><span class="b dots"><i class="ic" data-ic="MoreHorizontal20Regular"></i></span></div>
+      <div class="g"><span class="b v">7/12</span><span class="b dots"><i class="ic" data-ic="MoreHorizontal20Regular"></i></span></div>
+    </div>
+  </div>
+
+  <h2>What each tier sheds, and where it goes</h2>
+  <div class="tiers">
+    <div class="hd">Control</div><div class="hd">Spacious ≥1280</div><div class="hd">Standard 900–1279</div><div class="hd">Compact 600–899</div><div class="hd">Minimum &lt;600</div>
+    <div class="k">Pan · Select · Dimension</div><div>three icons</div><div>three icons</div><div>three icons</div><div>the one in hand; the other two in "…"</div>
+    <div class="k">Scope pill</div><div>≤ 240px, full name</div><div>≤ 200px</div><div>160px floor</div><div>160px floor, fills what is left</div>
+    <div class="k">Take off / Done</div><div>accent label / outlined label</div><div>same</div><div>same</div><div>accent icon / check icon</div>
+    <div class="k">Five tools</div><div>icon + label</div><div>icon</div><div>icon</div><div>icon — <b>never shed</b>; they are what the mode is for</div>
+    <div class="k">Direction</div><div>icon + label</div><div>icon</div><div>in "…"</div><div>in "…"</div>
+    <div class="k">Page ‹ 7/12 ›</div><div>arrows + value</div><div>same</div><div>same</div><div>value only; arrows in "…" and <kbd>PgUp</kbd><kbd>PgDn</kbd></div>
+    <div class="k">Zoom − 43% +</div><div>steppers + menu</div><div>steppers + menu</div><div>menu only; steppers in it</div><div>in "…"</div>
+    <div class="k">Fit sheet</div><div>button</div><div>button</div><div>button</div><div>in "…" (<kbd>Ctrl</kbd><kbd>0</kbd>)</div>
+    <div class="k">Scale</div><div>ruler + label + regions</div><div>ruler + short label</div><div>ruler</div><div>in "…"</div>
+    <div class="k">Today, for contrast</div><div class="yes">everything, no labels</div><div class="no">steppers gone at 900</div><div class="no">Fit gone at 560; wraps to two rows</div><div class="no">scope name gone at 480; all tools gone at 400</div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="b3">
+<h1>Board 3 · States <small>every state the dock has, at Standard width</small></h1>
+<p class="note">Disabled, not hidden: the surfaces keep their place and their shape in every state, so the hand learns one layout. A control that cannot apply is dimmed with a tooltip saying why; a state with a half-finished gesture (calibrating, drawing a region) pins its flyout open and nothing else can dismiss it — as today.</p>
+<div class="row">
+<div class="col">
+  <div class="cap">NO DRAWING OPEN — both surfaces present, everything dimmed; the scope pill still names the round's scope</div>
+  <div class="sheet" style="width:960px;height:96px"><div class="paper" style="display:none"></div>
+    <div class="dk">
+      <div class="g"><span class="b off"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b off"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b off"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to off"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g"><span class="b off"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v off">— / —</span><span class="b off"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v off">—</span><span class="b off"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l off"><i class="ic" data-ic="Ruler20Regular"></i>Scale</span></div>
+    </div>
+  </div>
+  <div class="cap">NO ROUND — the pill says so and opens the estimates pane; Take off dimmed ("Start a round first")</div>
+  <div class="sheet" style="width:960px;height:96px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc muted" style="max-width:200px"><span class="dot"></span><span class="nm">No round open</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to off"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">ROUND, NO SCOPES — the pill is the "Add a scope…" affordance; the menu (open) shows the round and the empty list</div>
+  <div class="sheet" style="width:960px;height:190px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g" style="position:relative"><span class="b on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc muted" style="max-width:200px"><i class="ic s16" data-ic="Add16Regular"></i><span class="nm">Add a scope…</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to off"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span>
+        <div class="fly" style="right:auto;left:120px;width:260px"><div class="h">260729 – Negotiations <span style="color:var(--ink3);font-weight:400">· round</span></div><div class="s">No scopes in this round yet. Add one and it becomes where what you draw lands.</div><div class="mi sel"><i class="ic s16" data-ic="Add16Regular"></i>Add scope…</div></div>
+      </div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">SHEET WITHOUT A SCALE — the ruler reads "Unset" in the caution colour; Take off is allowed (highlights and counts need no scale) and the sidebar carries the warning, as today</div>
+  <div class="sheet" style="width:960px;height:96px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="Subtract20Regular"></i></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="Add20Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l" style="color:var(--warn)"><i class="ic" data-ic="Ruler20Regular"></i>Unset<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+<section id="b5">
+<h1>Board 3b · States, continued <small>the pinned gestures, a selection, and the scope menu</small></h1>
+<div class="row">
+<div class="col">
+  <div class="cap">CALIBRATING —the scale flyout is pinned open on the entry; the Sheet surface is the anchor, everything else dims until Apply or Cancel</div>
+  <div class="sheet" style="width:960px;height:236px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b off"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b off"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b off"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px;opacity:.5"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to off"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g" style="position:relative"><span class="b off"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v off">7 / 12</span><span class="b off"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v off">43%</span><span class="b off"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l on"><i class="ic" data-ic="Ruler20Filled|Ruler20Regular"></i>Calibrating…</span>
+        <div class="fly"><div class="h">Reference length</div><div class="s">The line you drew measures 214 pt. What is it on the drawing?</div><div class="in"><span>20' 0"</span></div><div class="acts"><u>Cancel</u><b>Apply to this sheet</b></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">DRAWING A SCALE REGION — same pin; the flyout lists this sheet's regions with the new box waiting for its scale</div>
+  <div class="sheet" style="width:960px;height:236px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g"><span class="b off"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b off"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b off"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px;opacity:.5"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="to off"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span></div>
+      <div class="g" style="position:relative"><span class="b off"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v off">7 / 12</span><span class="b off"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v off">43%</span><span class="b off"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l on"><i class="ic" data-ic="Crop20Filled|Crop20Regular"></i>1/8" = 1'-0"<span class="tag" style="margin-left:2px">+2</span></span>
+        <div class="fly" style="width:270px"><div class="h">Scale regions on this sheet</div><div class="mi"><i class="ic s16" data-ic="Crop16Regular"></i>Detail A <span class="k">1/4" = 1'-0"</span></div><div class="mi"><i class="ic s16" data-ic="Crop16Regular"></i>Detail B <span class="k">1/2" = 1'-0"</span></div><div class="mi sel"><i class="ic s16" data-ic="Crop16Regular"></i>New region <span class="k" style="color:var(--warn)">choose a scale…</span></div><div class="acts"><u>Done</u></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">SELECTION — Select has three markups; their commands are a CommandBarFlyout beside the selection, not more buttons in the dock (as today's popover, restyled acrylic)</div>
+  <div class="sheet" style="width:960px;height:206px"><div class="paper"></div>
+    <div class="fly" style="bottom:auto;top:40px;left:520px;right:auto;width:236px"><div class="h">3 markups <span style="color:var(--ink3);font-weight:400">· 2 areas, 1 cutout</span></div><div class="mi"><i class="ic s16" data-ic="ArrowSwap16Regular|ArrowRight16Regular"></i>Move to scope… <span class="k">M</span></div><div class="mi"><i class="ic s16" data-ic="Delete16Regular"></i>Delete <span class="k">Del</span></div></div>
+    <div class="dk">
+      <div class="g"><span class="b"><i class="ic" data-ic="HandLeft20Regular"></i></span><span class="b on"><i class="ic" data-ic="Cursor20Filled|Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronDown16Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="DrawShape20Regular"></i></span><span class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></span><span class="b"><i class="ic" data-ic="Line20Regular"></i></span><span class="b"><i class="ic" data-ic="Location20Regular"></i></span><span class="b"><i class="ic" data-ic="Highlight20Regular"></i></span><span class="r"></span><span class="b"><i class="ic" data-ic="CompassNorthwest20Regular"></i></span><span class="done"><i class="ic s16" data-ic="Checkmark16Regular"></i>Done</span></div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+  <div class="cap">THE SCOPE MENU — unchanged in content (round header, scopes with product and markup count, Add scope); acrylic, and the check is the Filled glyph rule</div>
+  <div class="sheet" style="width:960px;height:206px"><div class="paper"></div>
+    <div class="dk">
+      <div class="g" style="position:relative"><span class="b on"><i class="ic" data-ic="HandLeft20Filled|HandLeft20Regular"></i></span><span class="b"><i class="ic" data-ic="Cursor20Regular"></i></span><span class="b"><i class="ic" data-ic="Ruler20Regular"></i></span><span class="r"></span><span class="sc" style="max-width:200px;background:var(--selected)"><span class="dot"></span><span class="nm">C-MT-01 Metal Panel Ceiling</span><i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="to"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span>
+        <div class="fly" style="right:auto;left:120px;width:360px;bottom:calc(100% + 8px)"><div class="h">260729 – Negotiations <i class="ic s12" data-ic="ChevronDown16Regular" style="color:var(--ink3)"></i></div><div class="mi sel"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:#F0AB42"></span>C-MT-01 Metal Panel Ceiling <span class="k">panels · 4</span><i class="ic s16" data-ic="Checkmark16Filled|Checkmark16Regular" style="color:var(--accent)"></i></div><div class="mi"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:#6CCB5F"></span>C-BF-02 Linear Baffle <span class="k">baffle · 4</span></div><div class="mi" style="border-top:1px solid var(--line);margin-top:4px;padding-top:4px"><i class="ic s16" data-ic="Add16Regular"></i>Add scope…</div></div>
+      </div>
+      <div class="g"><span class="b"><i class="ic" data-ic="ChevronLeft20Regular"></i></span><span class="b v">7 / 12</span><span class="b"><i class="ic" data-ic="ChevronRight20Regular"></i></span><span class="r"></span><span class="b v">43% <i class="ic s12" data-ic="ChevronUp16Regular"></i></span><span class="b"><i class="ic" data-ic="FullScreenMaximize20Regular"></i></span><span class="r"></span><span class="b l"><i class="ic" data-ic="Ruler20Regular"></i>1/8"<i class="ic s12" data-ic="ChevronUp16Regular"></i></span></div>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="b4">
+<h1>Board 4 · The parts list, audited <small>what each product type emits today (from the code), and the minimal list proposed</small></h1>
+<p class="note">Two lists share the scope page: the <b>number tiles</b> (what was measured: SF, LF, EA) and <b>Parts</b> (what is ordered). Today the tiles always show three slots, Area · Perimeter · Count, with "—" in whatever this scope does not measure, and Parts mixes measurements into the order list. The rule proposed: <b>a tile is a measurement, a part is a thing you buy, and nothing appears twice.</b> Rows tinted red are duplicates; rows tinted yellow are measurements sitting in the order list.</p>
+<div class="row">
+  <div class="col">
+    <div class="cap">PANELS · today <span class="tag">verified</span></div>
+    <div class="pane">
+      <div class="ph"><span class="dot"></span>C-MT-01 Metal Panel Ceiling <small>· panels</small></div>
+      <div class="qs"><div class="q"><div class="v">19,968<small>SF</small></div><div class="l">Area</div></div><div class="q"><div class="v">412.5<small>LF</small></div><div class="l">Perimeter</div></div><div class="q"><div class="v un">—</div><div class="l">Count</div></div></div>
+      <div class="sh">Parts <span class="n">3</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Panels</span><span class="n">662</span><span class="u">EA</span></div>
+      <div class="tr dup"><span>Full panels</span><span class="n">662</span><span class="u">EA</span></div>
+      <div class="tr dup"><span>Half panels</span><span class="n">0</span><span class="u">EA</span></div>
+    </div>
+    <div class="why"><p><b>Why two lines say 662.</b> takeoff.ts emits <span class="mono">panel_count</span> and then its breakdown, <span class="mono">panel_full</span> and <span class="mono">panel_half</span>; with yield "full" the breakdown equals the count. bom.ts already knows this — it excludes the two from totals "so the same panels are not counted twice" — but the sidebar prints all three. Half is filtered only when zero.</p><p>Also dead: the label map carries <span class="mono">full_panels</span>, <span class="mono">trim_pieces</span>, <span class="mono">trim_linear_feet</span> that nothing emits.</p></div>
+  </div>
+  <div class="col">
+    <div class="cap">PANELS · proposed</div>
+    <div class="pane">
+      <div class="ph"><span class="dot"></span>C-MT-01 Metal Panel Ceiling <small>· panels</small></div>
+      <div class="qs"><div class="q"><div class="v">19,968<small>SF</small></div><div class="l">Area</div></div><div class="q"><div class="v">412.5<small>LF</small></div><div class="l">Perimeter</div></div></div>
+      <div class="sh">Parts <span class="n">1</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Panels <span class="chip">4' × 8'</span></span><span class="n">662</span><span class="u">EA</span></div>
+    </div>
+    <div class="cap" style="margin-top:8px">PANELS · proposed, yield = half</div>
+    <div class="pane">
+      <div class="ph"><span class="dot"></span>C-MT-01 Metal Panel Ceiling <small>· panels</small></div>
+      <div class="qs"><div class="q"><div class="v">19,968<small>SF</small></div><div class="l">Area</div></div><div class="q"><div class="v">412.5<small>LF</small></div><div class="l">Perimeter</div></div></div>
+      <div class="sh">Parts <span class="n">1</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Panels <span class="chip">4' × 8'</span></span><span class="n">640</span><span class="u">EA</span></div>
+      <div class="tr sub"><span>598 full · 42 cut to half</span><span class="n"></span><span></span></div>
+    </div>
+    <div class="why"><p><b>One part, one line.</b> The breakdown is a detail of the Panels line, shown only when yield is half or quarter — the only time it says anything. The Count tile goes: a panel scope measures area; its count is the part.</p></div>
+  </div>
+  <div class="col">
+    <div class="cap">PLANKS · today <span class="tag">unverified</span></div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#6CCB5F"></span>C-WD-04 Wood Plank <small>· planks</small></div>
+      <div class="qs"><div class="q"><div class="v">4,210<small>SF</small></div><div class="l">Area</div></div><div class="q"><div class="v">288.0<small>LF</small></div><div class="l">Perimeter</div></div><div class="q"><div class="v un">—</div><div class="l">Count</div></div></div>
+      <div class="sh">Parts <span class="n">7</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr meas"><span>Installed length</span><span class="n">1,204.0</span><span class="u">LF</span></div>
+      <div class="tr"><span>Planks</span><span class="n">214</span><span class="u">EA</span></div>
+      <div class="tr"><span>Perimeter trim</span><span class="n">36</span><span class="u">EA</span></div>
+      <div class="tr"><span>Connectors</span><span class="n">198</span><span class="u">EA</span></div>
+      <div class="tr"><span>End caps</span><span class="n">48</span><span class="u">EA</span></div>
+      <div class="tr"><span>Joiners</span><span class="n">102</span><span class="u">EA</span></div>
+      <div class="tr"><span>Suspension rails</span><span class="n">31</span><span class="u">EA</span></div>
+    </div>
+    <div class="why"><p><b>Installed length is a measurement</b> — the run total in LF, which runs.ts adds "because nothing else produces it". True, and the place that should produce it is the tiles. Every one of the seven lines also carries the same "not verified against the Qt build" note.</p></div>
+  </div>
+  <div class="col">
+    <div class="cap">PLANKS · proposed (baffles and cassettes read the same way)</div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#6CCB5F"></span>C-WD-04 Wood Plank <small>· planks</small></div>
+      <div class="qs"><div class="q"><div class="v">4,210<small>SF</small></div><div class="l">Area</div></div><div class="q"><div class="v">288.0<small>LF</small></div><div class="l">Perimeter</div></div><div class="q"><div class="v">1,204<small>LF</small></div><div class="l">Installed</div></div></div>
+      <div class="sh">Parts <span class="n">1</span> <span class="chip" style="margin-left:auto">unverified</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Planks <span class="chip">12' stock</span></span><span class="n">214</span><span class="u">EA</span></div>
+      <div class="sh">Accessories <span class="n">5</span></div>
+      <div class="tr acc"><span>Suspension rails</span><span class="n">31</span><span class="u">EA</span></div>
+      <div class="tr acc"><span>Connectors</span><span class="n">198</span><span class="u">EA</span></div>
+      <div class="tr acc"><span>End caps</span><span class="n">48</span><span class="u">EA</span></div>
+      <div class="tr acc"><span>Joiners</span><span class="n">102</span><span class="u">EA</span></div>
+      <div class="tr acc"><span>Perimeter trim</span><span class="n">36</span><span class="u">EA</span></div>
+    </div>
+    <div class="why"><p><b>The primary stock is the part.</b> Installed length moves up to a third tile. Accessories are real things to buy but they are not the product: a second, quieter group, still only the ones above zero. The confidence note is said once, on the header.</p><p><b>To confirm with you:</b> which accessories you actually order per product — the code emits all five for every run product.</p></div>
+  </div>
+</div>
+<div class="row" style="margin-top:14px">
+  <div class="col">
+    <div class="cap">LINEAR PARTS · today <span class="tag">verified</span></div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#60CDFF"></span>T-01 Perimeter Trim <small>· linear parts</small></div>
+      <div class="qs"><div class="q"><div class="v un">—</div><div class="l">Area</div></div><div class="q"><div class="v">243.8<small>LF</small></div><div class="l">Length</div></div><div class="q"><div class="v un">—</div><div class="l">Count</div></div></div>
+      <div class="sh">Parts <span class="n">4</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Parts</span><span class="n">21</span><span class="u">EA</span></div>
+      <div class="tr dup"><span>Measured length</span><span class="n">243.8</span><span class="u">LF</span></div>
+      <div class="tr meas"><span>Ordered length</span><span class="n">252.0</span><span class="u">LF</span></div>
+      <div class="tr meas"><span>Offcut</span><span class="n">8.2</span><span class="u">LF</span></div>
+    </div>
+    <div class="why"><p><b>Three of four lines are lengths.</b> Measured length is the Length tile, printed again. Ordered length and offcut are arithmetic on the one part.</p></div>
+  </div>
+  <div class="col">
+    <div class="cap">LINEAR PARTS · proposed</div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#60CDFF"></span>T-01 Perimeter Trim <small>· linear parts</small></div>
+      <div class="qs"><div class="q"><div class="v">243.8<small>LF</small></div><div class="l">Length</div></div></div>
+      <div class="sh">Parts <span class="n">1</span></div>
+      <div class="tr h"><span>Part</span><span>Qty</span><span></span></div>
+      <div class="tr"><span>Parts <span class="chip">12' each</span></span><span class="n">21</span><span class="u">EA</span></div>
+      <div class="tr sub"><span>252.0 LF ordered · 8.2 LF offcut</span><span class="n"></span><span></span></div>
+    </div>
+    <div class="why"><p><b>One line, its arithmetic beneath.</b> A single Length tile, because that is all this scope measures.</p></div>
+  </div>
+  <div class="col">
+    <div class="cap">CUSTOM ASSEMBLY · today</div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#B58CFF"></span>C-AC-03 Acoustic Cloud <small>· custom assembly</small></div>
+      <div class="qs"><div class="q"><div class="v un">—</div><div class="l">Area</div></div><div class="q"><div class="v un">—</div><div class="l">Length</div></div><div class="q"><div class="v">14<small>EA</small></div><div class="l">Count</div></div></div>
+      <div class="sh">Parts <span class="n"></span></div>
+      <div class="tr" style="color:var(--ink3);height:auto;padding:4px 10px 8px">No parts for this product.</div>
+    </div>
+    <div class="cap" style="margin-top:8px">CUSTOM ASSEMBLY · proposed — no Parts section; the tile is the answer</div>
+    <div class="pane">
+      <div class="ph"><span class="dot" style="background:#B58CFF"></span>C-AC-03 Acoustic Cloud <small>· custom assembly · measured as count</small></div>
+      <div class="qs"><div class="q"><div class="v">14<small>EA</small></div><div class="l">Count</div></div></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="cap">THE ROUND'S STRIP · today → proposed</div>
+    <div class="pane" style="width:330px">
+      <div class="ph">260729 – Negotiations <small>· 4 scopes</small></div>
+      <div class="qs"><div class="q"><div class="v">24,178<small>SF</small></div><div class="l">Area · 2 scopes</div></div><div class="q"><div class="v">944.3<small>LF</small></div><div class="l">Length · 3 scopes</div></div><div class="q"><div class="v">14<small>EA</small></div><div class="l">Count · 1 scope</div></div></div>
+      <div class="sh" style="border-top:1px dashed var(--line2);color:var(--ink3)">proposed</div>
+      <div class="qs"><div class="q"><div class="v">24,178<small>SF</small></div><div class="l">Area · 2 scopes</div></div><div class="q"><div class="v">944.3<small>LF</small></div><div class="l">Length · 3 scopes</div></div><div class="q"><div class="v">14<small>EA</small></div><div class="l">Count · 1 scope</div></div></div>
+    </div>
+    <div class="why"><p><b>The round keeps all three</b> when its scopes produce all three — here they do. A round of panel scopes only would show Area and Perimeter. A slot never reads "—".</p></div>
+  </div>
+</div>
+<h2>Rules, in one place</h2>
+<div class="rules">
+  <p><b>A tile is a measurement.</b> Area, Perimeter, Length, Installed, Count — what the markups add up to, in SF, LF or EA. A scope shows only the tiles its type measures; no slot is ever empty.</p>
+  <p><b>A part is a thing you buy.</b> Panels, planks, baffle stock, cassettes, linear parts. One line each, with its size as a chip and its arithmetic (breakdown, ordered length, offcut) as a quiet second line — never as a part of its own.</p>
+  <p><b>Accessories are a second group.</b> Rails, connectors, end caps, joiners, trim: real, but not the product. Folded under their own header, only the ones above zero.</p>
+  <p><b>Nothing twice.</b> Full panels at yield "full", measured length beside the Length tile, installed length in the parts list — each is the same number in a second place, and each goes.</p>
+  <p><b>Confidence is said once.</b> An unverified product gets one chip on the Parts header, not a note on every line. The export keeps confidence as a column, as it does now.</p>
+  <p><b>No parts, no section.</b> A custom assembly is quantified by hand: the tile is the whole answer and "No parts for this product" is a sentence about the software, not the ceiling.</p>
+  <p><b>The data does not change.</b> takeoff.ts and runs.ts keep emitting every quantity; bom.ts keeps every line and its confidence; the TSV and HTML exports gain a "kind" (part · detail · accessory · measurement) rather than losing rows. This is a presentation rule, so a number that exists today still exists.</p>
+</div>
+</section>
+
+<script>
+(function(){ var q = new URLSearchParams(location.search).get("board"); if (q) { document.querySelectorAll("section").forEach(function(sec){ if (sec.id !== "b" + q) sec.remove() }) } })();
+(function(){
+  var F = window.FLUENT || {};
+  document.querySelectorAll('i.ic[data-ic]').forEach(function(el){
+    var names = el.getAttribute('data-ic').split('|'); var paths = null, size = 20;
+    for (var i = 0; i < names.length; i++) { if (F[names[i]]) { paths = F[names[i]]; size = parseInt((names[i].match(/(\d+)(Regular|Filled)$/)||[0,20])[1], 10); break } }
+    if (!paths) { el.innerHTML = '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-dasharray="2 2"/></svg>'; el.title = 'missing ' + names[0]; return }
+    el.innerHTML = '<svg viewBox="0 0 ' + size + ' ' + size + '">' + paths.map(function(d){ return '<path d="' + d + '"/>' }).join('') + '</svg>';
+  });
+})();
+</script>
+</body></html>

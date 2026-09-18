@@ -97,6 +97,42 @@ export function regionArea(region: Region): number {
 }
 
 /** Perimeter of every ring in the region, each treated as closed. */
+/**
+ * Every edge of every ring, as a length — the closing edge included when the
+ * ring is not already closed. Zero-length edges (a repeated point) are left
+ * out, since nothing is cut for them.
+ *
+ * For trim. A length of trim is cut to an EDGE, not to a perimeter: a 25ft
+ * wall in 10ft sticks is three sticks, and the two feet left over do not
+ * carry round the corner to the next wall (Aaron, 2026-09-18). Summing the
+ * perimeter and dividing once under-counts by a stick at most corners.
+ */
+export function regionEdgeLengths(region: Region): number[] {
+  const edges: number[] = []
+  for (const ring of region) {
+    if (ring.length < 2) continue
+    for (let i = 1; i < ring.length; i++) {
+      const d = distance(ring[i - 1]!, ring[i]!)
+      if (d > 0) edges.push(d)
+    }
+    const first = ring[0]!
+    const last = ring[ring.length - 1]!
+    if (first.x !== last.x || first.y !== last.y) {
+      const d = distance(last, first)
+      if (d > 0) edges.push(d)
+    }
+  }
+  return edges
+}
+
+/** Trim pieces for a set of edge lengths: each edge rounds up on its own. */
+export function trimPiecesForEdges(edgeLengths: readonly number[], trimLength: number): number {
+  if (!(trimLength > 0)) return 0
+  let pieces = 0
+  for (const edge of edgeLengths) pieces += Math.ceil(edge / trimLength - 1e-9)
+  return pieces
+}
+
 export function regionPerimeter(region: Region): number {
   let perimeter = 0
   for (const ring of region) {

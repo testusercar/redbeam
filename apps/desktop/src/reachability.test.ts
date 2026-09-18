@@ -43,10 +43,8 @@ const AREAS = [
  * entry that cannot state one should be deleted instead of listed.
  */
 const KNOWN = new Map<string, string>([
-  ['packages/domain/src/trace.ts',
-    'Finish-region tracing, ported from the Qt build. Complete and tested; no '
-    + 'tool in the toolbar and no MCP verb reaches it. Wiring it needs a UI '
-    + 'decision (click-to-fill is a different gesture from every other tool).'],
+  // trace.ts left this list on 2026-09-11: a right-click on the drawing
+  // offers "Trace the region here as an area" (Workspace.traceAt).
   ['apps/desktop/src/tools/annotation.ts',
     'Callout and highlight. The last two unwired tools from the ported toolset; '
     + 'dimension.ts was the third and is now on the toolbar. Everything below '

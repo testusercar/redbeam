@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Viewer, clampViewport, zoomAbout, type OverlaySet, type Viewport } from '@redbeam/viewer'
+import { Viewer, clampViewport, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation } from '@redbeam/viewer'
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
-  calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction,
+  calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction, parseLengthInput, isLengthUnit,
+  formatLength, formatMeasureValue, scopeTypeForProduct,
+  traceRegion,
   scopeToolWarning, calculatePieces, scopeDefaultDirectionFrom,
   SCALE_PRESETS, PRODUCT_TYPES, PRODUCT_TYPE_LABEL, readProductType, writeProductType, missingRequiredMeasures,
-  areaSquareFeet, linearFeet, feetPerPointForPreset, presetSource, scaleLabel,
+  areaSquareFeet, linearFeet, cutoutSquareFeet, cutoutSubtracts, feetPerPointForPreset, presetSource, scaleLabel,
   bucketByScale, conflictingRegions, type ScaleRegion,
   buildBom, bomToTsv,
   type MarkupKind, type PieceResult, type ScalePreset,
   type Calibration, type Markup, type Scope, type ScopeType, type QuantityResult,
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, pageDirectionsFrom, areaDirectionsFrom,
-  pointInPolygon,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
 } from '@redbeam/domain'
 import {
@@ -20,7 +21,7 @@ import {
   estimateDocuments, addScopeToEstimate,
   upsertScope, setScopeArchived, type SqlDriver,
   pageIdFor, searchProjectText, indexPageText, textIndexCoverage,
-  type DocumentRow, type SearchHit,
+  type DocumentRow, type SearchHit, type NormBox,
   UndoStack, createMarkup as cmdCreate, removeMarkup as cmdRemove,
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
@@ -33,7 +34,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
-import { openDatabase, debounceSave, type DbBackend } from './db.js'
+import { openDatabase, openMemory, debounceSave, type DbBackend } from './db.js'
 import { broadcastChange, onChange } from '@redbeam/store'
 import { getWindowRole, openContextWindow, isTauri } from './tauri/window.js'
 import { windowTitle } from './windowTitle.js'
@@ -54,8 +55,8 @@ import {
   DocumentTabStrip, FileList, Sidebar, TitleBar,
   type PanelFile, type ProjectMenuEntry, type RailPanel, type ShellTab,
 } from './shell/Shell.js'
-import { Dock, DocumentPill, ReadPill, ToolPill } from './shell/Dock.js'
-import { newScope } from './shell/scopeFactory.js'
+import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
+import { newScope, SCOPE_PALETTE } from './shell/scopeFactory.js'
 import { SheetIndex } from './shell/SheetIndex.js'
 import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
@@ -63,18 +64,22 @@ import { PerfReadout } from './shell/PerfReadout.js'
 import { buildSheetIndex, sheetFromText } from './shell/sheets.js'
 import type { SheetIndexShape, SheetOutlineNode } from './shell/sheets.js'
 import {
-  EstimatesPanel, type EstimateFile, type EstimateListItem, type ScopeMarkup,
+  EstimatesPanel, type EstimateFile, type EstimateListItem, type PanelWarning, type ScopeMarkup, type ScopeStanding,
   type ScopePage,
 } from './shell/RightWorkspace.js'
 import { renderTakeoffReport } from './export/report.js'
 import { projectBridge, projectNameFromPath } from './project/bridge.js'
 import { createCoreBlobUrlResolver } from './project/ingest.js'
-import { openProjectDocuments } from './project/openProject.js'
-import { SearchPanel } from './search/SearchPanel.js'
+import { openProjectDocuments, type ProjectScanner } from './project/openProject.js'
+import { SearchPanel, type SearchScope } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
 import type { Command, Step } from './palette/commands.js'
 import { snapPoint, drawSnapIndicator, DEFAULT_SNAP, type SnapResult } from './snap.js'
-import { hitTest, drawSelection, drawMarquee, markupsInRect, insertVertexAt, removeVertexAt, type Hit } from './hit.js'
+import {
+  hitTest, drawAnnotationSelection, drawSelection, drawMarquee, markupsInRect, insertVertexAt, removeVertexAt,
+  isAxisAlignedRect, resizeRectVertex, resizeRectEdge, type Hit,
+} from './hit.js'
+import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.js'
 import { normalizedToScreen } from './draw.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { PerfRegistry, type Stats, type Budget } from './perf.js'
@@ -99,7 +104,7 @@ import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayo
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2 } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair } from './shell/icons.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -141,6 +146,20 @@ export interface WorkspaceProps {
   /** Pick a folder, then open it — same second-window rule. */
   onBrowseProject?: () => void
   /**
+   * QUICK VIEW: a drawing open with no project behind it.
+   *
+   * The store is in memory and holds this one file; nothing persists. Any
+   * markup action asks for the drawing's project folder first — `onAdopt` —
+   * rather than making a project beside the PDF by itself. Aaron, 2026-09-18.
+   */
+  quickView?: { file: string; relativePath: string; onAdopt: () => void }
+  /** Name this job, as the switcher's header offers. */
+  onRenameProject?: (name: string) => void
+  /** Show this job's folder in Explorer. Desktop only. */
+  onRevealProject?: () => void
+  /** The recents list changed under a prompt action (rename, hide, set aside); re-read it. */
+  onRecentsChanged?: () => void
+  /**
    * The drawing this window was opened to show, by relative path.
    *
    * Set on a context window popped out from a tab. Without it the new window
@@ -164,24 +183,125 @@ function pageIndexOf(pageId: string): number | null {
 
 /**
  * Cutouts that subtract from nothing: no area of the same scope on the same
- * page contains their first vertex — the rule `effectiveAreaRings` applies.
+ * page overlaps them, the rule `effectiveAreaRings` applies.
  */
 function strayCutouts(markups: readonly Markup[]): number {
   let n = 0
   for (const c of markups) {
-    if (c.kind !== 'cutout') continue
-    const probe = c.rings[0]?.[0]
-    if (probe === undefined) continue
-    const inside = markups.some((a) =>
-      a.kind === 'area' && a.pageId === c.pageId && a.scopeId === c.scopeId
-      && a.rings.some((ring) => pointInPolygon(probe, ring)))
-    if (!inside) n++
+    if (c.kind === 'cutout' && !cutoutSubtracts(c, markups)) n++
   }
   return n
 }
 
+/**
+ * How far past the sheet's edge the wheel, the pinch and a drag may show
+ * canvas: half a window. Fit and page changes still frame the sheet exactly.
+ */
+const OVERSCROLL = 0.5
+
+/* ------------------------------------------------- the PDF's own markups -- */
+
+/**
+ * The convertible annotation under a normalized point: the smallest box
+ * that contains it, so a note inside a room picks the note. A hair of
+ * slack, as the right-click menu has always allowed.
+ */
+function annotationAt(n: { x: number; y: number }, list: readonly PageAnnotation[]): PageAnnotation | null {
+  const slack = 0.002
+  let best: PageAnnotation | null = null
+  let bestArea = Number.POSITIVE_INFINITY
+  for (const a of list) {
+    const r = a.rect
+    if (n.x < r.x0 - slack || n.x > r.x1 + slack || n.y < r.y0 - slack || n.y > r.y1 + slack) continue
+    const area = (r.x1 - r.x0) * (r.y1 - r.y0)
+    if (area < bestArea) { best = a; bestArea = area }
+  }
+  return best
+}
+
+/* ---------------------------------------------------------- hover cursor -- */
+
+/**
+ * The resize cursor for a grip on an axis-aligned rectangle, or a move
+ * cursor over a markup's inside, in the Select tool. Anything else keeps the
+ * tool's cursor. Only rectangles get resize arrows: on a polygon an edge
+ * drag is not a resize, and a corner drag moves one vertex.
+ */
+function hoverCursorFor(hit: Hit | null, markups: readonly Markup[], tool: Tool): string | null {
+  if (hit === null || tool !== 'select') return null
+  const ring = markups.find((m) => m.id === hit.markupId)?.rings[0]
+  if (ring === undefined) return null
+  if (hit.part === 'inside') return 'move'
+  if (!isAxisAlignedRect(ring)) return null
+  if (hit.part === 'edge') {
+    const a = ring[hit.index]!
+    const b = ring[(hit.index + 1) % ring.length]!
+    return Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? 'ns-resize' : 'ew-resize'
+  }
+  let cx = 0, cy = 0
+  for (const p of ring) { cx += p.x; cy += p.y }
+  cx /= ring.length; cy /= ring.length
+  const p = ring[hit.index]!
+  return (p.x < cx) === (p.y < cy) ? 'nwse-resize' : 'nesw-resize'
+}
+
+/* ------------------------------------------------------- sidebar widths -- */
+
+/** Both panes start at this width: equal, as asked. */
+const SIDEBAR_DEFAULT = 340
+const clampPane = (w: number) => Math.round(Math.min(560, Math.max(232, w)))
+const clampWork = (w: number) => Math.round(Math.min(640, Math.max(320, w)))
+function readWidth(key: string, clamp: (w: number) => number): number {
+  try {
+    const raw = localStorage.getItem(key)
+    const n = raw === null ? Number.NaN : Number(raw)
+    return Number.isFinite(n) ? clamp(n) : SIDEBAR_DEFAULT
+  } catch {
+    return SIDEBAR_DEFAULT
+  }
+}
+
+/**
+ * A drag handle on one edge of the drawing. Reports the pointer's window x
+ * while dragging; the caller turns that into a pane width. Double-click
+ * resets. Pointer capture keeps the drag alive over the sheet and the pane.
+ */
+function ColumnGrip({ side, onDrag, onReset }: {
+  side: 'left' | 'right'
+  onDrag: (clientX: number) => void
+  onReset: () => void
+}) {
+  return (
+    <div
+      className={`colgrip ${side}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={side === 'left' ? 'Resize the left pane' : 'Resize the estimates pane'}
+      title="Drag to resize · double-click to reset"
+      onDoubleClick={onReset}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        const el = e.currentTarget
+        try { el.setPointerCapture(e.pointerId) } catch { /* synthetic events */ }
+        el.classList.add('dragging')
+        const move = (ev: PointerEvent) => onDrag(ev.clientX)
+        const up = () => {
+          el.classList.remove('dragging')
+          el.removeEventListener('pointermove', move)
+          el.removeEventListener('pointerup', up)
+          el.removeEventListener('pointercancel', up)
+        }
+        el.addEventListener('pointermove', move)
+        el.addEventListener('pointerup', up)
+        el.addEventListener('pointercancel', up)
+      }}
+    />
+  )
+}
+
 export default function Workspace({
-  projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject,
+  projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged, onRenameProject, onRevealProject, quickView,
   initialDocumentPath,
 }: WorkspaceProps) {
   const stageRef = useRef<HTMLDivElement>(null)
@@ -212,9 +332,12 @@ export default function Workspace({
    * forward-slash-only character class, which splits nothing on Windows and
    * printed the entire path where the project name belongs.
    */
+  // The name the estimator gave the project, when there is one; the folder
+  // name otherwise.
   const projectName = useMemo(
-    () => projectNameFromPath(projectPath) || 'Project',
-    [projectPath],
+    () => recentProjects?.find((p) => p.path.toLowerCase() === projectPath.toLowerCase())?.displayName
+      || projectNameFromPath(projectPath) || 'Project',
+    [projectPath, recentProjects],
   )
   const [backend, setBackend] = useState<DbBackend | null>(null)
   /*
@@ -247,6 +370,8 @@ export default function Workspace({
    * the browser; tabs are for what you are working on.
    */
   const [openDocIds, setOpenDocIds] = useState<string[]>([])
+  /** Tabs closed this session, oldest first, for "Reopen closed tab". */
+  const closedTabsRef = useRef<string[]>([])
   /*
    * The document browser is the Files pane. "Open another document" from the
    * tab strip, the app menu or the bridge opens that pane and puts the cursor
@@ -367,6 +492,15 @@ export default function Workspace({
   /** The bill of materials is showing, as a level of the estimates panel. */
   /* Which page of the open scope shows: the dock's Quantities opens Parts, its Specifications opens Setup. */
   const [scopePage, setScopePage] = useState<ScopePage>('parts')
+  const [paletteSeed, setPaletteSeed] = useState('')
+  /** The cursor the thing under the pointer asks for, or null for the tool's own. */
+  const [hoverCursor, setHoverCursor] = useState<string | null>(null)
+  const hoverCursorRef = useRef<string | null>(null)
+  /* Sidebar widths: equal by default, remembered per machine. */
+  const [paneW, setPaneW] = useState(() => readWidth('rb.paneW', clampPane))
+  const [workW, setWorkW] = useState(() => readWidth('rb.workW', clampWork))
+  useEffect(() => { try { localStorage.setItem('rb.paneW', String(paneW)) } catch { /* private mode */ } }, [paneW])
+  useEffect(() => { try { localStorage.setItem('rb.workW', String(workW)) } catch { /* private mode */ } }, [workW])
   /** Which left-rail panel is showing, or null when the panel is collapsed. */
   /*
    * Files first. A project opens with no drawing on the stage (see the open
@@ -533,8 +667,17 @@ export default function Workspace({
    * and every command reachable from the palette would have been swallowed by
    * its precedence anyway. Refusing to open is the honest version of that.
    */
-  const openPalette = useCallback(() => {
+  const openPalette = useCallback((seed?: unknown) => {
     if (pendingCalRef.current !== null) return
+    // Seeded with a prefix when a menu hands off to the prompt ("More…" in
+    // the project menu opens it at `~`). Anything that is not a string — a
+    // click event from a handler passed straight through — is no seed.
+    setPaletteSeed(typeof seed === 'string' ? seed : '')
+    // A context menu on the drawing closes: the prompt is the one overlay,
+    // and a menu left open under it stayed on the sheet through a whole hub
+    // flow (seen on the MSK Podium file, 2026-09-14).
+    setMarkupMenu(null)
+    setAnnotMenu(null)
     // Search no longer closes: it is a rail pane beside the drawing rather
     // than an overlay, so it can sit under the palette without competing
     // for the same space.
@@ -545,7 +688,10 @@ export default function Workspace({
     setPaletteOpen(false); setRailPanel('search'); setSearchFocus((n) => n + 1)
   }, [])
 
-  const openSettings = useCallback(() => {
+  /** The setting the panel opens at, when it was reached through the prompt. */
+  const [settingsTarget, setSettingsTarget] = useState<string | null>(null)
+  const openSettings = useCallback((target?: unknown) => {
+    setSettingsTarget(typeof target === 'string' ? target : null)
     setSettingsOpen(true)
   }, [])
 
@@ -605,21 +751,82 @@ export default function Workspace({
    * either was changed — two controls for one value, silently out of step.
    */
   const snapOn = prefs['takeoff.snapEnabled'] !== false
+  const snapToLines = prefs['takeoff.snapToLines'] !== false
+  /**
+   * The stroke multiplier for markups and layout lines at a zoom: the
+   * line-weight setting, times the zoom relative to the opening zoom when
+   * weights follow it. A ref-backed callback, because the viewer asks on
+   * every paint and was built once.
+   */
+  const strokeScaleFor = useCallback((zoom: number): number => {
+    const weight = Number(prefsRef.current['takeoff.lineWeight'] ?? 100) / 100
+    const follow = prefsRef.current['takeoff.scaleLineWeightWithZoom'] === true
+    return weight * (follow ? Math.min(6, Math.max(0.5, zoom / 0.35)) : 1)
+  }, [])
   const [undoState, setUndoState] = useState<UndoState>({
     canUndo: false, canRedo: false, undoLabel: null, redoLabel: null, depth: 0,
   })
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedRef = useRef<string[]>([])
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  /*
+   * The PDF's OWN markups on this sheet, as selectable objects.
+   *
+   * Bluebeam's polygons, squares, lines and ink are drawn into the page by
+   * PDFium and used to be reachable only by right-clicking on top of one.
+   * In the Select tool they select like ours — click, Ctrl+click for more,
+   * or a box — and the selection converts to a chosen scope from the
+   * right-click menu or the prompt (Aaron, 2026-09-11). Indices into the
+   * page's /Annots array; the list is refreshed when the sheet changes.
+   */
+  const annotsRef = useRef<PageAnnotation[]>([])
+  const [selectedAnnots, setSelectedAnnots] = useState<number[]>([])
+  const selectedAnnotsRef = useRef<number[]>([])
+  const selectAnnots = useCallback((next: number[]) => { selectedAnnotsRef.current = next; setSelectedAnnots(next) }, [])
   const clipboardRef = useRef<Markup[]>([])
   const hoverRef = useRef<Hit | null>(null)
   const editRef = useRef<
     | { mode: 'vertex'; id: string; index: number }
+    // An edge of a RECTANGLE, dragged: the whole edge moves and the shape
+    // stays a rectangle. Any other edge drag moves the markup.
+    | { mode: 'edge'; id: string; index: number }
     | { mode: 'move'; ids: string[]; lastN: { x: number; y: number }
         origins: Map<string, Array<{ x: number; y: number }>> }
     | null
   >(null)
   const snapRef = useRef<SnapResult | null>(null)
+  /** Alt held: place the point exactly where the cursor is, no snap. */
+  const altRef = useRef(false)
+  /**
+   * The search hit last jumped to, painted on its sheet until the next jump
+   * or an Escape. Kenneth, 2026-09-10: "search results should be
+   * highlighted". Boxes are normalized, y down, like every markup.
+   */
+  const hitHighlightRef = useRef<{ pageId: string; boxes: NormBox[] } | null>(null)
+
+  /**
+   * Auto-pan: a gesture in progress with the pointer at the stage's edge
+   * slides the sheet, so a shape larger than the window can be drawn without
+   * letting go. Kenneth, 2026-09-10: "when drawing a shape that is larger
+   * than the viewport, the viewport should pan to follow".
+   *
+   * A rAF loop while the pointer stays in the edge band. Each tick moves the
+   * view and then re-runs the move handler at the pointer's last position,
+   * because the sheet moved under a pointer that did not: the rubber band,
+   * the rectangle and the marquee all have to follow.
+   */
+  const autoPanRef = useRef<{
+    raf: number; vx: number; vy: number
+    at: { clientX: number; clientY: number; pointerId: number; shiftKey: boolean; altKey: boolean }
+  } | null>(null)
+  const moveHandlerRef = useRef<((e: React.PointerEvent) => void) | null>(null)
+  const stopAutoPan = useCallback(() => {
+    const ap = autoPanRef.current
+    if (ap === null) return
+    cancelAnimationFrame(ap.raf)
+    autoPanRef.current = null
+  }, [])
+  useEffect(() => () => stopAutoPan(), [stopAutoPan])
   /**
    * A rectangle being dragged out for an area or a cutout.
    *
@@ -655,6 +862,25 @@ export default function Workspace({
   const [markupMenu, setMarkupMenu] = useState<
     { x: number; y: number; markupId: string; part: Hit['part']; index: number } | null
   >(null)
+  /**
+   * The menu for a right-click on the DRAWING itself: the PDF's own markups
+   * under the pointer, offered for conversion, and a trace of the region
+   * there. See openDrawingMenu.
+   */
+  const [annotMenu, setAnnotMenu] = useState<{
+    x: number; y: number; nx: number; ny: number
+    annotations: PageAnnotation[]
+    /** Every convertible annotation on the sheet, for "convert all". */
+    onSheet: number
+  } | null>(null)
+  /*
+   * A new sheet starts with nothing of the PDF's selected. The list itself
+   * is fetched by the viewer's `onPage` below: an effect keyed on the
+   * document id ran before the new viewer had booted and asked the OLD one,
+   * so on the MSK Podium file the cache held A-351A's 74 shapes while
+   * A-351B's 101 were on screen (2026-09-14).
+   */
+  useEffect(() => { annotsRef.current = []; selectAnnots([]) }, [activeDocId, pageIndex, selectAnnots])
 
 
   /**
@@ -768,6 +994,23 @@ export default function Workspace({
           active: toolRef.current === 'scale-region',
         })
       }
+      // The search hit last jumped to, on its own sheet only.
+      const hl = hitHighlightRef.current
+      if (hl !== null && hl.pageId === pageIdFor(docIdRef.current, pageIndexRef.current)) {
+        oc.save()
+        oc.fillStyle = 'rgba(255, 210, 74, 0.38)'
+        oc.strokeStyle = 'rgba(255, 170, 0, 0.9)'
+        oc.lineWidth = 1
+        for (const b of hl.boxes) {
+          const a = normalizedToScreen(b.x0, b.y0, viewRef.current, page.width, page.height)
+          const c = normalizedToScreen(b.x1, b.y1, viewRef.current, page.width, page.height)
+          const x = Math.min(a.x, c.x) - 2, y = Math.min(a.y, c.y) - 2
+          const w = Math.abs(c.x - a.x) + 4, h = Math.abs(c.y - a.y) + 4
+          oc.fillRect(x, y, w, h)
+          oc.strokeRect(x, y, w, h)
+        }
+        oc.restore()
+      }
       // Layout goes UNDER the markups and the selection: it is context for the
       // takeoff, not the takeoff.
       if (layoutOn) {
@@ -802,6 +1045,11 @@ export default function Workspace({
             showRails: prefsRef.current['takeoff.layoutRails'] !== false,
             showTrim: prefsRef.current['takeoff.layoutTrim'] !== false,
             showSeams: prefsRef.current['takeoff.layoutSeams'] !== false,
+            lineWeight: strokeScaleFor(viewRef.current.zoom),
+            // The face width, in this sheet's points, when the scope states one.
+            ...(entry.result.componentWidthFeet !== undefined && (calRef.current?.feetPerPoint ?? 0) > 0
+              ? { componentWidthPoints: entry.result.componentWidthFeet / calRef.current!.feetPerPoint }
+              : {}),
           }
           const cells = entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
           const runs = entry.result.runs.filter((r) => r.pageId === here)
@@ -813,6 +1061,10 @@ export default function Workspace({
       const sel = markupsRef.current.filter((m) => ids.has(m.id))
       drawSelection(oc, sel, viewRef.current, page.width, page.height,
         hoverRef.current?.part === 'vertex' ? hoverRef.current.index : null)
+      if (selectedAnnotsRef.current.length > 0) {
+        const chosen = new Set(selectedAnnotsRef.current)
+        drawAnnotationSelection(oc, annotsRef.current.filter((a) => chosen.has(a.index)), viewRef.current, page.width, page.height)
+      }
       drawMarquee(oc, marqueeRef.current)
       drawDraft(oc, draftRef.current, viewRef.current, page.width, page.height)
       drawSnapIndicator(oc, snapRef.current)
@@ -842,6 +1094,45 @@ export default function Workspace({
   const paintRef = useRef(paint)
   paintRef.current = paint
 
+  /*
+   * QUICK VIEW's gate. A drawing open for viewing has no project, so the
+   * verbs that would make a markup, a round, a scope or a commit ask for the
+   * drawing's project folder first — the picker opens — and do nothing until
+   * one is chosen. With a project behind the window this is always true.
+   */
+  const requireProject = useCallback((): boolean => {
+    if (quickView === undefined) return true
+    setWorkOpen(true)
+    setStatus('Open for viewing — choose the drawing’s project folder to take off')
+    quickView.onAdopt()
+    return false
+  }, [quickView, setStatus])
+
+  /*
+   * What the store is told the folder holds. A project is scanned; a quick
+   * view is exactly one file, described from its path, so a PDF picked from
+   * a share with four hundred other documents does not ingest all of them.
+   */
+  const scanner = useMemo((): ProjectScanner => {
+    if (quickView === undefined) return projectBridge
+    const { file, relativePath } = quickView
+    return {
+      scanProject: async () => ({
+        root: projectPath,
+        files: [{
+          relativePath,
+          absolutePath: file,
+          displayName: relativePath.split('/').pop() ?? relativePath,
+          kind: 'pdf', status: 'ready', sizeBytes: 0, modifiedAt: null,
+          contentFingerprint: null, availability: 'local', fileDateHint: null,
+        }],
+        truncated: false,
+        unreadable: [],
+        scannedAt: new Date().toISOString(),
+      }),
+    }
+  }, [quickView, projectPath])
+
   // ------------------------------------------------------------- database --
   useEffect(() => {
     let cancelled = false
@@ -850,7 +1141,7 @@ export default function Workspace({
     const saved = readSession(projectPath)
     let held: Awaited<ReturnType<typeof openDatabase>> | null = null
     ;(async () => {
-      const opened = await openDatabase(projectPath)
+      const opened = quickView !== undefined ? await openMemory() : await openDatabase(projectPath)
       if (cancelled) {
         // Opened after the window moved on: let go at once.
         void opened.close()
@@ -882,7 +1173,7 @@ export default function Workspace({
        * The browser build has no project folder and exists to be looked at, so
        * it still gets them.
        */
-      if (existing.length === 0 && opened.backend !== 'tauri') {
+      if (existing.length === 0 && opened.backend !== 'tauri' && quickView === undefined) {
         for (const s of SEED_SCOPES) {
           await upsertScope(opened.driver, { ...s, archivedAt: null })
         }
@@ -924,7 +1215,7 @@ export default function Workspace({
       // reconciling only on a complete scan, and still opening when the folder
       // cannot be read.
       const opened2 = await openProjectDocuments(
-        opened.driver, projectBridge, projectPath, () => cancelled,
+        opened.driver, scanner, projectPath, () => cancelled,
       )
       if (cancelled) return
       // Browser mode ingests nothing, but the workspace still runs on the
@@ -1328,19 +1619,95 @@ export default function Workspace({
     return () => { cancelled = true }
   }, [activeDocId, pageIndex, page.width, pageReadyKey])
 
-  const runSearch = useCallback(async (q: string) => {
+  /**
+   * Run a search over the chosen reach.
+   *
+   * Hits on the OPEN document carry boxes, resolved from the viewer's own
+   * text extraction, so they can be painted and highlighted; a sheet in
+   * another document has no viewer to ask, and its hits carry none. The
+   * folder reach is the open document's folder; at the root it is the
+   * whole project.
+   */
+  const runSearch = useCallback(async (q: string, scope: SearchScope) => {
     const db = dbRef.current
     if (!db) throw new Error('no project is open')
-    return searchProjectText(db, q)
-  }, [])
+    const docId = docIdRef.current
+    const doc = documents.find((d) => d.id === docId)
+    const folder = doc === undefined ? '' : doc.relativePath.split('/').slice(0, -1).join('/')
+    const reach =
+      scope === 'sheet' ? { documentId: docId, pageId: pageIdFor(docId, pageIndexRef.current) }
+      : scope === 'document' ? { documentId: docId }
+      : scope === 'folder' && folder !== '' ? { pathPrefix: folder }
+      : {}
+    return searchProjectText(db, q, {
+      ...reach,
+      layout: async (pageId) => {
+        const v = viewerRef.current
+        const index = pageIndexOf(pageId)
+        if (!v || index === null || !pageId.startsWith(`${docIdRef.current}-p`)) return undefined
+        try {
+          const t = await v.requestText(index)
+          return { runs: t.runs }
+        } catch {
+          return undefined
+        }
+      },
+    })
+  }, [documents])
 
+  /**
+   * Read the project folder again.
+   *
+   * The folder is scanned once, when the project opens; a drawing dropped in
+   * during a session was invisible until the next launch. Kenneth,
+   * 2026-09-10: "give me a refresh option to refresh the file tree if files
+   * have been added within the session." The same sequence as opening (scan,
+   * reconcile only on a complete scan, list), and the indexer picks up
+   * whatever is new from the documents list.
+   */
+  const refreshFiles = useCallback(async () => {
+    const db = dbRef.current
+    if (!db) return
+    setScan('reading')
+    setStatus('reading the folder…')
+    try {
+      const opened2 = await openProjectDocuments(db, scanner, projectPath, () => false)
+      // The browser build cannot scan; keep the bundled sample listed.
+      if (opened2.documents.length > 0 || isTauri()) setDocuments(opened2.documents)
+      setIngestNote(opened2.note)
+      const n = opened2.documents.length
+      setStatus(`${n} document${n === 1 ? '' : 's'} in the folder`)
+    } catch (err) {
+      setStatus(`could not read the folder: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setScan('done')
+    }
+  }, [projectPath])
+
+  /**
+   * A page to show once the NEXT document has booted.
+   *
+   * A hit in another document changes the document and asks for the page in
+   * the same tick, and the viewer still holding the old document refused the
+   * page — "page 3 out of range (0..0)" on every hit past a one-sheet PDF.
+   * The page waits here and the new viewer's onReady takes it.
+   */
+  const pendingPageRef = useRef<number | null>(null)
   const goToHit = useCallback((hit: SearchHit) => {
     // pageNumber is ZERO-based, straight from pages.page_number — the same
     // space as the viewer's index. Adding one here would land a sheet past
     // every hit.
-    if (hit.documentId !== docIdRef.current) setActiveDocId(hit.documentId)
+    hitHighlightRef.current = hit.boxes !== null && hit.boxes.length > 0
+      ? { pageId: hit.pageId, boxes: hit.boxes }
+      : null
+    if (hit.documentId !== docIdRef.current) {
+      pendingPageRef.current = hit.pageNumber
+      setActiveDocId(hit.documentId)
+      return
+    }
     goToPage(hit.pageNumber)
-  }, [])
+    requestPaint()
+  }, [goToPage, requestPaint])
 
   // ---------------------------------------------------------------- viewer --
   useEffect(() => {
@@ -1352,6 +1719,7 @@ export default function Workspace({
     const worker = new PdfWorker()
     const viewer = new Viewer(rasterRef.current, overlayRef.current, worker, {
       tileSize: 512,
+      overlay: { strokeScale: strokeScaleFor },
       // The viewer already reports each tile's cost; feed it to the budget
       // rather than measuring it a second time from outside.
       onTile: (ms) => {
@@ -1360,9 +1728,21 @@ export default function Workspace({
         // for one and the 120ms interval eventually noticed.
         requestPaint()
       },
-      onReady: ({ pageCount: n, sizes }) => { setPageCount(n); setPageSizes([...sizes]) },
+      onReady: ({ pageCount: n, sizes }) => {
+        setPageCount(n); setPageSizes([...sizes])
+        // The page a search hit asked for before this document had booted.
+        const want = pendingPageRef.current
+        pendingPageRef.current = null
+        if (want !== null && want >= 0 && want < n) viewer.loadPage(want)
+      },
       onPage: (info) => {
         setPage({ width: info.width, height: info.height })
+        // The sheet's own markups, for the Select tool: asked of THIS viewer,
+        // for the page it has just shown, so a document switch cannot serve
+        // the previous document's list.
+        void viewer.requestAnnotations(info.index)
+          .then((list) => { if (viewerRef.current === viewer) annotsRef.current = list.filter((a) => a.shape !== 'other') })
+          .catch(() => { /* a sheet with no readable annotations has none to select */ })
         /*
          * Keep the page-size TABLE current, not just the active page.
          *
@@ -1417,7 +1797,9 @@ export default function Workspace({
     })
     viewerRef.current = viewer
     viewer.boot('/pdfium.wasm', docUrl)
-    const t = setTimeout(() => viewer.loadPage(0), 50)
+    // A pending page (a search hit into this document) is loaded from onReady
+    // instead, once the count is known.
+    const t = setTimeout(() => { if (pendingPageRef.current === null) viewer.loadPage(0) }, 50)
     return () => {
       clearTimeout(t)
       if (frameRef.current !== 0) cancelAnimationFrame(frameRef.current)
@@ -1439,7 +1821,24 @@ export default function Workspace({
 
   // Recompute quantities whenever markups or calibration change.
   useEffect(() => {
-    if (!cal) { setQuantities([]); return }
+    /*
+     * NOT GATED ON THE OPEN SHEET'S SCALE.
+     *
+     * This began `if (!cal) { setQuantities([]); return }`, where `cal` is the
+     * calibration of the page on screen. Everything below measures per page
+     * from the PROJECT's calibrations, so that gate did only one thing: with
+     * no sheet open, or an unscaled sheet on screen, it emptied every scope in
+     * the round. A scope with six scaled areas on A-101 read "No measurement"
+     * and had no parts, the export said "No takeoff yet" for the whole round,
+     * and a committed scope reported "5 changed" against a live total that
+     * was empty because the cover sheet happened to be showing. The numbers
+     * changed when you changed tabs. That was the hot mess, and it was one
+     * line.
+     *
+     * A page with no calibration still contributes nothing — that rule is
+     * kept, per page, below. What is gone is the rule that the sheet you are
+     * LOOKING at decides whether any other sheet counts.
+     */
     /*
      * The DOCUMENT's markups, measured page by page.
      *
@@ -1476,6 +1875,16 @@ export default function Workspace({
       (pageId) => projectCalibrations.get(pageId) ?? null,
     )
     setQuantities(scopes.map((s) => {
+      /*
+       * A scope with nothing drawn has NO rows, not a row reading 0.
+       *
+       * The per-bucket calculation returns its area and length lines at zero
+       * for a scope none of the bucket's markups belong to, and adding those
+       * up printed "0 SF" in the round's list beside "0 markups" — a
+       * measurement of nothing, presented as a measurement. Nothing drawn is
+       * an absence, and the row and the hero both already know how to say so.
+       */
+      if (!projectMarkups.some((m) => m.scopeId === s.id)) return { scope: s, rows: [] }
       const totals = new Map<string, QuantityResult>()
       for (const bucket of buckets) {
         // Boxes come from the store, keyed by page id, so a page in another
@@ -1512,7 +1921,6 @@ export default function Workspace({
      * A page with no calibration is left out rather than borrowed against;
      * a missing number is recoverable and a confident wrong one is not.
      */
-    const pageSize = { width: cal.pageWidth, height: cal.pageHeight }
     const calibrations = new Map<string, Calibration>()
     const pageBoxes = new Map<string, { width: number; height: number }>()
     /*
@@ -1530,9 +1938,23 @@ export default function Workspace({
       pageBoxes.set(pageId, size)
     }
 
+    /*
+     * `calculatePieces` wants one calibration and one page size as the
+     * fallback for a page the maps do not cover. The open sheet's, when it
+     * has one; otherwise any calibrated page's, since the maps carry the real
+     * per-page values and the fallback only matters for a page that has a box
+     * but no calibration — which is excluded from the count anyway. With no
+     * calibrated page anywhere there is nothing to measure, and that is the
+     * one case that still ends with no numbers.
+     */
+    const first = calibrations.values().next()
+    const fallbackCal: Calibration | null = cal ?? (first.done ? null : first.value)
+    if (fallbackCal === null) { setPieces([]); return }
+    const pageSize = { width: fallbackCal.pageWidth, height: fallbackCal.pageHeight }
+
     setPieces(scopes.map((s) => ({
       scope: s,
-      result: calculatePieces(s, projectMarkups, cal, {
+      result: calculatePieces(s, projectMarkups, fallbackCal, {
         scopeDirection: scopeDefaultDirectionFrom(s.specifications),
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
         pageDirections: pageDirectionsFrom(s.specifications),
@@ -1752,7 +2174,7 @@ export default function Workspace({
     if (!db) return
     const rounds = await listEstimates(db)
     setEstimates(rounds.map((e) => ({
-      id: e.id, name: e.name, scopeCount: e.scopeCount, markupCount: e.markupCount,
+      id: e.id, name: e.name, scopeCount: e.scopeCount, markupCount: e.markupCount, scopeIds: e.scopeIds,
     })))
     setEstimatesLoaded(true)
     const id = openId === undefined ? openEstimateIdRef.current : openId
@@ -1770,7 +2192,7 @@ export default function Workspace({
 
   const createEstimate = useCallback(async (name: string) => {
     const db = dbRef.current
-    if (!db) return
+    if (!db || !requireProject()) return
     const id = `estimate-${crypto.randomUUID()}`
     await createEstimateRow(db, id, name)
     saveRef.current?.()
@@ -1889,6 +2311,15 @@ export default function Workspace({
    * showing through the app.
    */
   const cancelDraft = useCallback(() => {
+    selectAnnots([])
+    stopAutoPan()
+    hitHighlightRef.current = null
+    // The snap marker was cleared only when an edit's pointer went up, so a
+    // right-click out of a tool left it painted at a fixed spot on screen
+    // until the next tool was picked. Aaron: "a persistent shape I can't
+    // get rid of."
+    snapRef.current = null
+    hoverRef.current = null
     draftRef.current = emptyDraft(draftRef.current.tool)
     // The dimension keeps its own draft, and Escape left its first point
     // standing: the next click closed a dimension nobody was drawing.
@@ -1896,7 +2327,7 @@ export default function Workspace({
     setSelectedIds([])
     selectedRef.current = []
     requestPaint()
-  }, [requestPaint])
+  }, [requestPaint, stopAutoPan])
 
   // ------------------------------------------------------------ committing --
   const commitDraft = useCallback(async () => {
@@ -1948,12 +2379,16 @@ export default function Workspace({
     }
 
     if (d.tool === 'calibrate') {
-      // hand off to the inline form; the draft stays on screen behind it
+      // hand off to the inline form; the draft stays on screen behind it,
+      // WITHOUT its rubber band: the line is finished, and a band from its
+      // second point to the cursor read as a request for a third.
+      draftRef.current = { ...d, cursor: null }
       const length = draftLengthPdfPoints(d, page.width, page.height)
       // Eagerly, so the very next click is already refused (see onPointerDown).
       pendingCalRef.current = length
       setPendingCal(length)
       setCalError(null)
+      requestPaint()
       return
     }
 
@@ -2045,14 +2480,21 @@ export default function Workspace({
   const applyCalibration = useCallback(async (raw: string, unit: string) => {
     const db = dbRef.current
     if (!db || pendingCal === null) return
-    const value = parseNumberOrFraction(raw)
-    if (value === null) { setCalError(`can't read "${raw}"`); return }
-    const built = calibrationFromReference(pendingCal, value, unit, page.width, page.height)
+    // 20'-6" carries its unit; a bare number takes the dropdown's.
+    const parsed = parseLengthInput(raw, isLengthUnit(unit) ? unit : 'ft')
+    if (parsed === null) { setCalError(`can't read "${raw}"`); return }
+    const built = calibrationFromReference(pendingCal, parsed.value, parsed.unit, page.width, page.height)
     if (!built) { setCalError(`unknown unit "${unit}"`); return }
     await commitCalibration(built, 'reference-line')
     setPendingCal(null)
     setCalError(null)
     draftRef.current = emptyDraft('calibrate')
+    /*
+     * The tool goes DOWN. It stayed armed after the answer, so the next click
+     * began a second line, which read as the sheet asking for a third point.
+     * Kenneth: "scope calibration should only be two points and then stop."
+     */
+    setTool('pan')
   }, [pendingCal, page.width, page.height, commitCalibration])
 
   const cancelCalibration = useCallback(() => {
@@ -2144,6 +2586,7 @@ export default function Workspace({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey
+      altRef.current = e.altKey
       const d = draftRef.current
       const mod = e.ctrlKey || e.metaKey
 
@@ -2254,8 +2697,10 @@ export default function Workspace({
         dimensionDraftRef.current = dimensionDraftBack(dimensionDraftRef.current)
         requestPaint()
       }
+      else if (e.key === 'F5') { e.preventDefault(); void refreshFiles() }
       else if (dialogOpenRef.current) { /* a dialog owns the keyboard */ }
-      else if (e.key === 'v') { setTool('pan') }
+      else if (e.key === 'v') { setTool('select') }
+      else if (e.key === 'h') { setTool('pan') }
       else if (e.key === 'a') { setTool('area') }
       else if (e.key === 'l') { setTool('polyline') }
       else if (e.key === 'c') { setTool('count') }
@@ -2268,17 +2713,18 @@ export default function Workspace({
     }
     const onKeyUp = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey
+      altRef.current = e.altKey
       if (e.key === ' ') {
         spaceRef.current = false
         const el = stageRef.current
-        if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : 'crosshair'
+        if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : toolRef.current === 'select' ? 'default' : 'crosshair'
       }
     }
     // Alt-tabbing away with space held would leave it held forever.
     const onBlur = () => {
       spaceRef.current = false
       const el = stageRef.current
-      if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : 'crosshair'
+      if (el !== null) el.style.cursor = toolRef.current === 'pan' ? 'grab' : toolRef.current === 'select' ? 'default' : 'crosshair'
     }
     window.addEventListener('blur', onBlur)
     window.addEventListener('keydown', onKey)
@@ -2289,7 +2735,7 @@ export default function Workspace({
       window.removeEventListener('blur', onBlur)
     }
   }, [commitDraft, requestPaint, removeMarkups, doUndo, doRedo, copySelection, pasteClipboard,
-    cancelCalibration, cancelRegion])
+    cancelCalibration, cancelRegion, refreshFiles])
 
   /*
    * Synced during RENDER, not in an effect.
@@ -2344,6 +2790,10 @@ export default function Workspace({
       ;(window as unknown as Record<string, unknown>).__redbeam = {
         markups, cal, scopes, selectedIds,
         page, pageIndex, pageCount, activeDocId, documents, ingestNote,
+        projectPageBoxes, projectCalibrations, projectMarkups,
+        selectedAnnots, annots: () => annotsRef.current, selectAnnots,
+        // Test plumbing: a sheet with no annotations can be given some.
+        setAnnots: (list: PageAnnotation[]) => { annotsRef.current = list },
         goToPage,
         viewer: () => viewerRef.current,
         undoState,
@@ -2369,13 +2819,14 @@ export default function Workspace({
           hitTest(x, y, markupsRef.current, viewRef.current, page.width, page.height),
       }
     }
-  }, [markups, cal, scopes, selectedIds, page, undoState, pageIndex, pageCount, goToPage, activeDocId, documents, ingestNote])
+  }, [markups, cal, scopes, selectedIds, page, undoState, pageIndex, pageCount, goToPage, activeDocId, documents, ingestNote, selectedAnnots, selectAnnots])
   useEffect(() => { selectedRef.current = selectedIds }, [selectedIds])
 
   useEffect(() => {
     draftRef.current = emptyDraft(tool)
+    snapRef.current = null
     // leaving the pan tool drops the selection; editing only happens with Pan
-    if (tool !== 'pan') { setSelectedIds([]); selectedRef.current = []; hoverRef.current = null }
+    if (tool !== 'pan' && tool !== 'select') { setSelectedIds([]); selectedRef.current = []; hoverRef.current = null }
     requestPaint()
   }, [tool, requestPaint])
 
@@ -2402,6 +2853,34 @@ export default function Workspace({
     return out
   }, [markups, page.width, page.height])
 
+  /**
+   * The ends of this sheet's lines, as snap targets (snapAnchors.ts).
+   *
+   * Built lazily on the first snap that wants it and kept for the sheet;
+   * `grid: null` with `done: false` is a request in flight, with `done: true`
+   * a sheet whose geometry could not be read, so neither is asked for twice.
+   * Lazily rather than on page change because the request only makes sense
+   * against a viewer that has booted, and the first pointer move over a
+   * rendered sheet is exactly that moment.
+   */
+  const anchorGridRef = useRef<{ key: string; grid: AnchorGrid | null; done: boolean } | null>(null)
+  const ensureAnchors = useCallback((): AnchorGrid | null => {
+    const v = viewerRef.current
+    if (!v || pageCount === 0) return null
+    const key = `${activeDocId}|${pageIndex}`
+    const cur = anchorGridRef.current
+    if (cur !== null && cur.key === key) return cur.grid
+    anchorGridRef.current = { key, grid: null, done: false }
+    v.requestGeometry(pageIndex, { maxSegments: 400000 })
+      .then((g) => {
+        if (anchorGridRef.current?.key === key) anchorGridRef.current = { key, grid: buildAnchorGrid(g.segments), done: true }
+      })
+      .catch(() => {
+        if (anchorGridRef.current?.key === key) anchorGridRef.current = { key, grid: null, done: true }
+      })
+    return null
+  }, [activeDocId, pageIndex, pageCount])
+
   /** Apply snapping to a raw stage-relative screen point. */
   const applySnap = useCallback((sx: number, sy: number) => {
     const raster = rasterRef.current
@@ -2409,16 +2888,29 @@ export default function Workspace({
     const pts = draftRef.current.points
     const last = pts[pts.length - 1]
     const anchor = last ? normalizedToScreen(last.x, last.y, viewRef.current, page.width, page.height) : null
+    const grid = snapToLines ? ensureAnchors() : null
     const res = snapPoint(sx, sy, {
       ...DEFAULT_SNAP,
-      enabled: snapOn,
+      // Alt: this point goes exactly where the cursor is.
+      enabled: snapOn && !altRef.current,
+      toLines: snapToLines,
       raster,
       vertices: snapVertices(),
       anchor,
       ortho: shiftRef.current,
+      ...(grid === null ? {} : {
+        anchorAt: (px: number, py: number, r: number) => {
+          const v = viewRef.current
+          const n = screenToNormalized(px, py, v, page.width, page.height)
+          // The pixel radius in each axis's normalized units: a wide sheet
+          // is not allowed to snap further sideways than up.
+          const a = nearestAnchor(grid, n.x, n.y, r / (v.zoom * page.width), r / (v.zoom * page.height))
+          return a === null ? null : normalizedToScreen(a.x, a.y, v, page.width, page.height)
+        },
+      }),
     })
     return { x: res.x, y: res.y, snap: res }
-  }, [snapOn, snapVertices, page.width, page.height])
+  }, [snapOn, snapToLines, ensureAnchors, snapVertices, page.width, page.height])
 
 
 
@@ -2548,7 +3040,7 @@ export default function Workspace({
         return
       }
     }
-    if (tool === 'pan') {
+    if (tool === 'pan' || tool === 'select') {
       const r0 = e.currentTarget.getBoundingClientRect()
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
       const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
@@ -2563,7 +3055,9 @@ export default function Workspace({
         // already-selected markup keeps the whole selection so a drag moves all
         // of them, which is what every editor does.
         const already = selectedRef.current.includes(hit.markupId)
-        const next = e.shiftKey
+        // Shift or Ctrl extends, the way every editor reads them.
+        const extend = e.shiftKey || e.ctrlKey || e.metaKey
+        const next = extend
           ? (already
               ? selectedRef.current.filter((x) => x !== hit.markupId)
               : [...selectedRef.current, hit.markupId])
@@ -2572,6 +3066,21 @@ export default function Workspace({
         selectedRef.current = next
         const m = markupsRef.current.find((x) => x.id === hit.markupId)
         const ring = m?.rings[0] ?? []
+
+        /*
+         * The scope FOLLOWS the markup. Clicking a shape of another scope
+         * makes that scope the active one everywhere: the dock, the sidebar
+         * (if it has a scope open), and the scope the next shape lands in.
+         * Kenneth, 2026-09-10: "I'm editing scope B, I click on a markup for
+         * scope A, it should jump to scope A in all surfaces of the app."
+         * Not on a Shift-click, which is building a selection, not choosing.
+         */
+        if (m !== undefined && m.scopeId !== null && m.scopeId !== activeScopeRef.current && !extend) {
+          const sc = scopesRef.current.find((s) => s.id === m.scopeId)
+          setActiveScope(m.scopeId)
+          if (openScopeId !== null) setOpenScopeId(m.scopeId)
+          if (sc !== undefined) setStatus(`switched to ${sc.label}`)
+        }
 
         dragOriginRef.current = ring.map((p) => ({ ...p }))
 
@@ -2592,6 +3101,11 @@ export default function Workspace({
           editRef.current = null
           requestPaint()
           return
+        } else if (hit.part === 'edge' && m && isAxisAlignedRect(ring)) {
+          // A rectangle's edge is a grip: drag it and the rectangle resizes.
+          // Kenneth: "if you draw it as a rectangle, you should be able to
+          // edit it as a rectangle."
+          editRef.current = { mode: 'edge', id: hit.markupId, index: hit.index }
         } else {
           const n = screenToNormalized(hx, hy, viewRef.current, page.width, page.height)
           // Move the whole selection, not just the markup under the cursor.
@@ -2609,11 +3123,31 @@ export default function Workspace({
         return
       }
 
-      // Empty space: Shift starts a marquee, otherwise pan and clear.
+      // One of the PDF's own markups under the pointer, in the Select tool:
+      // it selects the way ours do. Ctrl or Shift extends.
+      if (tool === 'select') {
+        const a = annotationAt(screenToNormalized(hx, hy, viewRef.current, page.width, page.height), annotsRef.current)
+        if (a !== null) {
+          const extend = e.shiftKey || e.ctrlKey || e.metaKey
+          const cur = selectedAnnotsRef.current
+          const has = cur.includes(a.index)
+          selectAnnots(extend ? (has ? cur.filter((i) => i !== a.index) : [...cur, a.index]) : [a.index])
+          if (!extend) { setSelectedIds([]); selectedRef.current = [] }
+          marqueeRef.current = null
+          dragRef.current = null
+          editRef.current = null
+          requestPaint()
+          return
+        }
+      }
+
+      // Empty space: the Select tool, or Shift in Pan, starts a marquee;
+      // otherwise pan and clear.
       setSelectedIds([])
       selectedRef.current = []
+      if (!(e.shiftKey || e.ctrlKey || e.metaKey)) selectAnnots([])
       editRef.current = null
-      if (e.shiftKey) {
+      if (e.shiftKey || tool === 'select') {
         marqueeRef.current = { x0: hx, y0: hy, x1: hx, y1: hy }
         dragRef.current = null
       } else {
@@ -2707,12 +3241,54 @@ export default function Workspace({
     if (!v) return
     const rect = e.currentTarget.getBoundingClientRect()
 
+    /*
+     * Auto-pan while a gesture is live and the pointer is within EDGE px of
+     * the stage's edge (or past it: capture keeps the events coming). Speed
+     * rises with how far into the band the pointer is, capped at MAX px per
+     * frame. See autoPanRef.
+     */
+    const gestureLive = !panOverrideRef.current && (
+      rectRef.current !== null || marqueeRef.current !== null || editRef.current !== null
+      || dimensionDraftRef.current.a !== null
+      || (draftRef.current.points.length > 0 && tool !== 'pan' && tool !== 'select'))
+    if (gestureLive) {
+      const EDGE = 28, MAX = 18
+      const x = e.clientX - rect.left, y = e.clientY - rect.top
+      const push = (d: number) => Math.min(MAX, Math.max(0, ((EDGE - d) / EDGE) * MAX))
+      const vx = x < EDGE ? -push(x) : x > rect.width - EDGE ? push(rect.width - x) : 0
+      const vy = y < EDGE ? -push(y) : y > rect.height - EDGE ? push(rect.height - y) : 0
+      if (vx === 0 && vy === 0) stopAutoPan()
+      else {
+        const at = { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, shiftKey: e.shiftKey, altKey: e.altKey }
+        const ap = autoPanRef.current
+        if (ap !== null) { ap.vx = vx; ap.vy = vy; ap.at = at }
+        else {
+          const tick = () => {
+            const cur = autoPanRef.current, vv = viewerRef.current, el = stageRef.current
+            if (cur === null || vv === null || el === null) { autoPanRef.current = null; return }
+            viewRef.current = clampViewport(
+              { ...viewRef.current, ox: viewRef.current.ox + cur.vx, oy: viewRef.current.oy + cur.vy },
+              vv.pageInfo,
+            )
+            vv.requestVisible(viewRef.current)
+            // The sheet moved under a pointer that did not: re-run the move
+            // at its last position so the live geometry follows.
+            moveHandlerRef.current?.({ ...cur.at, currentTarget: el, pointerType: 'mouse' } as unknown as React.PointerEvent)
+            cur.raf = requestAnimationFrame(tick)
+          }
+          autoPanRef.current = { raf: requestAnimationFrame(tick), vx, vy, at }
+        }
+      }
+    } else {
+      stopAutoPan()
+    }
+
     if (panOverrideRef.current) {
       const d = dragRef.current
       if (!d) return
       viewRef.current = clampViewport(
         { ...viewRef.current, ox: viewRef.current.ox - (e.clientX - d.x), oy: viewRef.current.oy - (e.clientY - d.y) },
-        v.pageInfo,
+        v.pageInfo, OVERSCROLL,
       )
       dragRef.current = { x: e.clientX, y: e.clientY }
       v.requestVisible(viewRef.current)
@@ -2760,7 +3336,7 @@ export default function Workspace({
       return
     }
 
-    if (tool === 'pan') {
+    if (tool === 'pan' || tool === 'select') {
       if (marqueeRef.current) {
         marqueeRef.current.x1 = e.clientX - rect.left
         marqueeRef.current.y1 = e.clientY - rect.top
@@ -2772,13 +3348,23 @@ export default function Workspace({
         const s0 = applySnap(e.clientX - rect.left, e.clientY - rect.top)
         snapRef.current = ed.mode === 'vertex' ? s0.snap : null
         const n = screenToNormalized(s0.x, s0.y, viewRef.current, page.width, page.height)
-        const focusId = ed.mode === 'vertex' ? ed.id : ed.ids[0]
+        const focusId = ed.mode === 'move' ? ed.ids[0] : ed.id
         const m = markupsRef.current.find((x) => x.id === focusId)
         if (!m) return
         const ring = m.rings[0] ?? []
         if (ed.mode === 'vertex') {
-          const next = ring.map((p, i) => (i === ed.index ? n : p))
+          /*
+           * Shift on a rectangle's corner keeps it a rectangle: the two
+           * neighbours follow. Read from the ring as it was when the drag
+           * began, which is still a rectangle whatever the preview shows.
+           */
+          const origin = dragOriginRef.current
+          const next = shiftRef.current && origin !== null && isAxisAlignedRect(origin)
+            ? resizeRectVertex(origin, ed.index, n)
+            : ring.map((p, i) => (i === ed.index ? n : p))
           previewGeometry(ed.id, next)
+        } else if (ed.mode === 'edge') {
+          previewGeometry(ed.id, resizeRectEdge(dragOriginRef.current ?? ring, ed.index, n))
         } else {
           const dx = n.x - ed.lastN.x
           const dy = n.y - ed.lastN.y
@@ -2797,17 +3383,31 @@ export default function Workspace({
         markupsRef.current, viewRef.current, page.width, page.height)
         ?? hitDimensionAt(e.clientX - rect.left, e.clientY - rect.top)
       hoverRef.current = hv
+      /*
+       * The cursor says what a press would do. Over a rectangle's edge it is
+       * the resize arrow for that edge, over a corner the diagonal one, over
+       * the inside a move; nothing said so before, and a grip that does not
+       * announce itself is a grip nobody finds (Aaron, 2026-09-11).
+       */
+      const cursor = hoverCursorFor(hv, markupsRef.current, tool)
+        ?? (tool === 'select' && annotsRef.current.length > 0
+          && annotationAt(screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height), annotsRef.current) !== null
+          ? 'pointer' : null)
+      if (cursor !== hoverCursorRef.current) { hoverCursorRef.current = cursor; setHoverCursor(cursor) }
       const d = dragRef.current
       if (!d) { requestPaint(); return }
       viewRef.current = clampViewport(
         { ...viewRef.current, ox: viewRef.current.ox - (e.clientX - d.x), oy: viewRef.current.oy - (e.clientY - d.y) },
-        v.pageInfo,
+        v.pageInfo, OVERSCROLL,
       )
       dragRef.current = { x: e.clientX, y: e.clientY }
       v.requestVisible(viewRef.current)
       requestPaint()
       return
     }
+    // A gesture waiting for its answer is finished on the sheet: no snap
+    // marker, no rubber band, until the question is answered or withdrawn.
+    if (pendingCalRef.current !== null || pendingRegionRef.current !== null) { snapRef.current = null; return }
     const s0 = applySnap(e.clientX - rect.left, e.clientY - rect.top)
     snapRef.current = s0.snap
     if (draftRef.current.points.length > 0) {
@@ -2819,7 +3419,16 @@ export default function Workspace({
     requestPaint()
   }
 
+  moveHandlerRef.current = onPointerMove
+
+  // A weight change shows only on the next paint; ask for one.
+  useEffect(() => {
+    viewerRef.current?.requestVisible(viewRef.current)
+    requestPaint()
+  }, [prefs['takeoff.lineWeight'], prefs['takeoff.scaleLineWeightWithZoom'], requestPaint])
+
   const onPointerUp = (e?: React.PointerEvent) => {
+    stopAutoPan()
     const pinch = pinchRef.current
     if (pinch && e) {
       pinch.points.delete(e.pointerId)
@@ -2864,16 +3473,23 @@ export default function Workspace({
       if (Math.abs(r.x1 - r.x0) > 3 || Math.abs(r.y1 - r.y0) > 3) {
         const ids = markupsInRect(r, markupsRef.current, viewRef.current, page.width, page.height)
         setSelectedIds(ids); selectedRef.current = ids
-        setStatus(ids.length ? `${ids.length} selected` : 'nothing in selection')
+        const n0 = screenToNormalized(Math.min(r.x0, r.x1), Math.min(r.y0, r.y1), viewRef.current, page.width, page.height)
+        const n1 = screenToNormalized(Math.max(r.x0, r.x1), Math.max(r.y0, r.y1), viewRef.current, page.width, page.height)
+        const picked = annotsRef.current.filter((a) => a.rect.x0 >= n0.x && a.rect.x1 <= n1.x && a.rect.y0 >= n0.y && a.rect.y1 <= n1.y).map((a) => a.index)
+        selectAnnots(picked)
+        const total = ids.length + picked.length
+        setStatus(total > 0
+          ? `${total} selected${picked.length > 0 ? ` · ${picked.length} from the PDF` : ''}`
+          : 'nothing in selection')
       }
       requestPaint()
     }
     const ed = editRef.current
     if (ed) {
-      if (ed.mode === 'vertex') {
+      if (ed.mode === 'vertex' || ed.mode === 'edge') {
         const m = markupsRef.current.find((x) => x.id === ed.id)
         const ring = m?.rings[0]
-        if (m && ring) void commitGeometry(m.id, ring, dragOriginRef.current, 'move vertex')
+        if (m && ring) void commitGeometry(m.id, ring, dragOriginRef.current, ed.mode === 'edge' ? 'resize edge' : 'move vertex')
       } else {
         // One gesture, one undo step — even when it moved twelve markups.
         void commitMove(ed.ids, ed.origins)
@@ -2888,6 +3504,166 @@ export default function Workspace({
    * The kind each drawing tool produces. `pan` and `calibrate` produce no
    * takeoff markup, so they are absent rather than mapped to something.
    */
+  /**
+   * Put search hits on the sheet as highlight markups, one per matched box,
+   * in the active scope, as one undo step. A highlight reaches no quantity,
+   * so this marks the sheet without touching the estimate.
+   */
+  const markHits = useCallback(async (hits: SearchHit[], scopeId: string): Promise<string[]> => {
+    if (!requireProject()) return []
+    /*
+     * Into the scope the PANE chose, never the dock's active scope. Aaron,
+     * 2026-09-18: highlights landed in whatever scope happened to be active,
+     * and with no takeoff scope in hand they still picked one. The pane asks
+     * first now and passes the answer here.
+     */
+    const cmds = []
+    const ids: string[] = []
+    for (const h of hits) {
+      if (h.boxes === null) continue
+      for (const b of h.boxes) {
+        const id = uid()
+        ids.push(id)
+        cmds.push(cmdCreate({
+          id, documentId: h.documentId, pageId: h.pageId, scopeId,
+          kind: 'shape',
+          rings: [[{ x: b.x0, y: b.y0 }, { x: b.x1, y: b.y0 }, { x: b.x1, y: b.y1 }, { x: b.x0, y: b.y1 }]],
+          origin: 'user', reviewState: 'accepted',
+        }))
+      }
+    }
+    if (cmds.length === 0) return []
+    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`highlight ${cmds.length} matches`, cmds))
+    setStatus(`${cmds.length} highlight${cmds.length === 1 ? '' : 's'} added`)
+    return ids
+  }, [runCommand])
+
+  /** Take highlights back, as one undo step. */
+  const unmarkHits = useCallback(async (ids: string[]) => {
+    const cmds = ids.map((id) => cmdRemove({ id, kind: 'shape', origin: 'user' }))
+    if (cmds.length === 0) return
+    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`remove ${cmds.length} highlights`, cmds))
+  }, [runCommand])
+
+  /**
+   * What the PDF itself carries under a right-click: annotations from other
+   * software (Bluebeam, Acrobat), which the sheet shows but nothing here can
+   * select. Kenneth, 2026-09-10: "give me the option to right click on
+   * existing markups from other PDF software to turn them into Redbeam
+   * markups. Currently they are flattened and ineditable." Real annotations
+   * convert; a markup burned into the page is not an annotation at all, and
+   * for that the same menu offers a trace of the region under the pointer.
+   */
+  const openDrawingMenu = useCallback(async (x: number, y: number, n: { x: number; y: number }) => {
+    const v = viewerRef.current
+    let all: PageAnnotation[] = []
+    if (v !== null) {
+      try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
+    }
+    const convertible = all.filter((a) => a.shape !== 'other')
+    const slack = 0.002
+    const under = convertible.filter((a) =>
+      n.x >= a.rect.x0 - slack && n.x <= a.rect.x1 + slack && n.y >= a.rect.y0 - slack && n.y <= a.rect.y1 + slack)
+    setAnnotMenu({ x, y, nx: n.x, ny: n.y, annotations: under, onSheet: convertible.length })
+  }, [])
+
+  /** The markup kind a PDF annotation becomes. A square is a room; a circle is a note. */
+  const kindForAnnotation = (a: PageAnnotation): MarkupKind =>
+    a.shape === 'polygon' || a.subtypeName === 'Square' ? 'area'
+    : a.shape === 'polyline' || a.shape === 'ink' ? 'polyline'
+    : 'shape'
+
+  const ringsForAnnotation = (a: PageAnnotation): Array<Array<{ x: number; y: number }>> => {
+    if (a.shape === 'polygon' || a.shape === 'polyline') return a.vertices.length >= 2 ? [a.vertices] : []
+    if (a.shape === 'ink') return a.ink.filter((path) => path.length >= 2)
+    const r = a.rect
+    if (!(r.x1 > r.x0) || !(r.y1 > r.y0)) return []
+    return [[{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }]]
+  }
+
+  /**
+   * Turn PDF annotations into markups of the active scope, as one undo step.
+   * A polygon or a square becomes an area, a line, polyline or ink stroke a
+   * length, and anything else (a circle, a highlight, a stamp, a text box) a
+   * highlight over its box. The original stays in the PDF, untouched; the
+   * markup remembers where it came from in its content.
+   */
+  const convertAnnotations = useCallback(async (list: PageAnnotation[], scopeId: string | null = activeScopeRef.current) => {
+    const docId = docIdRef.current
+    const pageId = pageIdFor(docId, pageIndexRef.current)
+    const cmds = []
+    for (const a of list) {
+      const kind = kindForAnnotation(a)
+      for (const ring of ringsForAnnotation(a)) {
+        if (ring.length < (kind === 'polyline' ? 2 : 3)) continue
+        cmds.push(cmdCreate({
+          id: uid(), documentId: docId, pageId, scopeId, kind,
+          rings: [ring], origin: 'user', reviewState: 'accepted',
+          content: {
+            source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
+            contents: a.contents, author: a.author, color: a.color,
+          },
+        }))
+      }
+    }
+    if (cmds.length === 0) { setStatus('nothing there to convert'); return }
+    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
+    selectAnnots([])
+    setStatus(`${cmds.length} PDF markup${cmds.length === 1 ? '' : 's'} converted`)
+  }, [runCommand, selectAnnots])
+
+  /** Every convertible annotation on the open sheet, converted. */
+  const convertSheetAnnotations = useCallback(async (scopeId: string | null = activeScopeRef.current) => {
+    const v = viewerRef.current
+    if (v === null) return
+    let all: PageAnnotation[] = []
+    try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
+    await convertAnnotations(all.filter((a) => a.shape !== 'other'), scopeId)
+  }, [convertAnnotations])
+
+  /**
+   * Trace the region under a point from the sheet's own vector geometry and
+   * make it an area of the active scope. For a markup flattened into the
+   * page, which no annotation list can see: the lines it left are still
+   * lines. The tracer's frame is 1200 points across; only that much of the
+   * sheet's geometry is read.
+   */
+  const traceAt = useCallback(async (n: { x: number; y: number }) => {
+    const v = viewerRef.current
+    if (v === null || page.width === 0) return
+    setStatus('tracing the region…')
+    const half = 600
+    const clip = {
+      x0: Math.max(0, n.x - half / page.width), y0: Math.max(0, n.y - half / page.height),
+      x1: Math.min(1, n.x + half / page.width), y1: Math.min(1, n.y + half / page.height),
+    }
+    let result: ReturnType<typeof traceRegion>
+    try {
+      const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: 0 })
+      const fpp = calRef.current?.feetPerPoint
+      result = traceRegion({
+        segments: g.segments, seed: n, page: { width: page.width, height: page.height },
+        options: fpp !== undefined && fpp > 0 ? { feetPerPoint: fpp } : {},
+      })
+    } catch (err) {
+      setStatus(`could not read the sheet's geometry: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    if (!result.ok) { setStatus(`no region there: ${result.message}`); return }
+    await runCommand(cmdCreate({
+      id: uid(), documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+      scopeId: activeScopeRef.current, kind: 'area', rings: result.region, origin: 'user', reviewState: 'accepted',
+      content: { source: 'trace' },
+    }))
+    setStatus('region traced')
+  }, [page.width, page.height, runCommand])
+
+  /** The tool a scope's take-off starts with: what the scope is measured as. */
+  const firstToolFor = (id: string | null): Tool => {
+    const sc = scopesRef.current.find((s) => s.id === id)
+    return sc?.scopeType === 'linear' ? 'polyline' : sc?.scopeType === 'count' ? 'count' : 'area'
+  }
+
   const TOOL_KIND: Partial<Record<Tool, MarkupKind>> = {
     area: 'area', cutout: 'cutout', polyline: 'polyline', count: 'count', shape: 'shape',
   }
@@ -3149,6 +3925,7 @@ export default function Workspace({
    * scope's page, where everything past the name is set.
    */
   const createNamedScope = useCallback(async (label: string) => {
+    if (!requireProject()) return
     const scope = newScope(label, scopesRef.current)
     await createScope(scope)
     setOpenScopeId(scope.id)
@@ -3215,7 +3992,25 @@ export default function Workspace({
   const openDocument = useCallback((id: string) => {
     setOpenDocIds((cur) => (cur.includes(id) ? cur : [...cur, id]))
     setActiveDocId(id)
+    // Choosing a drawing is followed by choosing a sheet in it, so the
+    // Contents pane takes over from Files (Aaron, 2026-09-18).
+    setRailPanel('contents')
   }, [])
+
+  /*
+   * Contents and Thumbnails are views of a drawing. When the first drawing
+   * arrives — remembered from last time, or dropped in — the rail shows its
+   * contents; when the last tab closes, a pane showing nothing goes back to
+   * Files. Tracked by transition, so switching between open tabs leaves the
+   * rail wherever it was put.
+   */
+  const hadDocumentRef = useRef(false)
+  useEffect(() => {
+    const has = activeDocId !== null
+    if (has && !hadDocumentRef.current) setRailPanel((cur) => (cur === 'files' || cur === null ? 'contents' : cur))
+    if (!has && hadDocumentRef.current) setRailPanel((cur) => (cur === 'contents' || cur === 'thumbnails' ? 'files' : cur))
+    hadDocumentRef.current = has
+  }, [activeDocId])
 
   /**
    * Close a tab. Closing the active one falls back to its NEIGHBOUR rather than
@@ -3223,6 +4018,7 @@ export default function Workspace({
    * the fourth, not the first.
    */
   const closeDocument = useCallback((id: string) => {
+    closedTabsRef.current = [...closedTabsRef.current.filter((x) => x !== id), id].slice(-20)
     setOpenDocIds((cur) => {
       const i = cur.indexOf(id)
       if (i < 0) return cur
@@ -3373,7 +4169,7 @@ export default function Workspace({
            * argument for the guard rather than for care.
            */
           const known: Tool[] = [
-            'pan', 'area', 'cutout', 'polyline', 'count', 'shape',
+            'pan', 'select', 'area', 'cutout', 'polyline', 'count', 'shape',
             'calibrate', 'direction', 'scale-region', 'dimension',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
@@ -3461,7 +4257,8 @@ export default function Workspace({
             totals: bom.totals,
             counts: bom.counts,
             needsAttention: bom.needsAttention,
-            calibrated: cal !== null,
+            // The bill is project-wide; so is this.
+            calibrated: projectCalibrations.size > 0,
           }
         }
         /*
@@ -3998,7 +4795,7 @@ export default function Workspace({
       if (!zooms) {
         viewRef.current = clampViewport(
           { ...viewRef.current, ox: viewRef.current.ox + dx, oy: viewRef.current.oy + dy },
-          v.pageInfo,
+          v.pageInfo, OVERSCROLL,
         )
         v.requestVisible(viewRef.current)
         requestPaint()
@@ -4010,9 +4807,10 @@ export default function Workspace({
         ? Math.exp(-dy / 180)
         : (dy < 0 ? 1.15 : 1 / 1.15)
       const next = Math.min(8, Math.max(0.05, viewRef.current.zoom * step))
+      // With slack, so the point under the cursor stays there at the page's edge.
       viewRef.current = clampViewport(
         zoomAbout(viewRef.current, next, e.clientX - rect.left, e.clientY - rect.top),
-        v.pageInfo,
+        v.pageInfo, OVERSCROLL,
       )
       v.requestVisible(viewRef.current)
       requestPaint()
@@ -4045,9 +4843,19 @@ export default function Workspace({
      * and the file name lost the space to it. The name is what the row is
      * for; the rest was noise.
      */
-    detail: d.id === activeDocId && pageCount > 0 ? `Page ${pageIndex + 1} of ${pageCount}` : '',
+    /*
+     * A document carrying the open round's takeoff says how much. This is
+     * where the round's "Pinned" list went (board of 2026-09-18): a drawing
+     * with markups on it is a document, and it is listed with the documents.
+     */
+    detail: d.id === activeDocId && pageCount > 0
+      ? `Page ${pageIndex + 1} of ${pageCount}`
+      : (() => {
+          const n = estimateFiles.find((f) => f.documentId === d.id)?.markupCount ?? 0
+          return n === 0 ? '' : `${n} markup${n === 1 ? '' : 's'}`
+        })(),
     ...(d.missing ? { missing: true } : {}),
-  })), [documents, activeDocId, pageIndex, pageCount])
+  })), [documents, activeDocId, pageIndex, pageCount, estimateFiles])
 
   // ------------------------------------------------------- the sheet index --
 
@@ -4109,6 +4917,13 @@ export default function Workspace({
       for (const r of g.rows) if (r.page === p) return r.number
     }
     return `Page ${p + 1}`
+  }, [sheetGroups])
+  /** The sheet's name beside its number, for the markup groups. Empty when the index has none. */
+  const sheetTitleFor = useCallback((p: number): string => {
+    for (const g of sheetGroups) {
+      for (const r of g.rows) if (r.page === p) return r.title
+    }
+    return ''
   }, [sheetGroups])
 
   /** The estimate being checked before it leaves, or null. Shown in the estimates panel. */
@@ -4240,29 +5055,76 @@ export default function Workspace({
    * numbers would put a confident, wrong area beside every markup on every
    * other sheet.
    */
-  const scopeMarkups = useMemo((): ScopeMarkup[] => {
-    const shown = openScopeId ?? activeScope
-    if (shown === null) return []
+  const markupRowsFor = useCallback((shown: string): ScopeMarkup[] => {
     // A custom assembly is quantified by hand and lays nothing out, so none of
     // its shapes are missing anything.
     const sc = scopes.find((x) => x.id === shown)
     const laysOut =
       sc !== undefined && readProductType(sc.specifications) !== 'custom_assembly'
+      && readProductType(sc.specifications) !== 'linear_parts'
+    /*
+     * EVERY document, not the open one.
+     *
+     * The scope's count in the list is project-wide; this page was built
+     * from the open document's markups only, so a scope whose two shapes
+     * were on another file said "2 markups" above an empty list. Confirmed
+     * against the MSK Podium database on 2026-09-11. Each row says which
+     * document it is on, and a row from another one opens it.
+     */
+    const docNameOf = new Map(documents.map((d) => [d.id, d.displayName || d.relativePath.split('/').pop() || d.relativePath]))
+    /*
+     * Named, and numbered per kind: "Area 1", "Cutout 2". The order is the
+     * order the list shows — document, then page, then the markup's own id —
+     * so a name stays put when a shape is added on a later sheet. A cutout
+     * also says which area it sits in, by that area's name: the bounding box
+     * of the area that contains the cutout's centre, on the same sheet.
+     */
+    const mine = projectMarkups
+      .filter((m) => m.scopeId === shown)
+      .sort((a, b) => {
+        const da = a.documentId === activeDocId ? 0 : 1, db = b.documentId === activeDocId ? 0 : 1
+        return da - db
+          || (docNameOf.get(a.documentId) ?? '').localeCompare(docNameOf.get(b.documentId) ?? '')
+          || (pageIndexOf(a.pageId) ?? 0) - (pageIndexOf(b.pageId) ?? 0)
+          || a.id.localeCompare(b.id)
+      })
+    const nameOfMarkup = new Map<string, string>()
+    const perKind = new Map<string, number>()
+    for (const m of mine) {
+      const n = (perKind.get(m.kind) ?? 0) + 1
+      perKind.set(m.kind, n)
+      nameOfMarkup.set(m.id, `${m.kind.replace(/^./, (c) => c.toUpperCase())} ${n}`)
+    }
+    const bbox = (m: Markup) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+      for (const ring of m.rings) for (const pt of ring) { x0 = Math.min(x0, pt.x); y0 = Math.min(y0, pt.y); x1 = Math.max(x1, pt.x); y1 = Math.max(y1, pt.y) }
+      return { x0, y0, x1, y1 }
+    }
+    const parentOf = (c: Markup): string | undefined => {
+      const b = bbox(c)
+      const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2
+      for (const a of mine) {
+        if (a.kind !== 'area' || a.pageId !== c.pageId) continue
+        const ab = bbox(a)
+        if (cx >= ab.x0 && cx <= ab.x1 && cy >= ab.y0 && cy <= ab.y1) return nameOfMarkup.get(a.id)
+      }
+      return undefined
+    }
     const out: ScopeMarkup[] = []
-    for (const m of docMarkups) {
-      if (m.scopeId !== shown) continue
-      const p = pageIndexOf(m.pageId)
-      if (p === null) continue
-      const size = pageSizes[p]
-      const fpp = docCalibrations.get(m.pageId)
+    for (const m of mine) {
+      const p = pageIndexOf(m.pageId) ?? 0
+      const size = projectPageBoxes.get(m.pageId)
+      const fpp = projectCalibrations.get(m.pageId)
       let measure = '—'
       if (size !== undefined && fpp !== undefined) {
         const c: Calibration = { feetPerPoint: fpp, pageWidth: size.width, pageHeight: size.height }
-        if (m.kind === 'area') measure = `${areaSquareFeet([m], c).toFixed(1)} SF`
+        const one = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+        if (m.kind === 'area') measure = `${one(areaSquareFeet([m], c))} SF`
         // A cutout is subtracted material; showing it unsigned reads as though
-        // it added that much.
-        else if (m.kind === 'cutout') measure = `−${areaSquareFeet([m], c).toFixed(1)} SF`
-        else if (m.kind === 'polyline') measure = `${linearFeet([m], c).toFixed(1)} LF`
+        // it added that much. Its OWN removal, clipped to the areas around
+        // it: measured alone against no area it read "-0.0 SF" every time.
+        else if (m.kind === 'cutout') measure = `−${one(cutoutSquareFeet(m, projectMarkups, c))} SF`
+        else if (m.kind === 'polyline') measure = `${one(linearFeet([m], c))} LF`
         else if (m.kind === 'count') measure = '1 EA'
       }
       /*
@@ -4279,10 +5141,33 @@ export default function Workspace({
         if (size === undefined || fpp === undefined) layoutNote = 'this sheet has no scale'
         else if (m.kind !== 'area' && m.kind !== 'cutout') layoutNote = 'only areas and cutouts lay out'
       }
-      out.push({ id: m.id, kind: m.kind, page: p, measure, ...(layoutNote !== null ? { layoutNote } : {}) })
+      const parentName = m.kind === 'cutout' ? parentOf(m) : undefined
+      out.push({
+        id: m.id, kind: m.kind, page: p, measure,
+        name: nameOfMarkup.get(m.id) ?? m.kind,
+        ...(parentName !== undefined ? { parentName } : {}),
+        documentId: m.documentId,
+        documentName: docNameOf.get(m.documentId) ?? m.documentId,
+        inOpenDocument: m.documentId === activeDocId,
+        ...(layoutNote !== null ? { layoutNote } : {}),
+      })
     }
     return out
-  }, [openScopeId, activeScope, scopes, docMarkups, pageSizes, docCalibrations])
+  }, [scopes, projectMarkups, projectPageBoxes, projectCalibrations, documents, activeDocId])
+  const scopeMarkups = useMemo((): ScopeMarkup[] => {
+    const shown = openScopeId ?? activeScope
+    return shown === null ? [] : markupRowsFor(shown)
+  }, [openScopeId, activeScope, markupRowsFor])
+
+  /** Go to a scope's markup: its sheet, opening its document first when that is not the open one. */
+  const goToMarkup = useCallback((m: ScopeMarkup) => {
+    if (m.documentId !== docIdRef.current) {
+      pendingPageRef.current = m.page
+      openDocument(m.documentId)
+      return
+    }
+    goToPage(m.page)
+  }, [openDocument, goToPage])
 
   const openEstimate = estimates.find((e) => e.id === openEstimateId) ?? null
 
@@ -4328,7 +5213,7 @@ export default function Workspace({
       return {
         message: `Layout paused — ${blockers[0]}`,
         actionLabel: 'Set direction',
-        onResolve: () => { setTakeoff(true); setTool('direction') },
+        onResolve: () => { setActiveScope(sc.id); setTakeoff(true); setTool('direction') },
       }
     }
     return undefined
@@ -4372,7 +5257,7 @@ export default function Workspace({
    */
   const commitScope = useCallback(async (scopeId: string) => {
     const db = dbRef.current
-    if (!db) return
+    if (!db || !requireProject()) return
     const sc = scopesRef.current.find((x) => x.id === scopeId)
     const pieces = piecesRef.current.find((p) => p.scope.id === scopeId)
     if (!sc || !pieces) return
@@ -4408,23 +5293,58 @@ export default function Workspace({
 
   const activePieces = pieces.find((p) => p.scope.id === shownScopeId)?.result
 
-  const commitState = shownScopeId === null ? undefined : (() => {
-    const hit = committed.get(shownScopeId)
+  /** The committed run against what a scope shows now. Undefined when never committed. */
+  const commitStateFor = useCallback((scopeId: string) => {
+    const hit = committed.get(scopeId)
     if (hit === undefined) return undefined
+    const rows = quantities.find((q) => q.scope.id === scopeId)?.rows ?? []
+    const parts = pieces.find((p) => p.scope.id === scopeId)?.result.quantities ?? []
     const live = [
-      ...activeQuantities.map((r) => ({
-        itemKey: r.itemKey, label: r.label, quantity: r.quantity, unit: r.unit,
-      })),
-      ...(activePieces?.quantities ?? []),
+      ...rows.map((r) => ({ itemKey: r.itemKey, label: r.label, quantity: r.quantity, unit: r.unit })),
+      ...parts,
     ]
     return { at: hit.run.acceptedAt, delta: deltaBetween(hit.quantities, live) }
-  })()
+  }, [committed, quantities, pieces])
+
+  const commitState = shownScopeId === null ? undefined : commitStateFor(shownScopeId)
+
+  /*
+   * How any scope stands, for the levels above it: the list totals its
+   * rounds and the round reads its scopes' states off this, so every level
+   * says what the scope's own page says.
+   */
+  const standingFor = useCallback((scopeId: string): ScopeStanding | null => {
+    const q = quantities.find((x) => x.scope.id === scopeId)
+    if (q === undefined) return null
+    const c = commitStateFor(scopeId)
+    return { rows: q.rows, committedAt: c === undefined ? null : c.at, changed: c === undefined ? 0 : c.delta.length }
+  }, [quantities, commitStateFor])
 
   const warnings = useMemo(() => {
-    const out: string[] = []
-    // Only once there is a sheet to have one: with no drawing open the line
-    // read as a warning about nothing, on the start of every project.
-    if (activeDocId !== null && cal === null) out.push('This sheet has no scale, so no quantity is in real units.')
+    const out: PanelWarning[] = []
+    /* Quick view: said first, with the one way out of it. */
+    if (quickView !== undefined) {
+      out.push({
+        text: 'Open for viewing. To take off, choose this drawing’s project folder.',
+        action: { label: 'Choose folder…', run: quickView.onAdopt },
+      })
+    }
+    /*
+     * Only where it is true of something (board 4, 2026-09-18): a sheet that
+     * HAS markups and no scale. The title sheet has nothing drawn for a scale
+     * to apply to, and a warning about nothing trains people to ignore the
+     * bar. It names the sheet and the count, and carries the fix.
+     */
+    if (activeDocId !== null && cal === null) {
+      const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+      const drawn = projectMarkups.filter((m) => m.pageId === here && m.kind !== 'dimension').length
+      if (drawn > 0) {
+        out.push({
+          text: `${sheetLabelFor(pageIndex)} has no scale, so its ${drawn} markup${drawn === 1 ? ' counts' : 's count'} nothing yet`,
+          action: { label: 'Set scale', run: () => openPalette('Set scale for this sheet') },
+        })
+      }
+    }
     /*
      * The tool/scope mismatch used to float above the dock. It reads here
      * instead, with everything else that says a number cannot be trusted —
@@ -4433,18 +5353,18 @@ export default function Workspace({
     if (toolWarning !== null) out.push(toolWarning)
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
-     * that contains its first vertex. One drawn beside an area, across its
-     * edge, or into the wrong scope subtracts nothing and looks exactly like
-     * one that does — "the cutout tool doesn't work". Say which.
+     * that it overlaps. One drawn beside an area, or into the wrong scope,
+     * subtracts nothing and looks exactly like one that does, "the cutout
+     * tool doesn't work". Say which.
      */
     const stray = strayCutouts(projectMarkups)
     if (stray > 0) {
-      out.push(`${stray} cutout${stray === 1 ? ' is' : 's are'} outside every area of ${stray === 1 ? 'its' : 'their'} scope on that sheet, so ${stray === 1 ? 'it subtracts' : 'they subtract'} nothing. A cutout has to start inside an area drawn in the same scope.`)
+      out.push(`${stray} cutout${stray === 1 ? ' is' : 's are'} outside every area of ${stray === 1 ? 'its' : 'their'} scope on that sheet, so ${stray === 1 ? 'it subtracts' : 'they subtract'} nothing. A cutout has to overlap an area drawn in the same scope.`)
     }
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView])
 
   // ------------------------------------------------------------ view math --
 
@@ -4507,6 +5427,22 @@ export default function Workspace({
   }, [page.width, stage.width, requestPaint])
 
   /**
+   * Fit NOW, then remember the mode.
+   *
+   * The commands used to do `setFitMode('page')` and rely on the effect
+   * below. The mode starts as 'page', and a manual zoom does not clear it,
+   * so pressing Fit sheet on a freshly opened set set the state to the value
+   * it already had: no change, no effect, no fit. Fit width worked because
+   * it changed the value, and Fit sheet worked after it for the same reason.
+   * Kenneth: "you can only go to fit sheet after going to fit width".
+   */
+  const applyFit = useCallback((mode: 'page' | 'width') => {
+    if (mode === 'width') fitWidth()
+    else fitPage()
+    setFitMode(mode)
+  }, [fitPage, fitWidth])
+
+  /**
    * Re-apply the fit whenever the thing being fitted changes.
    *
    * Page box, window size, or the mode itself — any of them invalidates a
@@ -4555,9 +5491,12 @@ export default function Workspace({
         case '=': case '+': e.preventDefault(); setZoom(viewRef.current.zoom * 1.25); return
         case '-': case '_': e.preventDefault(); setZoom(viewRef.current.zoom / 1.25); return
       }
-      if (e.shiftKey) return
-      if (e.key === '0') { e.preventDefault(); setFitMode('page') }
-      if (e.key === '1') { e.preventDefault(); setFitMode('width') }
+      if (e.shiftKey) {
+        if (e.key === 'T' || e.key === 't') { e.preventDefault(); const id = closedTabsRef.current.pop(); if (id !== undefined) openDocument(id) }
+        return
+      }
+      if (e.key === '0') { e.preventDefault(); applyFit('page') }
+      if (e.key === '1') { e.preventDefault(); applyFit('width') }
       // The design package removes the permanent menu bar on the explicit
       // condition that this exists, so it is not a convenience.
       if (e.key === 'k' || e.key === 'K') { e.preventDefault(); openPalette() }
@@ -4577,7 +5516,7 @@ export default function Workspace({
       window.removeEventListener('keydown', onKey)
       document.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions)
     }
-  }, [fitPage, fitWidth, setZoom, openPalette])
+  }, [applyFit, setZoom, openPalette, openDocument])
 
   /**
    * Apply a named scale from the title block.
@@ -4640,6 +5579,7 @@ export default function Workspace({
    */
   const beginTakeoff = useCallback((on: boolean) => {
     if (!on) { setTakeoff(false); return }
+    if (!requireProject()) return
     if (estimates.length === 0) {
       setWorkOpen(true)
       setOpenEstimateId(null)
@@ -4652,7 +5592,7 @@ export default function Workspace({
       return
     }
     setTakeoff(true)
-  }, [estimates.length])
+  }, [estimates.length, requireProject])
 
   const openTabs = openDocIds
     .map((id) => documents.find((d) => d.id === id))
@@ -4714,6 +5654,9 @@ export default function Workspace({
     const noRound = openRound === undefined ? 'open a round first' : undefined
     const noScope = shown === undefined ? 'open a scope first' : undefined
     const noScale = cal === null ? 'sheet has no scale' : undefined
+    const markupsOnThisPage = activeDoc === undefined
+      ? 0
+      : projectMarkups.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current) && m.kind !== 'dimension').length
     const allPages = Array.from({ length: pageCount }, (_, i) => i)
     const scaledPages = allPages.filter((i) => scaleOfPage(i) !== null).length
     const stuck = (why: string | undefined) => (why === undefined ? {} : { unavailable: why })
@@ -4762,9 +5705,10 @@ export default function Workspace({
           run: async () => {
             const sc = liveScope(id)
             if (sc === undefined) return
-            await saveScope({ ...sc, specifications: writeProductType(sc.specifications, t) })
-            if (after.then === 'counts') return { next: countsCommand(id, { then: 'configure' }), chip: PRODUCT_TYPE_LABEL[t] }
-            if (after.then === 'configure') return { next: configureCommand(id), chip: PRODUCT_TYPE_LABEL[t] }
+            // The product decides what it is measured as; a custom assembly is asked.
+            await saveScope({ ...sc, scopeType: scopeTypeForProduct(t) ?? sc.scopeType, specifications: writeProductType(sc.specifications, t) })
+            if (after.then === 'counts' && t === 'custom_assembly') return { next: countsCommand(id, { then: 'configure' }), chip: PRODUCT_TYPE_LABEL[t] }
+            if (after.then === 'counts' || after.then === 'configure') return { next: configureCommand(id), chip: PRODUCT_TYPE_LABEL[t] }
           },
         })),
       },
@@ -4785,16 +5729,15 @@ export default function Workspace({
         })),
       },
     })
-    /** Parse "8 ft", "96in", "7'6", "2.5m" into a value and a unit. Bare numbers keep the unit given. */
+    /** Any way of writing a length; a bare number keeps the unit given. Same reader as the Setup page. */
     const parseMeasure = (text: string, fallbackUnit: string): { value: string; unit: string } | null => {
-      const m = /^\s*([0-9]+(?:[.\/][0-9]+)?(?:\s+[0-9]+\/[0-9]+)?)\s*(ft|feet|'|in|inch|inches|"|mm|cm|m)?\s*$/i.exec(text)
-      if (m === null) return null
-      const raw = (m[2] ?? '').toLowerCase()
-      const unit = raw === '' ? fallbackUnit
-        : raw === "'" || raw === 'feet' ? 'ft'
-        : raw === '"' || raw.startsWith('inch') ? 'in'
-        : raw
-      return { value: m[1]!.trim(), unit }
+      const p = parseLengthInput(text, isLengthUnit(fallbackUnit) ? fallbackUnit : 'in')
+      return p === null ? null : { value: formatMeasureValue(p.value), unit: p.unit }
+    }
+    const lengthDenominator = Number(prefs['takeoff.imperialPrecision'] ?? 16)
+    const showLength = (value: string, unit: string): string => {
+      const n = parseNumberOrFraction(value)
+      return n === null ? `${value} ${unit}` : formatLength(n, unit, lengthDenominator)
     }
     /** The "what do you want to set" step: product, counts, then every measure the product has. Comes back after each. */
     const configureCommand = (id: string): Command => ({
@@ -4811,27 +5754,30 @@ export default function Workspace({
             const required = missingRequiredMeasures(product, sc.specifications).includes(f.label)
             return {
               id: `measure-${f.valueKey}`, kind: 'command', title: f.label,
-              detail: current === '' ? (required ? 'required · not set' : `${measureHelp(f.valueKey)} · not set`) : `${current} ${unit} · ${measureHelp(f.valueKey)}`,
+              detail: current === '' ? (required ? 'required · not set' : `${measureHelp(f.valueKey)} · not set`) : `${showLength(current, unit)} · ${measureHelp(f.valueKey)}`,
               keywords: [measureHelp(f.valueKey), 'measure', 'dimension'],
               step: {
-                kind: 'text', label: f.label, placeholder: `${measureHelp(f.valueKey)} — 4 ft, 48 in, 1.2 m`,
-                initial: current === '' ? '' : `${current} ${unit}`,
-                rule: 'a number with an optional unit (ft, in, mm, cm, m)',
-                validate: (t) => (parseMeasure(t, unit) === null ? 'a number, then a unit if it is not inches' : null),
-                describe: (t) => { const p = parseMeasure(t, unit); return p === null ? `Set ${f.label}` : `Set ${f.label} to ${p.value} ${p.unit}` },
+                kind: 'text', label: f.label, placeholder: `${measureHelp(f.valueKey)} — 4', 48\", 5' 6 1/2\", 1.2 m`,
+                initial: current === '' ? '' : showLength(current, unit),
+                rule: `a length: 10', 120\", 10 ft, 3 m; a bare number is ${isLengthUnit(unit) ? unit : 'in'}`,
+                validate: (t) => (parseMeasure(t, unit) === null ? 'a length, written any of those ways' : null),
+                describe: (t) => { const p = parseMeasure(t, unit); return p === null ? `Set ${f.label}` : `Set ${f.label} to ${showLength(p.value, p.unit)}` },
                 run: async (t) => {
                   const p = parseMeasure(t, unit)
                   const live = liveScope(id)
                   if (p === null || live === undefined) return
                   await saveScope({ ...live, specifications: { ...live.specifications, [f.valueKey]: p.value, [f.unitKey]: p.unit } })
-                  return { next: configureCommand(id), chip: `${f.label} ${p.value} ${p.unit}` }
+                  return { next: configureCommand(id), chip: `${f.label} ${showLength(p.value, p.unit)}` }
                 },
               },
             }
           })
           return [
             { ...productCommand(id, { then: 'configure' }), id: 'cfg-product', title: 'Product', detail: PRODUCT_TYPE_LABEL[product], keywords: ['type', 'system'] },
-            { ...countsCommand(id, { then: 'configure' }), id: 'cfg-counts', title: 'Counts', detail: SCOPE_TYPE_LABEL[sc.scopeType], keywords: ['measure kind'] },
+            // Asked only of a custom assembly; every other product answers it.
+            ...(product === 'custom_assembly'
+              ? [{ ...countsCommand(id, { then: 'configure' }), id: 'cfg-counts', title: 'Measured as', detail: SCOPE_TYPE_LABEL[sc.scopeType], keywords: ['measure kind', 'counts'] }]
+              : []),
             ...measures,
             {
               id: 'cfg-seams', kind: 'command', title: 'Seams', detail: readBool(sc.specifications, 'alignSeams') ? 'aligned' : 'free', keywords: ['align', 'joints'],
@@ -4861,6 +5807,211 @@ export default function Workspace({
       run: () => { if (openRound !== undefined) void removeScopeBy(openRound.id, id) },
     })
 
+    /* ---- everything else the prompt can do to a scope, without leaving it ---- */
+
+    /** The scope's colour, from the palette the shell draws scopes in. */
+    const colourCommand = (id: string): Command => ({
+      id: `colour-${id}`, kind: 'command', title: 'Colour…', detail: liveScope(id)?.color ?? '',
+      keywords: ['color', 'swatch'],
+      step: {
+        kind: 'choose', label: 'Colour', note: `for ${liveScope(id)?.label ?? 'the scope'}`,
+        options: () => SCOPE_PALETTE.map((c, i): Command => ({
+          id: `colour-${id}-${i}`, kind: 'command', title: `Colour ${i + 1}`, detail: c,
+          ...(liveScope(id)?.color.toLowerCase() === c ? { detail: `${c} · current` } : {}),
+          run: async () => { const sc = liveScope(id); if (sc !== undefined) await saveScope({ ...sc, color: c }) },
+        })),
+      },
+    })
+
+    /** The areas of a scope on the open sheet, for the edge step. */
+    const areasOnSheet = (id: string): Markup[] =>
+      projectMarkups.filter((m) => m.scopeId === id && m.kind === 'area' && m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current))
+    const edgeDetail = (a: { x: number; y: number }, b: { x: number; y: number }): string => {
+      const dx = (b.x - a.x) * page.width, dy = (b.y - a.y) * page.height
+      const points = Math.hypot(dx, dy)
+      const angle = Math.round(((Math.atan2(-dy, dx) * 180) / Math.PI + 360) % 180)
+      return `${cal === null ? `${Math.round(points)} pt` : formatLength(points * cal.feetPerPoint, 'ft', lengthDenominator)} · ${angle}°`
+    }
+    /**
+     * The pattern direction from an edge of one of the scope's areas, chosen
+     * in the prompt: area, then edge. It was reachable from the drawing's
+     * right-click menu only.
+     */
+    const edgeDirectionCommand = (id: string): Command => ({
+      id: `edge-dir-${id}`, kind: 'command', title: 'Direction from an edge…',
+      detail: 'run the pattern along an edge of one of its areas on this sheet',
+      keywords: ['orientation', 'pattern', 'edge'],
+      ...stuck(noSheet ?? (areasOnSheet(id).length === 0 ? 'no area of this scope on this sheet' : undefined)),
+      step: {
+        kind: 'choose', label: 'Direction from an edge', note: 'which area',
+        options: () => areasOnSheet(id).map((m, i): Command => ({
+          id: `edge-area-${m.id}`, kind: 'command', title: `Area ${i + 1}`,
+          detail: `${m.rings[0]?.length ?? 0} edges · ${cal === null ? 'no scale' : `${areaSquareFeet([m], cal).toFixed(1)} SF`}`,
+          step: {
+            kind: 'choose', label: `Area ${i + 1}`, note: 'which edge; the pattern runs along it',
+            options: () => (m.rings[0] ?? []).map((a, k, ring): Command => ({
+              id: `edge-${m.id}-${k}`, kind: 'command', title: `Edge ${k + 1}`, detail: edgeDetail(a, ring[(k + 1) % ring.length]!),
+              run: () => void directionFromEdge(m, k),
+            })),
+          },
+        })),
+      },
+    })
+
+    /**
+     * A scope's markups as rows: Enter goes to one and selects it; each also
+     * offers a move to another scope and a delete. Every sheet of every
+     * document, as the Markups page lists them.
+     */
+    const markupsCommand = (id: string): Command => {
+      const rows = markupRowsFor(id)
+      return {
+        id: `markups-${id}`, kind: 'command', title: 'Markups…',
+        detail: (() => {
+          const sheets = new Set(rows.map((r) => `${r.documentId}#${r.page}`)).size
+          return `${rows.length} on ${sheets} sheet${sheets === 1 ? '' : 's'}`
+        })(),
+        keywords: ['shapes', 'areas', 'list'],
+        ...stuck(rows.length === 0 ? 'nothing drawn in this scope yet' : undefined),
+        step: {
+          kind: 'choose', label: 'Markups', note: `of ${liveScope(id)?.label ?? 'the scope'}`,
+          options: () => rows.map((r): Command => ({
+            id: `markup-${r.id}`, kind: 'command', title: `${r.kind} · ${r.measure}`,
+            detail: `${r.inOpenDocument ? sheetLabelFor(r.page) : `${r.documentName} p${r.page + 1}`}${r.layoutNote !== undefined ? ` · ${r.layoutNote}` : ''}`,
+            keywords: [r.kind, r.documentName],
+            alt: { label: 'Go to it', run: () => { goToMarkup(r); setSelectedIds([r.id]); selectedRef.current = [r.id] } },
+            step: {
+              kind: 'choose', label: `${r.kind} ${r.measure}`, note: 'what to do with it',
+              options: () => [
+                { id: `markup-${r.id}-go`, kind: 'command', title: 'Go to it', detail: 'on its sheet, selected', run: () => { goToMarkup(r); setSelectedIds([r.id]); selectedRef.current = [r.id] } },
+                {
+                  id: `markup-${r.id}-move`, kind: 'command', title: 'Move to another scope…',
+                  step: {
+                    kind: 'choose', label: 'Move to', note: 'which scope',
+                    options: () => estimateScopes.filter((sc) => sc.id !== id).map((sc): Command => ({
+                      id: `markup-${r.id}-move-${sc.id}`, kind: 'scope', title: sc.label, detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+                      run: () => { setSelectedIds([r.id]); selectedRef.current = [r.id]; void reassignSelection(sc.id) },
+                    })),
+                  },
+                },
+                { id: `markup-${r.id}-delete`, kind: 'command', title: 'Delete', detail: 'undoable', run: () => void removeMarkups([r.id]) },
+              ],
+            },
+          })),
+        },
+      }
+    }
+
+    /** The parts and quantities of a scope, read in the prompt. */
+    const partsCommand = (id: string): Command => ({
+      id: `parts-${id}`, kind: 'command', title: 'Parts and quantities…', keywords: ['bom', 'bill', 'order', 'quantities'],
+      detail: (() => { const r = pieces.find((x) => x.scope.id === id)?.result; return r === undefined ? 'nothing measured yet' : r.blockers.length > 0 ? `needs ${r.blockers[0]}` : `${r.quantities.length} line${r.quantities.length === 1 ? '' : 's'}` })(),
+      step: {
+        kind: 'choose', label: 'Parts', note: `of ${liveScope(id)?.label ?? 'the scope'}`,
+        options: () => {
+          const r = pieces.find((x) => x.scope.id === id)?.result
+          const lines: Command[] = r === undefined ? []
+            : r.blockers.length > 0
+              ? [{ id: `parts-${id}-blocked`, kind: 'command', title: `Needs ${r.blockers.join(', ')}`, detail: 'nothing is counted in its place', unavailable: 'set it in Configure' }]
+              : r.quantities.map((q): Command => ({ id: `parts-${id}-${q.itemKey}`, kind: 'command', title: q.label, detail: `${q.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${q.unit}`, unavailable: 'a reading' }))
+          return [
+            ...lines,
+            { id: `parts-${id}-open`, kind: 'command', title: 'Open the Parts page', detail: 'in the estimates pane, with the drawing', run: () => { setActiveScope(id); setOpenScopeId(id); openParts() } },
+          ]
+        },
+      },
+    })
+
+    /** Everything the prompt can do to one scope. Enter on a scope row opens this. */
+    const scopeHub = (sc: Scope): Step => ({
+      kind: 'choose', label: sc.label, note: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}${sc.id === shownScopeId ? ' · open in the sidebar' : ''}`,
+      options: () => [
+        {
+          // Drawing needs a sheet, not a scale: the sidebar's own Take off
+          // button draws on an uncalibrated sheet and measures it "—", and
+          // the prompt must not be stricter than the button.
+          id: `hub-${sc.id}-takeoff`, kind: 'command', title: 'Take off',
+          detail: `${firstToolFor(sc.id)} tool, drawing into ${sc.label}${noScale !== undefined ? ' · the sheet has no scale yet' : ''}`,
+          ...stuck(noSheet), run: () => { setActiveScope(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
+        },
+        { ...configureCommand(sc.id), title: 'Configure…', detail: 'product, each measure, yield, seams' },
+        { ...productCommand(sc.id, { then: 'configure' }), title: 'Set product…', detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)] },
+        ...(readProductType(sc.specifications) === 'custom_assembly' ? [{ ...countsCommand(sc.id, { then: 'configure' }), title: 'Measured as…', detail: SCOPE_TYPE_LABEL[sc.scopeType] }] : []),
+        colourCommand(sc.id),
+        edgeDirectionCommand(sc.id),
+        { id: `hub-${sc.id}-direction`, kind: 'command', title: 'Set direction on the sheet', detail: 'drawn as an arrow', ...stuck(noSheet), run: () => { setActiveScope(sc.id); setTakeoff(true); setTool('direction') } },
+        markupsCommand(sc.id),
+        partsCommand(sc.id),
+        { id: `hub-${sc.id}-commit`, kind: 'command', title: 'Commit', detail: 'freeze the count as it stands', ...stuck(noRound), run: () => void commitScope(sc.id) },
+        { ...renameCommand(sc.id), title: 'Rename…' },
+        { id: `hub-${sc.id}-duplicate`, kind: 'command', title: 'Duplicate', detail: 'the specification, not the takeoff', run: () => void duplicateScope(sc.id) },
+        { ...removeCommand(sc.id), title: 'Archive' },
+        { id: `hub-${sc.id}-open`, kind: 'command', title: 'Open in the sidebar', detail: 'the scope page beside the drawing', run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); setWorkOpen(true) } },
+      ],
+    })
+    /** A take-off row that first asks which scope, when none is open. */
+    const takeOffCommand = (sc: Scope): Command => ({
+      id: `takeoff-in-${sc.id}`, kind: 'command', title: `Take off in ${sc.label}`,
+      run: () => { setActiveScope(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
+    })
+
+    /** Search in the prompt: the words, then the hits as rows; Enter goes to one. */
+    const searchCommand = (reach: SearchScope, id: string, title: string, detail: string): Command => ({
+      id, kind: 'command', title, detail, keywords: ['find', 'text', 'search', 'words'],
+      ...stuck(reach === 'project' ? undefined : noSheet),
+      step: {
+        kind: 'text', label: title.replace(/…$/, ''), placeholder: 'words on the sheets — a tag, a note, a room name',
+        rule: 'at least two characters',
+        validate: (t) => (t.trim().length < 2 ? 'two characters at least' : null),
+        describe: (t) => `Find “${t.trim()}”`,
+        run: async (t) => {
+          const report = await runSearch(t.trim(), reach)
+          const n = report.hits.length
+          if (n === 0) {
+            const coverage = report.totalPageCount > 0 ? Math.round((report.indexedPageCount / report.totalPageCount) * 100) : 0
+            return `no matches for “${t.trim()}”${coverage < 100 ? ` · ${coverage}% of pages indexed so far` : ''}`
+          }
+          return {
+            chip: `“${t.trim()}”`,
+            next: {
+              id: `${id}-results`, kind: 'command', title: 'Results',
+              step: {
+                kind: 'choose', label: `${n}${report.truncated ? '+' : ''} match${n === 1 ? '' : 'es'}`, note: 'Enter goes to one',
+                options: () => report.hits.map((h): Command => ({
+                  id: `hit-${h.pageId}`, kind: 'page', title: h.snippet.length > 90 ? `${h.snippet.slice(0, 90)}…` : h.snippet,
+                  detail: `${h.relativePath.split('/').pop() ?? h.relativePath} · p${h.pageNumber + 1}`,
+                  run: () => goToHit(h),
+                })),
+              },
+            },
+          }
+        },
+      },
+    })
+
+    /** Convert the PDF's own markups on this sheet into a chosen scope. */
+    const convertCommand: Command = {
+      id: 'convert-annotations', kind: 'command', title: "Convert the PDF's markups on this sheet…",
+      detail: 'polygons and squares become areas, lines lengths, the rest highlights',
+      keywords: ['bluebeam', 'annotation', 'import', 'convert', 'markups'], ...stuck(noSheet ?? noRound),
+      step: pickScope('Convert into', (sc) => ({
+        id: `convert-into-${sc.id}`, kind: 'command', title: sc.label,
+        step: {
+          kind: 'choose', label: sc.label, note: 'which of the PDF\'s markups',
+          options: () => [
+            { id: `convert-all-${sc.id}`, kind: 'command', title: 'Every markup on this sheet', detail: 'one undo step', run: () => void convertSheetAnnotations(sc.id) },
+            {
+              id: `convert-selected-${sc.id}`, kind: 'command',
+              title: selectedAnnots.length === 0 ? 'The ones selected on the sheet' : `The ${selectedAnnots.length} selected on the sheet`,
+              detail: 'Select tool: click one, Ctrl+click for more, or drag a box around several',
+              ...stuck(selectedAnnots.length === 0 ? 'none selected' : undefined),
+              run: () => void convertAnnotations(annotsRef.current.filter((a) => selectedAnnots.includes(a.index)), sc.id),
+            },
+          ],
+        },
+      })),
+    }
+
     const scopeNameRule = (text: string): string | null =>
       text.trim() === '' ? 'a scope needs a name'
         : nameTaken(text, scopes.filter((s) => s.id !== shown?.id).map((s) => s.label)) ? 'a scope with that name already exists' : null
@@ -4879,15 +6030,15 @@ export default function Workspace({
     }
     const out: Command[] = [
       /* ---- the view ---- */
-      { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], ...stuck(noSheet), run: () => setFitMode('page') },
-      { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], ...stuck(noSheet), run: () => setFitMode('width') },
+      { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('page') },
+      { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('width') },
       ...[50, 100, 200, 400].map((pct): Command => ({
         id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
         whenTyped: true, ...stuck(noSheet), run: () => setZoom(pct / 100),
       })),
       {
         id: 'next-sheet', kind: 'command', title: 'Next sheet', shortcut: 'PgDn',
-        ...(pageIndex + 1 < pageCount ? { detail: sheetLabelFor(pageIndex + 1) } : {}),
+        ...(pageIndex + 1 < pageCount ? { detail: sheetLabelFor(pageIndex + 1), suggest: 'the next sheet' } : {}),
         keywords: ['page', 'forward'],
         ...stuck(noSheet ?? (pageIndex + 1 >= pageCount ? 'this is the last sheet' : undefined)),
         stay: true, run: () => goToPage(pageIndex + 1),
@@ -4904,6 +6055,17 @@ export default function Workspace({
         shortcut: 'Ctrl+W', keywords: ['tab', 'document'], ...stuck(noSheet),
         run: () => { if (activeDocId !== null) closeDocument(activeDocId) },
       },
+      {
+        id: 'close-other-tabs', kind: 'command', title: 'Close other tabs', detail: `${Math.max(0, openDocIds.length - 1)} other${openDocIds.length === 2 ? '' : 's'}`,
+        keywords: ['tab', 'document'], ...stuck(openDocIds.length < 2 ? 'no other tabs' : undefined),
+        run: () => { for (const id of openDocIds) if (id !== activeDocId) closeDocument(id) },
+      },
+      {
+        id: 'reopen-tab', kind: 'command', title: 'Reopen closed tab', shortcut: 'Ctrl+Shift+T',
+        detail: (() => { const id = closedTabsRef.current[closedTabsRef.current.length - 1]; const d = documents.find((x) => x.id === id); return d === undefined ? 'nothing closed yet' : nameOf(d) })(),
+        keywords: ['tab', 'document', 'undo close'], ...stuck(closedTabsRef.current.length === 0 ? 'nothing closed this session' : undefined),
+        run: () => { const id = closedTabsRef.current.pop(); if (id !== undefined) openDocument(id) },
+      },
       ...(['files', 'contents', 'thumbnails', 'search'] as const).map((panel): Command => ({
         id: `pane-${panel}`, kind: 'command',
         title: railPanel === panel ? `Hide the ${panel} pane` : `Show the ${panel} pane`,
@@ -4914,7 +6076,16 @@ export default function Workspace({
         id: 'pane-estimates', kind: 'command', title: workOpen ? 'Hide the estimates pane' : 'Show the estimates pane',
         keywords: ['sidebar', 'pane', 'estimates', 'scopes'], run: () => setWorkOpen(!workOpen),
       },
-      { id: 'search', kind: 'command', title: 'Search the project', shortcut: 'Ctrl+F', keywords: ['find', 'text'], run: openSearch },
+      searchCommand('project', 'search', 'Search the project…', 'the words, then the hits; Enter goes to one'),
+      searchCommand('document', 'search-document', 'Search this document…', 'every sheet of the open document'),
+      searchCommand('sheet', 'search-sheet', 'Search this sheet…', 'the open sheet only'),
+      searchCommand('folder', 'search-folder', 'Search this folder…', 'the open document\'s folder'),
+      { id: 'search-pane', kind: 'command', title: 'Open the search pane', shortcut: 'Ctrl+F', detail: 'the same search, kept open beside the drawing', keywords: ['find', 'text', 'pane'], run: openSearch },
+      {
+        id: 'refresh-files', kind: 'command', title: 'Refresh files', shortcut: 'F5',
+        detail: 'Read the project folder again for drawings added since it was opened',
+        keywords: ['rescan', 'folder', 'reload', 'files', 'documents'], run: () => void refreshFiles(),
+      },
       { id: 'settings', kind: 'command', title: 'Settings', detail: 'Application preferences', keywords: ['preferences', 'options'], run: openSettings },
       {
         id: 'context-window', kind: 'command', title: 'New context window', detail: 'A second view on this project',
@@ -4940,6 +6111,9 @@ export default function Workspace({
         id: 'set-scale', kind: 'command', title: 'Set scale for this sheet…',
         detail: cal === null ? 'no scale yet' : `now ${scaleLabel(cal.feetPerPoint)}`,
         keywords: ['scale', 'preset', 'calibrate'], ...stuck(noSheet),
+        ...(cal === null && noSheet === undefined && markupsOnThisPage > 0
+          ? { suggest: `no scale yet · ${markupsOnThisPage} markup${markupsOnThisPage === 1 ? '' : 's'} count nothing` }
+          : {}),
         step: {
           kind: 'choose', label: 'Set scale', note: `applies to ${sheetLabelFor(pageIndex)}`,
           options: () => SCALE_PRESETS.map((p): Command => ({
@@ -5105,46 +6279,61 @@ export default function Workspace({
           },
         },
       },
+      /*
+       * EVERY scope action asks which scope, always, with the one open in the
+       * sidebar listed first and marked. These used to skip the choice when a
+       * scope was open, which read as the prompt refusing to edit any other
+       * scope, and as "it's not letting me edit a scope" when the open one
+       * was not the one meant. Aaron, 2026-09-11.
+       */
       {
-        id: 'configure-scope', kind: 'command',
-        title: shown === undefined ? 'Configure scope…' : `Configure ${shown.label}…`,
-        detail: 'product, what it counts, each measure',
-        keywords: ['scope-action', 'setup', 'measures', 'width', 'length', 'spacing'], ...stuck(noRound),
-        step: shown === undefined ? pickScope('Configure scope', (sc) => configureCommand(sc.id)) : configureCommand(shown.id).step!,
+        id: 'configure-scope', kind: 'command', title: 'Configure scope…',
+        detail: 'product, each measure, yield, seams, colour',
+        keywords: ['scope-action', 'setup', 'measures', 'width', 'length', 'spacing', 'edit'], ...stuck(noRound),
+        step: pickScope('Configure scope', (sc) => configureCommand(sc.id)),
       },
       {
-        id: 'rename-scope', kind: 'command', title: shown === undefined ? 'Rename scope…' : `Rename ${shown.label}…`,
+        id: 'rename-scope', kind: 'command', title: 'Rename scope…',
         keywords: ['scope-action', 'name'], ...stuck(noRound),
-        step: shown === undefined ? pickScope('Rename scope', (sc) => renameCommand(sc.id)) : renameCommand(shown.id).step!,
+        step: pickScope('Rename scope', (sc) => renameCommand(sc.id)),
       },
       {
         id: 'set-product', kind: 'command', title: 'Set product…',
-        ...(shown === undefined ? {} : { detail: `${shown.label} · ${PRODUCT_TYPE_LABEL[readProductType(shown.specifications)]}` }),
         keywords: ['scope-action', 'type', 'ceiling', 'plank', 'panel'], ...stuck(noRound),
-        step: shown === undefined ? pickScope('Set product', (sc) => productCommand(sc.id, {})) : productCommand(shown.id, {}).step!,
+        step: pickScope('Set product', (sc) => productCommand(sc.id, {})),
       },
       {
-        id: 'set-counts', kind: 'command', title: 'Set what the scope counts…',
-        ...(shown === undefined ? {} : { detail: `${shown.label} · ${SCOPE_TYPE_LABEL[shown.scopeType]}` }),
+        id: 'set-counts', kind: 'command', title: 'Set what a custom assembly is measured as…',
+        detail: 'every other product answers this itself',
         keywords: ['scope-action', 'areas', 'lengths', 'counts', 'measure'], ...stuck(noRound),
-        step: shown === undefined ? pickScope('Set counts', (sc) => countsCommand(sc.id, {})) : countsCommand(shown.id, {}).step!,
+        step: pickScope('Measured as', (sc) => countsCommand(sc.id, {})),
       },
       {
-        id: 'duplicate-scope', kind: 'command', title: shown === undefined ? 'Duplicate scope…' : `Duplicate ${shown.label}`,
+        id: 'scope-colour', kind: 'command', title: 'Set scope colour…',
+        keywords: ['scope-action', 'color', 'colour', 'swatch'], ...stuck(noRound),
+        step: pickScope('Scope colour', (sc) => colourCommand(sc.id)),
+      },
+      {
+        id: 'scope-markups', kind: 'command', title: 'Markups of a scope…', detail: 'every sheet; go to one, move it, delete it',
+        keywords: ['scope-action', 'list', 'shapes'], ...stuck(noRound),
+        step: pickScope('Markups', (sc) => markupsCommand(sc.id)),
+      },
+      {
+        id: 'direction-from-edge', kind: 'command', title: 'Direction from an edge…', detail: 'pick a scope, one of its areas, one of its edges',
+        keywords: ['scope-action', 'orientation', 'pattern'], ...stuck(noRound ?? noSheet),
+        step: pickScope('Direction from an edge', (sc) => edgeDirectionCommand(sc.id)),
+      },
+      {
+        id: 'duplicate-scope', kind: 'command', title: 'Duplicate scope…',
         keywords: ['scope-action', 'copy'], ...stuck(noRound),
-        ...(shown === undefined
-          ? { step: pickScope('Duplicate scope', (sc) => ({ id: `dup-${sc.id}`, kind: 'command', title: sc.label, run: () => void duplicateScope(sc.id) })) }
-          : { run: () => void duplicateScope(shown.id) }),
+        step: pickScope('Duplicate scope', (sc) => ({ id: `dup-${sc.id}`, kind: 'command', title: sc.label, run: () => void duplicateScope(sc.id) })),
       },
       {
-        id: 'remove-scope', kind: 'command', title: shown === undefined ? 'Remove scope from round…' : `Archive ${shown.label}`,
+        id: 'remove-scope', kind: 'command', title: 'Remove scope from round…',
         // Reversible, so no confirmation: the row says what happens instead.
-        detail: shown === undefined ? 'archived, not destroyed'
-          : `its ${markupCounts[shown.id] ?? 0} markup${(markupCounts[shown.id] ?? 0) === 1 ? '' : 's'} stay and come back if you restore it`,
+        detail: 'archived, not destroyed',
         keywords: ['scope-action', 'remove', 'delete', 'archive'], ...stuck(noRound),
-        ...(shown === undefined
-          ? { step: pickScope('Remove scope', (sc) => removeCommand(sc.id)) }
-          : { run: () => { if (openRound !== undefined) void removeScopeBy(openRound.id, shown.id) } }),
+        step: pickScope('Remove scope', (sc) => removeCommand(sc.id)),
       },
       {
         id: 'restore-scope', kind: 'command', title: 'Restore scope…',
@@ -5161,10 +6350,13 @@ export default function Workspace({
         },
       },
       {
-        id: 'take-off', kind: 'command', title: shown === undefined ? 'Take off' : `Take off in ${shown.label}`,
-        detail: 'Area tool, drawing into the scope', keywords: ['scope-action', 'takeoff', 'draw', 'measure'],
-        ...stuck(noSheet ?? (shown === undefined ? 'choose a scope first' : noScale)),
-        run: () => { if (shown !== undefined) { setActiveScope(shown.id); beginTakeoff(true); setTool('area') } },
+        // ALWAYS asks which scope (rule 3): the one open in the sidebar is
+        // not necessarily the one meant, and "@cl04 take off" or the scope's
+        // hub is the one-step form for a named scope.
+        id: 'take-off', kind: 'command', title: 'Take off…',
+        detail: `the drawing tool the scope is measured with${noScale !== undefined ? ' · the sheet has no scale yet' : ''}`, keywords: ['scope-action', 'takeoff', 'draw', 'measure'],
+        ...stuck(noSheet ?? noRound),
+        step: pickScope('Take off', takeOffCommand),
       },
       {
         id: 'leave-takeoff', kind: 'command', title: 'Leave takeoff', detail: 'Back to reading the sheet',
@@ -5175,20 +6367,42 @@ export default function Workspace({
         ['area', 'Area tool', 'Trace a region'], ['polyline', 'Length tool', 'Trace a run'], ['count', 'Count tool', 'One click, one piece'],
         ['cutout', 'Cutout tool', 'Subtract from an area'], ['shape', 'Highlight tool', 'Mark a region; counts nothing'],
         ['dimension', 'Dimension tool', 'Measure and write it on the sheet'], ['pan', 'Pan tool', 'Read the sheet'],
-      ] as const).map(([t, label, detail]): Command => ({
-        id: `tool-${t}`, kind: 'command', title: label, detail: tool === t ? `${detail} · current` : detail,
-        keywords: ['tool', 'draw'], ...stuck(noSheet ?? (t !== 'pan' && t !== 'dimension' ? noScope : undefined)),
-        run: () => { if (t !== 'pan' && t !== 'dimension' && !takeoff) beginTakeoff(true); setTool(t) },
-      })),
+        ['select', 'Select tool', 'Click a markup, or drag a box around several'],
+      ] as const).map(([t, label, detail]): Command => {
+        const needsScope = t !== 'pan' && t !== 'select' && t !== 'dimension'
+        const base = {
+          id: `tool-${t}`, kind: 'command' as const, title: label, detail: tool === t ? `${detail} · current` : detail,
+          keywords: ['tool', 'draw'], ...stuck(noSheet),
+        }
+        // A drawing tool with no scope to draw into ASKS which, here, rather
+        // than refusing until one is opened in the sidebar.
+        if (needsScope && noScope !== undefined) {
+          if (estimateScopes.length === 0) return { ...base, ...stuck(noRound ?? 'add a scope first') }
+          return {
+            ...base,
+            step: pickScope(label, (sc) => ({
+              id: `tool-${t}-in`, kind: 'command', title: label,
+              run: () => { setActiveScope(sc.id); beginTakeoff(true); setTool(t) },
+            })),
+          }
+        }
+        return { ...base, run: () => { if (needsScope && !takeoff) beginTakeoff(true); setTool(t) } }
+      }),
+      convertCommand,
       {
-        id: 'set-direction', kind: 'command', title: 'Set direction on the sheet', detail: 'The way planks run, drawn as an arrow',
-        keywords: ['scope-action', 'plank', 'orientation'], ...stuck(noSheet ?? noScope),
-        run: () => { setTakeoff(true); setTool('direction') },
+        id: 'set-direction', kind: 'command', title: 'Set direction on the sheet…', detail: 'The way planks run, drawn as an arrow',
+        keywords: ['scope-action', 'plank', 'orientation'], ...stuck(noSheet ?? noRound),
+        step: pickScope('Set direction', (sc) => ({
+          id: `direction-in-${sc.id}`, kind: 'command', title: `Direction for ${sc.label}`,
+          run: () => { setActiveScope(sc.id); setTakeoff(true); setTool('direction') },
+        })),
       },
       {
-        id: 'commit-scope', kind: 'command', title: shown === undefined ? 'Commit scope' : `Commit ${shown.label}`,
+        id: 'commit-scope', kind: 'command', title: 'Commit scope…',
         detail: 'Freeze its quantities into the round', keywords: ['scope-action', 'freeze', 'lock'],
-        ...stuck(noRound ?? noScope), run: () => { if (shown !== undefined) void commitScope(shown.id) },
+        ...stuck(noRound), step: pickScope('Commit', (sc) => ({
+          id: `commit-in-${sc.id}`, kind: 'command', title: `Commit ${sc.label}`, run: () => void commitScope(sc.id),
+        })),
       },
       {
         id: 'commit-all', kind: 'command', title: 'Commit every scope in the round',
@@ -5220,8 +6434,16 @@ export default function Workspace({
         run: () => void removeMarkups(selectedRef.current),
       },
 
-      { id: 'quantities', kind: 'command', title: 'Parts and quantities', detail: 'The open scope, on its Parts page', keywords: ['bom', 'bill', 'order'], ...stuck(noScope), run: openParts },
-      { id: 'specs', kind: 'command', title: 'Scope setup', detail: 'Product, measures, yield', keywords: ['edit', 'specifications'], ...stuck(noScope), run: openScopeEditor },
+      {
+        id: 'quantities', kind: 'command', title: 'Parts and quantities…', detail: 'read here; open the page from the last row',
+        keywords: ['bom', 'bill', 'order'], ...stuck(noRound),
+        step: pickScope('Parts', (sc) => partsCommand(sc.id)),
+      },
+      {
+        id: 'specs', kind: 'command', title: 'Scope setup…', detail: 'product, measures, yield, in the prompt',
+        keywords: ['edit', 'specifications', 'setup'], ...stuck(noRound),
+        step: pickScope('Scope setup', (sc) => configureCommand(sc.id)),
+      },
     ]
     /*
      * Every setting, operable WITHOUT opening settings.
@@ -5261,16 +6483,43 @@ export default function Workspace({
           })
         }
       } else {
+        // A number is typed into the prompt, with its range stated. This used
+        // to be "the only setting that opens Settings".
         out.push({
           id: `set:${d.id}`,
           kind: 'command',
-          title: d.label,
+          title: `${d.label}…`,
           detail: `Settings · ${CATEGORY_LABEL[d.category]} · currently ${String(current)}`,
           keywords: ['setting', d.description],
-          run: openSettings,
+          alt: { label: 'Show in Settings', run: () => openSettings(d.id) },
+          step: {
+            kind: 'text', label: d.label, placeholder: `${d.min} to ${d.max}`, initial: String(current ?? d.default),
+            rule: `a whole number from ${d.min} to ${d.max}`,
+            validate: (t) => { const n = Number(t.trim()); return Number.isInteger(n) && n >= d.min && n <= d.max ? null : `a whole number from ${d.min} to ${d.max}` },
+            describe: (t) => `Set ${d.label.toLowerCase()} to ${t.trim()}`,
+            run: (t) => { const why = settings.set(d.id, Number(t.trim())); if (why !== null) return why; setStatus(`${d.label}: ${t.trim()}`) },
+          },
         })
       }
     }
+    // Shift+Enter on any setting row: the panel, on its page, at its card.
+    for (const c of out) {
+      if (c.id.startsWith('set:') && c.alt === undefined) {
+        const id = c.id.slice(4).split(':')[0]!
+        c.alt = { label: 'Show in Settings', run: () => openSettings(id) }
+      }
+    }
+    out.push({
+      id: 'settings-at', kind: 'command', title: 'Settings, at a setting…', detail: 'opens the panel on the setting\'s page, at its card',
+      keywords: ['preferences', 'options', 'find setting'],
+      step: {
+        kind: 'choose', label: 'Settings', note: 'which setting',
+        options: () => SETTINGS.map((d): Command => ({
+          id: `settings-at-${d.id}`, kind: 'command', title: d.label, detail: `${CATEGORY_LABEL[d.category]} · ${d.section ?? ''}`,
+          keywords: [d.description], run: () => openSettings(d.id),
+        })),
+      },
+    })
     const modified = SETTINGS.filter((d) => settings.isModified(d.id)).length
     out.push({
       id: 'reset-settings', kind: 'command', title: 'Reset all settings', detail: `${modified} changed from default`,
@@ -5286,25 +6535,71 @@ export default function Workspace({
       })
     }
     for (const e of estimates) {
+      const openIt = () => { setOpenScopeId(null); setOpenEstimateId(e.id); void refreshEstimates(e.id) }
       out.push({
         id: `est-${e.id}`, kind: 'estimate', title: e.name,
         detail: `${e.scopeCount} scope${e.scopeCount === 1 ? '' : 's'}${e.id === openEstimateId ? ' · open' : ''}`,
-        run: () => { setOpenScopeId(null); setOpenEstimateId(e.id); void refreshEstimates(e.id) },
+        // Enter lists what can be done to the round; Shift+Enter opens it.
+        alt: { label: 'Open in the sidebar', run: openIt },
+        step: {
+          kind: 'choose', label: e.name, note: 'what to do with the round',
+          options: () => [
+            { id: `est-${e.id}-open`, kind: 'command', title: 'Open in the sidebar', detail: `${e.scopeCount} scope${e.scopeCount === 1 ? '' : 's'}`, run: openIt },
+            {
+              id: `est-${e.id}-rename`, kind: 'command', title: 'Rename…',
+              step: {
+                kind: 'text', label: 'Rename round', placeholder: 'New name', initial: e.name, rule: 'must be unique in the project',
+                validate: (t) => (t.trim() === e.name ? 'that is its name now' : roundNameRule(t)),
+                describe: (t) => `Rename to “${t.trim()}”`, run: (t) => void renameEstimateBy(e.id, t.trim()),
+              },
+            },
+            {
+              id: `est-${e.id}-duplicate`, kind: 'command', title: 'Duplicate…', detail: 'scopes and markups copied; commits are not',
+              step: {
+                kind: 'text', label: 'Duplicate round', placeholder: 'Name the copy', initial: `${e.name} copy`, rule: 'must be unique in the project',
+                validate: roundNameRule, describe: (t) => `Copy ${e.name} as “${t.trim()}”`, run: (t) => void duplicateEstimate(e.id, t.trim()),
+              },
+            },
+            {
+              id: `est-${e.id}-delete`, kind: 'command', title: 'Delete', detail: 'the round and its scopes; markups stay on the sheets',
+              step: {
+                kind: 'choose', label: 'Delete round', note: e.name, warn: 'Not undoable.',
+                options: () => [{ id: `est-${e.id}-delete-yes`, kind: 'command', title: `Delete ${e.name}`, run: async () => { const why = await deleteEstimateBy(e.id); return why } }],
+              },
+            },
+          ],
+        },
       })
     }
     for (const sc of estimateScopes) {
+      const total = quantities.find((q) => q.scope.id === sc.id)?.rows[0]
+      const n = markupCounts[sc.id] ?? 0
       out.push({
-        id: `scope-${sc.id}`, kind: 'scope', title: sc.label,
-        detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
-        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id) },
+        id: `scope-${sc.id}`, kind: 'scope', title: sc.label, color: sc.color,
+        detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${n} markup${n === 1 ? '' : 's'}${total === undefined ? '' : ` · ${total.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${total.unit}`}`,
+        // Enter opens it; Tab lists everything that can be done to it (the prompt's actions).
+        alt: { label: 'Open in the sidebar', run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); setWorkOpen(true) } },
+        step: scopeHub(sc),
+        ...(sc.id === shownScopeId ? { suggest: 'the active scope' } : {}),
       })
-      // "@cl03 take off": the verb beside the noun, findable when typed.
+      // "@cl03 take off": the verb beside the noun, findable when typed; suggested for the active scope.
       out.push({
-        id: `takeoff-${sc.id}`, kind: 'scope', title: `Take off in ${sc.label}`,
-        detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markups`,
-        keywords: ['scope-action', 'takeoff', sc.label], whenTyped: true, ...stuck(noSheet ?? noScale),
-        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); beginTakeoff(true); setTool('area') },
+        id: `takeoff-${sc.id}`, kind: 'command', title: `Take off in ${sc.label}`,
+        detail: `draw into ${sc.label}`, color: sc.color,
+        keywords: ['scope-action', 'takeoff', sc.label], whenTyped: true, ...stuck(noSheet),
+        ...(sc.id === shownScopeId && noSheet === undefined ? { suggest: 'the active scope' } : {}),
+        run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
       })
+      // The active scope's commit, offered when it has moved since the last one.
+      const state = sc.id === shownScopeId ? commitState : undefined
+      if (state !== undefined && state.delta.length > 0 && noSheet === undefined) {
+        out.push({
+          id: `commit-now-${sc.id}`, kind: 'command', title: `Commit ${sc.label}`, whenTyped: true,
+          detail: `changed since ${new Date(state.at ?? '').getDate()} ${new Date(state.at ?? '').toLocaleDateString(undefined, { month: 'short' })}`,
+          keywords: ['scope-action', 'freeze', 'lock'], suggest: 'changed since the commit',
+          run: () => void commitScope(sc.id),
+        })
+      }
     }
     for (const d of documents) {
       out.push({
@@ -5335,20 +6630,41 @@ export default function Workspace({
       recents: recentProjects ?? [],
       ...(onOpenProject !== undefined ? { onOpen: onOpenProject } : {}),
       ...(onBrowseProject !== undefined ? { onBrowse: onBrowseProject } : {}),
+      actions: {
+        rename: async (path, name) => { await projectBridge.renameRecent(path, name); onRecentsChanged?.() },
+        hide: async (path) => { await projectBridge.forgetRecent(path); onRecentsChanged?.() },
+        ...(projectBridge.desktop ? {
+          removeData: async (path) => { await projectBridge.removeProjectData(path); onRecentsChanged?.() },
+          reveal: async (path) => { await projectBridge.revealProject(path) },
+        } : {}),
+        ...(onOpenProject !== undefined ? {
+          create: async (path) => {
+            try {
+              const info = await projectBridge.openProject(path, { create: true })
+              onRecentsChanged?.()
+              onOpenProject(info.path)
+            } catch (err) {
+              return err instanceof Error ? err.message : String(err)
+            }
+          },
+        } : {}),
+      },
     }))
     return out
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
     pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
-    openSearch, openSettings, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
+    openSearch, openSettings, refreshFiles, convertSheetAnnotations, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
     regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
     scaleOfPage, applyScaleToSelection, markupCounts,
     beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups,
-    openParts, openScopeEditor, prefs, settings, setZoom, openDocument, refreshEstimates,
-    identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject,
-    openEstimateExport,
+    openParts, prefs, settings, setZoom, openDocument, refreshEstimates,
+    identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged,
+    openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, runSearch, goToHit, page.width, page.height,
+    openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
+    quantities, commitState, projectMarkups,
   ])
 
   return (
@@ -5356,6 +6672,7 @@ export default function Workspace({
       className="shellapp"
       data-pane={railPanel === null ? 'closed' : 'open'}
       data-work={workOpen ? 'open' : 'closed'}
+      style={{ '--pane-w': `${paneW}px`, '--work-w': `${workW}px` } as React.CSSProperties}
     >
       <TitleBar
         projectName={projectName}
@@ -5371,9 +6688,20 @@ export default function Workspace({
           ? {
               projectMenu: {
                 currentPath: projectPath,
+                currentName: projectName,
+                facts: [
+                  `${documents.length} document${documents.length === 1 ? '' : 's'}`,
+                  `${estimates.length} round${estimates.length === 1 ? '' : 's'}`,
+                  `${scopes.length} scope${scopes.length === 1 ? '' : 's'}`,
+                ].join(' · '),
                 recents: recentProjects,
                 onOpen: onOpenProject,
                 ...(onBrowseProject !== undefined ? { onBrowse: onBrowseProject } : {}),
+                onMore: () => openPalette('~'),
+                ...(onRenameProject !== undefined ? { onRename: onRenameProject } : {}),
+                ...(onRevealProject !== undefined ? { onReveal: onRevealProject } : {}),
+                onContextWindow: () => { void openContextWindow(identity.projectId ?? projectPath, activeDoc?.relativePath) },
+                onStartPage: onCloseProject,
               },
             }
           : {})}
@@ -5395,6 +6723,7 @@ export default function Workspace({
 
       <Sidebar
         active={railPanel}
+        documentOpen={activeDocId !== null}
         /*
           The scan's own verdict — reconciliation refused, folder unreadable,
           no PDFs — was held in `ingestNote` and handed only to the bridge.
@@ -5414,6 +6743,21 @@ export default function Workspace({
             <SearchPanel
               onSearch={runSearch}
               onGoToHit={goToHit}
+              onMarkHits={markHits}
+              onUnmarkHits={unmarkHits}
+              targets={estimateScopes.map((sc) => ({
+                id: sc.id, label: sc.label, color: sc.color,
+                product: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)], markups: markupCounts[sc.id] ?? 0,
+              }))}
+              onNewTarget={() => { setOpenScopeId(null); setWorkOpen(true); setAddScopeRequest((n) => n + 1) }}
+              sheetFor={(pageId) => {
+                const index = pageIndexOfId(pageId)
+                const docId = pageId.replace(/-p\d+$/, '')
+                if (index === null || docId !== docIdRef.current) return null
+                for (const g of sheetGroups) for (const r of g.rows) if (r.page === index) return { number: r.number, title: r.title }
+                return null
+              }}
+              currentDocumentId={activeDocId}
               onClose={() => setRailPanel(null)}
               focusNonce={searchFocus}
               seed={searchSeed}
@@ -5479,6 +6823,7 @@ export default function Workspace({
               openIds={openDocIds}
               onOpen={openDocument}
               onOpenContext={() => void openContextWindow(identity.projectId ?? 'default')}
+              onRefresh={() => void refreshFiles()}
               scanning={scan === 'reading'}
               note={ingestNote}
               focusNonce={filesFocus}
@@ -5499,7 +6844,11 @@ export default function Workspace({
       */}
       {settingsOpen && (
         <div className="settingsview">
-          <SettingsPanel store={settings} onClose={() => setSettingsOpen(false)} />
+          <SettingsPanel
+            store={settings}
+            onClose={() => setSettingsOpen(false)}
+            {...(settingsTarget !== null ? { initialSettingId: settingsTarget } : {})}
+          />
         </div>
       )}
 
@@ -5513,6 +6862,13 @@ export default function Workspace({
       */}
 
       <div className="viewport">
+        {/*
+          The two panes RESIZE, from the drawing's edges. Equal by default,
+          remembered across sessions, and a double-click puts one back.
+          Aaron, 2026-09-11: the sidebars were unequal and fixed.
+        */}
+        {railPanel !== null && <ColumnGrip side="left" onDrag={(x) => setPaneW(clampPane(x))} onReset={() => setPaneW(SIDEBAR_DEFAULT)} />}
+        {workOpen && <ColumnGrip side="right" onDrag={(x) => setWorkW(clampWork(window.innerWidth - x))} onReset={() => setWorkW(SIDEBAR_DEFAULT)} />}
         <StatusToast text={statusEntry.text} at={statusEntry.at} />
         {/* The setting promised a readout; this is the readout. */}
         {prefs['performance.showBudgets'] === true && <PerfReadout perf={perf} />}
@@ -5529,7 +6885,7 @@ export default function Workspace({
         <div
           ref={stageRef}
           className="stage"
-          style={{ cursor: tool === 'pan' ? 'grab' : 'crosshair' }}
+          style={{ cursor: hoverCursor ?? (tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair') }}
           onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -5538,6 +6894,14 @@ export default function Workspace({
           onDoubleClick={onDoubleClick}
           onContextMenu={(e) => {
             e.preventDefault()
+            /*
+             * A pending question comes first: a calibration line waiting for
+             * its length, a scale box waiting for its scale. Right-click used
+             * to cancel only the draft under it, so the form stayed up and
+             * nothing could be redrawn until Cancel was pressed.
+             */
+            if (pendingCalRef.current !== null) { setMarkupMenu(null); cancelCalibration(); return }
+            if (pendingRegionRef.current !== null) { setMarkupMenu(null); cancelRegion(); return }
             /*
              * A right-click means "back out" while something is being drawn,
              * and "what can I do with this?" when nothing is. Both are the
@@ -5554,7 +6918,7 @@ export default function Workspace({
             // Nothing being drawn and a drawing tool in hand: right-click
             // puts it down, the way Escape does. The menu on a markup is a
             // Pan-tool question, asked with the tool already down.
-            if (tool !== 'pan') {
+            if (tool !== 'pan' && tool !== 'select') {
               setMarkupMenu(null)
               setTool('pan')
               return
@@ -5563,7 +6927,20 @@ export default function Workspace({
             const hx = e.clientX - r.left, hy = e.clientY - r.top
             const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
               ?? hitDimensionAt(hx, hy)
-            if (!hit) { setMarkupMenu(null); return }
+            if (!hit) {
+              // Nothing of ours under the pointer: ask the drawing what it has.
+              // One of the PDF's markups there joins the selection first, so
+              // the menu's "convert the selected" acts on what was clicked.
+              const n = screenToNormalized(hx, hy, viewRef.current, page.width, page.height)
+              const a = annotationAt(n, annotsRef.current)
+              if (a !== null && !selectedAnnotsRef.current.includes(a.index)) {
+                selectAnnots([a.index])
+                requestPaint()
+              }
+              setMarkupMenu(null)
+              void openDrawingMenu(hx, hy, n)
+              return
+            }
             // The menu acts on the selection, so what it will act on has to be
             // selected — and visibly so — before it opens.
             if (!selectedRef.current.includes(hit.markupId)) {
@@ -5580,6 +6957,80 @@ export default function Workspace({
           <canvas ref={rasterRef} />
           <canvas ref={overlayRef} />
         </div>
+
+        {annotMenu !== null && (
+          <>
+            <div
+              className="menuscrim"
+              onPointerDown={(e) => { e.stopPropagation(); setAnnotMenu(null) }}
+              onContextMenu={(e) => { e.preventDefault(); setAnnotMenu(null) }}
+            />
+            <div className="dockmenu markupmenu" role="menu" style={{ left: annotMenu.x, top: annotMenu.y }}>
+              {selectedAnnots.length > 0 && (() => {
+                const picked = annotsRef.current.filter((a) => selectedAnnots.includes(a.index))
+                return (
+                  <>
+                    <div className="menuhead">
+                      Convert {picked.length} selected PDF markup{picked.length === 1 ? '' : 's'} into
+                    </div>
+                    {estimateScopes.slice(0, 8).map((sc) => (
+                      <button
+                        key={sc.id} className="menuitem" role="menuitem"
+                        onClick={() => { void convertAnnotations(picked, sc.id); setAnnotMenu(null) }}
+                      >
+                        <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
+                        <span className="grow">{sc.label}</span>
+                      </button>
+                    ))}
+                    {estimateScopes.length > 8 && (
+                      <div className="menunote"><span>More scopes in the prompt: Ctrl+K, “convert”.</span></div>
+                    )}
+                    {estimateScopes.length === 0 && (
+                      <div className="menunote"><span>No scopes in the round yet. Add one in the estimates pane or the prompt.</span></div>
+                    )}
+                    <div className="menusep" />
+                  </>
+                )
+              })()}
+              <div className="menuhead">
+                {annotMenu.annotations.length === 0
+                  ? 'The drawing'
+                  : `${annotMenu.annotations.length} PDF markup${annotMenu.annotations.length === 1 ? '' : 's'} here`}
+              </div>
+              {annotMenu.annotations.map((a) => {
+                const kind = kindForAnnotation(a)
+                return (
+                  <button
+                    key={a.index} className="menuitem" role="menuitem"
+                    onClick={() => { void convertAnnotations([a]); setAnnotMenu(null) }}
+                  >
+                    <Glyph icon={kind === 'area' ? Pentagon : kind === 'polyline' ? Ruler : Highlighter} role="row" />
+                    <span className="grow">
+                      Convert {a.subtypeName.toLowerCase()}{a.subject !== '' ? ` “${a.subject}”` : ''} to
+                      {kind === 'area' ? ' an area' : kind === 'polyline' ? ' a length' : ' a highlight'}
+                    </span>
+                  </button>
+                )
+              })}
+              {annotMenu.onSheet > 1 && (
+                <button
+                  className="menuitem" role="menuitem"
+                  onClick={() => { void convertSheetAnnotations(); setAnnotMenu(null) }}
+                >
+                  <Glyph icon={Copy} role="row" />
+                  <span className="grow">Convert all {annotMenu.onSheet} PDF markups on this sheet</span>
+                </button>
+              )}
+              <button
+                className="menuitem" role="menuitem"
+                onClick={() => { void traceAt({ x: annotMenu.nx, y: annotMenu.ny }); setAnnotMenu(null) }}
+              >
+                <Glyph icon={Crosshair} role="row" />
+                <span className="grow">Trace the region here as an area</span>
+              </button>
+            </div>
+          </>
+        )}
 
         {markupMenu !== null && (() => {
           const m = markups.find((x) => x.id === markupMenu.markupId)
@@ -5734,18 +7185,22 @@ export default function Workspace({
         })()}
 
         <Dock
-          read={<ReadPill tool={tool} onTool={setTool} />}
+          pinned={pendingCal !== null || pendingRegion !== null}
           left={
             <ToolPill
               tool={tool}
               onTool={setTool}
               scopes={estimateScopes}
               activeScope={activeScope}
-              onScope={setActiveScope}
-              onSpecifications={openScopeDetail}
-              onQuantities={openParts}
-              layoutOn={layoutOn}
-              onToggleLayout={setLayoutOn}
+              /*
+                One active scope, shared. Picking a scope here used to arm
+                the dock and leave the sidebar on whatever it was showing
+                (Aaron, 2026-09-18: "changing scopes on the dock doesn't
+                change the active scope in the sidebar like it should"); the
+                sidebar already arms the dock when a scope page opens, so
+                this is the other half of the same rule.
+              */
+              onScope={(id) => { setActiveScope(id); setOpenScopeId(id) }}
               takeoff={takeoff}
               onTakeoff={beginTakeoff}
               estimates={estimates.map((e) => ({ id: e.id, name: e.name }))}
@@ -5758,6 +7213,7 @@ export default function Workspace({
               onAddScope={openScopeEditor}
               markupCountFor={(id) => markupCounts[id] ?? 0}
               onOpenEstimates={() => setWorkOpen(true)}
+              documentOpen={activeDocId !== null}
             />
           }
           right={
@@ -5807,8 +7263,8 @@ export default function Workspace({
                 : {})}
               zoom={viewRef.current.zoom}
               onZoom={setZoom}
-              onFitPage={() => setFitMode('page')}
-              onFitWidth={() => setFitMode('width')}
+              onFitPage={() => applyFit('page')}
+              onFitWidth={() => applyFit('width')}
             />
           }
         />
@@ -5830,13 +7286,15 @@ export default function Workspace({
         scopes={estimateScopes}
         scopesLoaded={estimateScopesLoaded}
         markupCountFor={(id) => markupCounts[id] ?? 0}
-        files={estimateFiles}
-        onOpenDocument={openDocument}
+        standingFor={standingFor}
         rows={activeQuantities}
         {...(activePieces !== undefined ? { pieces: activePieces } : {})}
         markups={scopeMarkups}
         sheetLabel={sheetLabelFor}
+        sheetTitle={sheetTitleFor}
         onGoToPage={goToPage}
+        onGoToMarkup={goToMarkup}
+        lengthDenominator={Number(prefs['takeoff.imperialPrecision'] ?? 16)}
         onCreateEstimate={(name) => void createEstimate(name)}
         onCreateScope={(label) => void createNamedScope(label)}
         addScopeRequest={addScopeRequest}
@@ -5850,32 +7308,62 @@ export default function Workspace({
         onSaveScope={(sc) => void saveScope(sc)}
         bill={{
           entries: pieces,
-          calibrated: cal !== null,
+          /*
+           * The ROUND is calibrated if any page it could be measured on is.
+           * This read the open sheet's calibration, so the round's list wore
+           * "this drawing is not calibrated, nothing here is in real units"
+           * directly above three rows in square feet whenever a cover sheet
+           * happened to be showing. Same wrong gate as the roll-up, one
+           * consumer further down.
+           */
+          calibrated: projectCalibrations.size > 0,
           documents: documents.map((d) => d.displayName || d.relativePath),
           markupCount: markupsOnOpenDrawing,
           onExportMarkedPdf: exportMarkedDrawing,
         }}
         scopePage={scopePage}
         onScopePage={setScopePage}
-        totalFor={(id) => {
-          const r = quantities.find((q) => q.scope.id === id)?.rows[0]
-          return r === undefined ? null : `${r.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${r.unit}`
+        onSetDirection={() => {
+          /*
+           * The scope whose Setup is open is the one the direction is FOR.
+           * The direction tool writes to the active scope, and the Setup
+           * pane could be open on another: the direction landed on the
+           * dock's scope, the layout drew correctly for it, and this pane
+           * went on saying "not set". Kenneth, 2026-09-10.
+           */
+          if (openScopeId !== null) setActiveScope(openScopeId)
+          setTakeoff(true); setTool('direction')
         }}
-        onSetDirection={() => { setTakeoff(true); setTool('direction') }}
         direction={(() => {
+          /*
+           * A direction lives in three places (AREA beats PAGE beats SCOPE,
+           * see the domain), and this row read only the third, so a
+           * direction set for the whole sheet drew the layout correctly while
+           * the row went on saying "not set".
+           */
           const sc = estimateScopes.find((s) => s.id === (openScopeId ?? activeScope))
-          const d = sc === undefined ? null : scopeDefaultDirectionFrom(sc.specifications)
-          if (d === null || sc === undefined) return null
-          // The sheet it was picked on rides in the raw spec beside the vector.
-          const raw = sc.specifications['scopeDefaultDirection']
-          const page = raw !== null && typeof raw === 'object' && 'sourcePage' in raw ? Number((raw as { sourcePage?: unknown }).sourcePage) : NaN
-          return Number.isFinite(page) ? `set on ${sheetLabelFor(page)}` : 'set'
+          if (sc === undefined) return null
+          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const pages = pageDirectionsFrom(sc.specifications)
+          const areas = areaDirectionsFrom(sc.specifications)
+          const parts: string[] = []
+          if (pages.has(here)) parts.push(pages.size > 1 ? `set for this sheet and ${pages.size - 1} more` : 'set for this sheet')
+          else if (pages.size > 0) parts.push(`set on ${pages.size} other sheet${pages.size === 1 ? '' : 's'}`)
+          if (areas.size > 0) parts.push(`${areas.size} area${areas.size === 1 ? '' : 's'} on their own`)
+          const d = scopeDefaultDirectionFrom(sc.specifications)
+          if (d !== null) {
+            // The sheet it was picked on rides in the raw spec beside the vector.
+            const raw = sc.specifications['scopeDefaultDirection']
+            const page = raw !== null && typeof raw === 'object' && 'sourcePage' in raw ? Number((raw as { sourcePage?: unknown }).sourcePage) : NaN
+            parts.push(Number.isFinite(page) ? `default from ${sheetLabelFor(page)}` : 'default set')
+          }
+          return parts.length === 0 ? null : parts.join(' · ')
         })()}
         layoutOn={layoutOn}
         onToggleLayout={setLayoutOn}
         {...(commitState !== undefined ? { commit: commitState } : {})}
         onCommit={(id) => void commitScope(id)}
-        onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool('area') }}
+        onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool(firstToolFor(id)) }}
         onExportEstimate={openEstimateExport}
         {...(exportDraft !== null
           ? {
@@ -5894,7 +7382,15 @@ export default function Workspace({
       />
 
       {paletteOpen && (
-        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} onSearchText={(q) => { openSearch(); setSearchSeed(q) }} />
+        <CommandPalette
+          commands={commands}
+          initialQuery={paletteSeed}
+          context={activeDocId === null
+            ? projectName
+            : `${sheetLabelFor(pageIndex)}${(() => { const sc = scopes.find((s) => s.id === (openScopeId ?? activeScope)); return sc === undefined ? '' : ` · ${sc.label} active` })()}`}
+          onClose={() => setPaletteOpen(false)}
+          onSearchText={(q) => { openSearch(); setSearchSeed(q) }}
+        />
       )}
     </div>
   )

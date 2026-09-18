@@ -126,13 +126,7 @@
   font-size: var(--ads-text-xs);
 }
 
-.appname {
-  flex: none;
-  font-weight: 600;
-  font-size: var(--ads-text-sm);
-  letter-spacing: -0.015em;
-  white-space: nowrap;
-}
+
 
 .projectpick {
   flex: none;
@@ -158,13 +152,7 @@
 .projectpick > svg:last-child { margin-left: auto; flex: none; color: var(--rb-ink-4); }
 .projectname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.titlerule {
-  flex: none;
-  width: 1px;
-  align-self: stretch;
-  margin-block: var(--ads-sp-2);
-  background: var(--ads-line);
-}
+
 
 /* ------------------------------------------------------- document tabs -- */
 
@@ -365,6 +353,9 @@
   cursor: pointer;
 }
 .sidetab:hover { background: var(--ads-inset); color: var(--ads-ink); }
+/* Contents and Thumbnails with no drawing open: present, and plainly not for now. */
+.sidetab:disabled { color: var(--rb-ink-dim); cursor: default; }
+.sidetab:disabled:hover { background: transparent; color: var(--rb-ink-dim); }
 /* The 3x16 indicator Fluent puts on a selected navigation item. */
 .sidetab.on {
   background: var(--rb-selected);
@@ -489,15 +480,21 @@
   color: var(--ads-ink-3);
   pointer-events: none;
 }
+/*
+ * The WRAPPER is the control. The input inside it carried its own border,
+ * fill and radius, which the alpha fills made visible — a box inside a box
+ * (Aaron, 2026-09-18: "two nested search bars, which is weird").
+ */
 .panesearch input {
   width: 100%;
   padding: var(--ads-sp-2) var(--ads-sp-3);
   padding-left: var(--ads-sp-8);
-  border: 1px solid var(--ads-line);
-  border-radius: var(--ads-radius-s);
-  background: var(--ads-inset);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--ads-ink);
   font: inherit;
+  outline: none;
 }
 .panesearch input::placeholder { color: var(--ads-ink-3); }
 
@@ -638,7 +635,7 @@
 }
 .sheetgrouphead:hover { background: var(--ads-inset); color: var(--ads-ink-2); }
 .sheetgrouphead .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.sheetgrouphead > svg { transition: transform 120ms ease; }
+.sheetgrouphead > svg { transition: transform var(--rb-motion-fast) var(--rb-ease-decel); }
 .sheetgrouphead[aria-expanded="true"] > svg { transform: rotate(90deg); }
 .sheetgroup .sheetrow { padding-left: var(--ads-sp-7); }
 
@@ -705,18 +702,15 @@
  * QUEUED UPSTREAM as .ads-dock / .ads-dock-group / .ads-dock-btn.
  */
 /*
- * ONE bar, not three floating pills.
+ * FOUR floating groups, 8px apart — Aaron's QA note of 2026-09-11 and the
+ * approved mockup. Each group is its own acrylic surface; the row that holds
+ * them is transparent and lets the pointer through to the drawing between
+ * them. (It was one bar for a while, and before that three pills; the four
+ * groups answer four different questions and are reached for at four
+ * different moments, which is what the gaps say.)
  *
- * The dock was three separate `.dockgroup` surfaces — three borders, three
- * shadows, three blur planes and three unrelated widths sitting under one
- * drawing. Nothing in Windows looks like that; a command bar is one surface
- * with its groups told apart by separators, which is what `.dockrule` already
- * was for between tools. The surface moved up here and the groups went
- * transparent; the collapse tiers below are unchanged, and they now shorten a
- * single object instead of making whole islands appear and disappear.
- *
- * In-app acrylic rather than a flat fill: this floats over the DRAWING, so it
- * blurs the sheet beneath it. The tint is neutral — `--rb-chrome` is
+ * In-app acrylic rather than a flat fill: these float over the DRAWING, so
+ * they blur the sheet beneath. The tint is neutral — `--rb-chrome` is
  * blue-leaning and would cast on the paper.
  */
 .dock {
@@ -728,13 +722,8 @@
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: var(--rb-dock-pad);
-  border: 1px solid var(--ads-line-2);
-  border-radius: var(--rb-dock-r);
-  background: var(--rb-acrylic);
-  backdrop-filter: blur(30px) saturate(125%);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+  gap: var(--ads-sp-2);
+  pointer-events: none;
 }
 
 .dockgroup {
@@ -743,6 +732,13 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
+  padding: var(--rb-dock-pad);
+  border: 1px solid var(--ads-line-2);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-acrylic);
+  backdrop-filter: blur(30px) saturate(125%);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+  pointer-events: auto;
 }
 
 .dockbtn {
@@ -762,25 +758,18 @@
   cursor: pointer;
 }
 .dockbtn:hover { background: var(--ads-inset); color: var(--ads-ink); }
-/* AppBarToggleButton, checked: a subtle fill and a 2px accent underline. An
-   accent-filled slab in a row of ghost buttons read as the primary action
-   rather than as the tool in hand. */
+/*
+ * AppBarToggleButton, checked: a fill and nothing under it. The 16x3 accent
+ * pill this wore is NavigationView's mark for a selected PAGE; a tool in hand
+ * is a toggle, and Fluent's checked toggle is ControlFillColorSecondary with
+ * the Filled glyph — here in the accent, the rule the rail already follows
+ * (board 1, 2026-09-18).
+ */
 .dockbtn[aria-pressed="true"] {
-  background: var(--ads-inset);
+  background: var(--rb-selected);
   color: var(--ads-ink);
 }
-/* The 16x3 pill NavigationView draws under a selected top-mode item. */
-.dockbtn[aria-pressed="true"]::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1px;
-  width: 16px;
-  height: 3px;
-  margin-left: -8px;
-  border-radius: 2px;
-  background: var(--rb-accent);
-}
+.dockbtn[aria-pressed="true"] > svg { color: var(--rb-accent); }
 .dockbtn:disabled { color: var(--ads-ink-3); cursor: default; }
 .dockbtn:disabled:hover { background: transparent; }
 
@@ -828,34 +817,11 @@
 }
 .dockscope:hover { background: var(--ads-line); }
 .dockscopename { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/*
- * The scope swatch carries a per-scope colour the estimator chose. That is
- * DATA colour, not palette colour — standards/02's accent rule constrains the
- * system's own hues, and a takeoff whose scopes are all ink is unusable.
- */
-.dockswatch {
-  flex: none;
-  width: var(--ads-sp-3);
-  height: var(--ads-sp-3);
-  border-radius: var(--ads-radius-s);
-  border: 1px solid var(--ads-line-2);
-}
 
-.docklabel { display: inline; }
 
-.dockwarn {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + var(--ads-sp-2));
-  max-width: 60ch;
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-warn-bg);
-  box-shadow: inset 3px 0 0 var(--rb-warn);
-  color: var(--rb-ink);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-}
+
+
+
 
 /*
  * Collapse tiers.
@@ -941,24 +907,10 @@
 
 /* ----------------------------------------------------- right workspace -- */
 
-.wstabs {
-  flex: none;
-  display: flex;
-  padding-inline: var(--ads-sp-2);
-  border-bottom: 1px solid var(--ads-line);
-}
-.wstab {
-  padding: var(--ads-sp-3);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--ads-ink-3);
-  font: inherit;
-  line-height: 1;
-  cursor: pointer;
-}
-.wstab:hover { color: var(--ads-ink-2); }
-.wstab.active { color: var(--rb-ink); border-bottom-color: var(--rb-accent); }
+
+
+
+
 
 .wsbody {
   flex: 1 1 auto;
@@ -970,154 +922,40 @@
   gap: var(--ads-sp-5);
 }
 
-.wssection { display: flex; flex-direction: column; gap: var(--ads-sp-2); }
-.wssection {
-  border: 1px solid var(--rb-line);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
-  gap: 0;
-  overflow: hidden;
-}
-.wssection > h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  margin: 0;
-  padding: var(--ads-sp-3);
-  border-bottom: 1px solid var(--rb-line);
-  font-size: var(--ads-text-sm);
-  font-weight: 600;
-  color: var(--rb-ink);
-}
-.wssection > h3 > svg { color: var(--rb-ink-3); }
-.wssection > .wsmuted,
-.wssection > .wswarn { padding: var(--ads-sp-3); }
-.wssection > h3 .grow { flex: 1 1 auto; }
 
-.wshead { display: flex; align-items: center; gap: var(--ads-sp-2); min-width: 0; }
-.wshead h2 {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  font-weight: 600;
-  font-size: var(--ads-text-lg);
-  line-height: var(--ads-leading-lg);
-  letter-spacing: -0.015em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
+
+
+
+
+
+
+
 .wsmuted { color: var(--ads-ink-3); font-size: var(--ads-text-xs); line-height: var(--ads-leading-xs); }
 
-/*
- * The definition form — inline, not behind a modal.
- *
- * Editing a panel width and watching the piece count move is the whole loop; a
- * dialog that covers the drawing breaks it. Rows are label/value pairs.
- */
-.deffield {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding-block: var(--ads-sp-1);
-}
-.deffield > label {
-  min-width: 0;
-  color: var(--ads-ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.defcontrol { display: inline-flex; align-items: center; gap: var(--ads-sp-1); }
-.defcontrol input, .defcontrol select {
-  width: var(--ads-sp-10);
-  padding: var(--ads-sp-1) var(--ads-sp-2);
-  border: 1px solid var(--ads-line);
-  border-radius: var(--ads-radius-s);
-  background: var(--ads-inset);
-  color: var(--ads-ink);
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-sm);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-.defcontrol select { width: auto; text-align: left; font-family: var(--ads-sans); }
-.defcontrol .unit { color: var(--ads-ink-3); font-family: var(--ads-mono); font-size: var(--ads-text-xs); }
 
-.defswatch {
-  width: var(--ads-sp-5);
-  height: var(--ads-sp-5);
-  padding: 0;
-  border: 1px solid var(--ads-line-2);
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  cursor: pointer;
-}
 
-.deftoggle {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  width: 100%;
-  padding: var(--ads-sp-1) var(--ads-sp-2);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--ads-ink-2);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.deftoggle:hover { background: var(--ads-inset); color: var(--ads-ink); }
-.deftoggle[aria-pressed="true"] { color: var(--ads-ink); }
-.deftoggle .grow { flex: 1 1 auto; }
 
-/*
- * Quantities.
- *
- * standards/01 §7 forbids KPI tiles and stat-card rows: this is a text-first
- * kv list with mono tabular values, which is the sanctioned form.
- */
-.qrow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: var(--ads-sp-3);
-  padding-block: var(--ads-sp-1);
-}
-.qrow > .qlabel { color: var(--ads-ink-2); }
-.qrow > .qvalue {
-  font-family: var(--ads-mono);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--ads-ink);
-}
-.qrow.blocked > .qvalue { color: var(--ads-ink-3); }
 
-.markuprow {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  width: 100%;
-  padding: var(--ads-sp-1) var(--ads-sp-2);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.markuprow:hover { background: var(--ads-inset); }
-.markuprow .mkind { color: var(--ads-ink-2); }
-.markuprow .mvalue {
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--ads-ink-3);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 .wswarn {
   display: flex;
@@ -1306,33 +1144,11 @@
 .crumbs { min-width: 0; }
 .crumbs .crumb:not(.current) { flex: none; }
 
-/* A row that drills in: icon or dot, two lines, chevron. */
-.estrow {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  width: 100%;
-  padding: var(--ads-sp-3);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
-  color: var(--rb-ink-2);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.estrow:hover { background: var(--rb-hover); }
-.estrow > svg:first-child { color: var(--rb-ink-3); }
-.esttext { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.estname {
-  display: block;
-  color: var(--rb-ink);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
+
+
+
+
 
 /* The 8px scope identifier — the size the foundations frame specifies. */
 .scopedot {
@@ -1342,162 +1158,39 @@
   border-radius: 999px;
 }
 
-/*
- * The active scope's header card. Its border and 8% tint are the scope's own
- * colour — the only surface in the app a scope colour may fill.
- */
-.scopecard {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding: var(--ads-sp-3);
-  border: 1px solid;
-  border-radius: var(--ads-radius-s);
-}
-.scopecard .grow { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.scopecard .estname { font-size: var(--ads-text-sm); }
-.scopecard .scopemeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scopemeta {
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-  font-weight: 500;
-}
-.takeoffbtn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  color: var(--rb-oled);
-  font: inherit;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-}
-.takeoffbtn:hover { filter: brightness(1.08); }
 
-/* Label left, value right — the comps' row grammar throughout. */
-.kvrow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border-top: 1px solid var(--rb-line);
-}
-.wssection .kvrow:first-of-type { border-top: 0; }
-.kvlabel { color: var(--rb-ink-3); min-width: 0; }
-.kvvalue {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  color: var(--rb-ink);
-  font-weight: 500;
-}
-.kvvalue.num { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
-.kvvalue.unset { color: var(--rb-ink-4); font-weight: 400; }
+
+
+
+
+
+
+
+
+
+
+
+
+
 .req { color: var(--rb-warn); font-weight: 500; }
-/*
- * What the measure controls, in four words — the trade abbreviation beside it
- * does not say which of these moves the piece count.
- *
- * NOT uppercased with the label. The label is a 10px all-caps field name, which
- * is fine for two words and shouting by the time it reads PANEL W · PANEL FACE
- * WIDTH. The caption is a sentence, so it is set as one and sized to be read.
- */
-.spechelp {
-  color: var(--ads-ink-3);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: normal;
-  font-size: var(--ads-text-xs);
-  /* A caption that must wrap wraps tightly rather than opening the row up. */
-  line-height: var(--ads-leading-2xs);
-}
+
 .req { text-transform: none; letter-spacing: normal; font-size: var(--ads-text-xs); }
-/*
- * A required-but-empty measure takes the warning stroke.
- *
- * The panel already knew which measures were missing and said so in a warning
- * under the fold, so the thing to fix and the sentence about it were different
- * objects. The field carries it now.
- */
-.speccell.needed > .specpair > .kvcontrol:first-child {
-  border-color: var(--rb-warn);
-  border-bottom-color: var(--rb-warn);
-}
 
-/* The note that explains a behaviour, rather than warning about a state. */
-.specnote {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ads-sp-2);
-  margin: var(--ads-sp-2) 0 0;
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid var(--ads-line);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-hover);
-  color: var(--ads-ink-2);
-  font-size: var(--ads-text-sm);
-  line-height: var(--ads-leading-sm);
-}
-.specnote > svg { flex: none; margin-top: 2px; color: var(--ads-ink-3); }
 
-/*
- * The parts table: what to ORDER, as against how much there is.
- *
- * One grid so the figures align on their unit column. The quantity is mono for
- * the same reason every other figure in the app is — a column of numbers that
- * do not share an advance is a column you cannot scan.
- */
-.partstable {
-  margin: var(--ads-sp-2) 0 0;
-  border: 1px solid var(--ads-line);
-  border-radius: var(--ads-radius-s);
-  overflow: hidden;
-}
-.partshead, .partsrow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 3ch;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding: 0 var(--ads-sp-3);
-  min-height: var(--rb-row-sm);
-}
-.partshead {
-  background: var(--rb-hover);
-  color: var(--ads-ink-3);
-  font-size: var(--ads-text-sm);
-}
-.partsrow { color: var(--ads-ink-2); font-size: var(--ads-text-sm); }
-.partsrow > .num { font-family: var(--ads-mono); color: var(--ads-ink); }
-.partshead > .num { text-align: right; }
-.partsunit { color: var(--ads-ink-3); }
 
-/* The way out to the round's order document: an action under a rule, not a
-   card competing with the scopes above it. */
-.billlink {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  width: 100%;
-  min-height: var(--rb-row);
-  margin-top: var(--ads-sp-2);
-  padding: 0 var(--rb-pad-row);
-  border: 0;
-  border-top: 1px solid var(--ads-line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--ads-ink-2);
-  font: inherit;
-  font-size: var(--ads-text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.billlink:hover { background: var(--ads-inset); color: var(--ads-ink); }
-.kvcontrol, .kvedit input, .kvedit select {
+
+
+
+
+
+
+
+
+
+
+
+
+.kvcontrol {
   padding: var(--ads-sp-1) var(--ads-sp-2);
   border: 1px solid var(--rb-line-2);
   border-radius: var(--ads-radius-s);
@@ -1505,75 +1198,23 @@
   color: var(--rb-ink);
   font: inherit;
 }
-.kvedit { display: inline-flex; gap: var(--ads-sp-1); }
-.kvedit input {
-  width: var(--ads-sp-10);
-  text-align: right;
-  font-family: var(--ads-mono);
-  font-variant-numeric: tabular-nums;
-}
 
-.mgrouphead {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border-top: 1px solid var(--rb-line);
-  color: var(--rb-ink-2);
-  font-size: var(--ads-text-xs);
-}
 
-/* Segmented control, from the comps' "Group [Page] [Type]". */
-.seg {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-1);
-  padding: var(--ads-sp-1);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-oled);
-}
-.seglabel { color: var(--rb-ink-3); font-size: var(--ads-text-xs); padding-inline: var(--ads-sp-2); }
-.segbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ads-sp-1);
-  padding: var(--ads-sp-1) var(--ads-sp-2);
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-3);
-  font: inherit;
-  font-size: var(--ads-text-xs);
-  cursor: pointer;
-}
-.segbtn:hover { color: var(--rb-ink-2); }
-.segbtn.active { background: var(--rb-selected); color: var(--rb-ink); }
 
-.nameeditor { display: flex; gap: var(--ads-sp-2); align-items: center; }
-.nameeditor input {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-oled);
-  color: var(--rb-ink);
-  font: inherit;
-}
 
-/* An honest note about state, not an error. */
-.notecard {
-  display: flex;
-  gap: var(--ads-sp-3);
-  padding: var(--ads-sp-3);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-raised);
-  color: var(--rb-ink-3);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-}
-.notecard > svg { flex: none; color: var(--rb-ink-3); }
-.notetitle { color: var(--rb-ink); font-weight: 500; font-size: var(--ads-text-sm); margin-bottom: 2px; }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 .ghostbtn.small { padding: var(--ads-sp-1) var(--ads-sp-2); font-size: var(--ads-text-xs); }
 
@@ -1616,7 +1257,7 @@
   cursor: pointer;
 }
 .dockscope:hover { background: var(--rb-selected); }
-.dockscopetext { min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+
 .dockscopename {
   min-width: 0;
   overflow: hidden;
@@ -1624,11 +1265,7 @@
   white-space: nowrap;
   font-weight: 500;
 }
-.dockscopestate {
-  font-size: var(--ads-text-xs);
-  line-height: 1;
-  color: var(--rb-ink-3);
-}
+
 
 /*
  * The scale control names its own state.
@@ -1702,43 +1339,9 @@
 .scalechip:hover { background: var(--rb-hover); color: var(--rb-ink); }
 .scalechip.active { border-color: var(--rb-line-2); background: var(--rb-selected); color: var(--rb-ink); }
 
-/*
- * A blocked layout, stated exactly, with the action that unblocks it.
- *
- * The alternative — a quantity sitting at zero with no explanation — is the
- * failure mode this exists to prevent: zero and "cannot calculate" look
- * identical in a number, and only one of them means there is no material.
- */
-.dockblock {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + var(--ads-sp-2));
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  max-width: 68ch;
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid var(--rb-surface-stroke);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-flyout);
-  box-shadow: inset 3px 0 0 var(--rb-warn);
-  color: var(--rb-ink);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-  white-space: nowrap;
-}
-.dockblock > .grow { flex: 1 1 auto; }
-.dockblock > button {
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--rb-warn);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-}
+
+
+
 
 /*
  * The scope pill yields first when the dock runs out of room.
@@ -1879,7 +1482,7 @@
 /* ---- right sidebar ---- */
 .wshead-bar { height: var(--rb-pane-head); padding: 0 var(--rb-pad-row); }
 .crumbs { padding: var(--ads-sp-1) var(--rb-pad-row); }
-.wshead h2 { font-size: var(--ads-text-lg); line-height: var(--ads-leading-lg); }
+
 
 /*
  * Full bleed. No gutter, no gap, no card.
@@ -1902,47 +1505,32 @@
  * which is roughly the worst failure mode a panel of numbers has.
  */
 .wsbody > * { flex: 0 0 auto; }
-.wsbody > .wshead,
-.wsbody > .nameeditor,
-.wsbody > .notecard,
 .wsbody > .wsmuted { padding: var(--ads-sp-2) var(--rb-pad-row); }
-.wsbody > .wshead { padding-block: var(--ads-sp-3); }
 
-.wssection {
-  border: 0;
-  border-bottom: 1px solid var(--rb-line);
-  border-radius: 0;
-  background: transparent;
-}
-.wssection > h3 {
-  min-height: var(--rb-head);
-  padding: 0 var(--rb-pad-row);
-  background: var(--rb-chrome);
-  font-size: var(--ads-text-base);
-  font-weight: 600;
-  color: var(--rb-ink);
-}
-.wssection > .wsmuted, .wssection > .wswarn { padding: var(--ads-sp-2) var(--rb-pad-row); }
 
-.kvrow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
+
+
+
+
+
 /* Fluent's control height, and a text field's brighter bottom stroke. These
    sat at 20px — a control shorter than the row it lives in. */
-.kvcontrol, .kvedit input, .kvedit select {
+.kvcontrol {
   padding: 0 var(--ads-sp-2);
   height: var(--rb-control);
   border-bottom-color: var(--rb-line-2);
 }
-.kvcontrol:focus-visible, .kvedit input:focus-visible { border-bottom-color: var(--rb-accent); }
+.kvcontrol:focus-visible { border-bottom-color: var(--rb-accent); }
 
-.estrow { min-height: var(--rb-row-2); padding: var(--ads-sp-1) var(--rb-pad-row); gap: var(--ads-sp-2); }
-.markuprow { min-height: var(--rb-row-sm); padding: var(--ads-sp-1) var(--rb-pad-row); }
-.mgrouphead { padding: var(--ads-sp-1) var(--rb-pad-row); }
 
-.scopecard { padding: var(--ads-sp-2) var(--rb-pad-row); gap: var(--ads-sp-2); }
-.takeoffbtn { padding: var(--ads-sp-1) var(--ads-sp-2); }
-.seg { padding: 0; }
-.segbtn { padding: var(--ads-sp-1) var(--ads-sp-2); }
-.notecard { padding: var(--ads-sp-2) var(--rb-pad-row); }
+
+
+
+
+
+
+
+
 
 /* ---- dock ---- */
 /*
@@ -1983,7 +1571,7 @@
 /* ---- buttons ---- */
 .ghostbtn, .primarybtn { height: var(--rb-control); padding-inline: var(--ads-sp-3); }
 .ghostbtn.small { padding: 0 var(--ads-sp-2); height: var(--ads-sp-5); }
-.nameeditor input { padding: var(--ads-sp-1) var(--ads-sp-2); }
+
 
 /* ---- rail ---- */
 /*
@@ -2002,9 +1590,14 @@
  * three read as one frame around the drawing rather than as three tones.
  */
 .titlebar { background: var(--rb-chrome); }
+/*
+ * SQUARE. The bar is --rb-topbar-h tall, and the cell used to take the rail's
+ * width, which put a square mark in a 48x40 box — "looks weird relative to
+ * its container" (Kenneth). The cell is the bar's height both ways.
+ */
 .titlecell {
   position: relative;
-  width: var(--rb-rail-w);
+  width: var(--rb-topbar-h);
   justify-content: center;
   padding-inline: 0;
 }
@@ -2035,14 +1628,14 @@
 /* The mark and the switcher share the sidebar's column, so the switcher is
    exactly as wide as the panel under it — whatever width that panel is. */
 .titlelead { grid-column: 1; display: flex; align-items: stretch; min-width: 0; }
-.titlecell { width: auto; flex: none; }
+.titlecell { width: var(--rb-topbar-h); flex: none; }
 .projectcell { flex: 1 1 auto; }
 .titlemain { grid-column: 2 / -1; display: flex; align-items: stretch; min-width: 0; }
 /* Collapsed, the sidebar is 48px and a switcher that narrow is one nobody can
    find, so the bar falls back to a flex row and the button is content-sized. */
 .shellapp[data-pane="closed"] .titlebar { display: flex; }
 .shellapp[data-pane="closed"] .titlelead { flex: none; }
-.shellapp[data-pane="closed"] .titlecell { width: var(--rb-rail-w); }
+.shellapp[data-pane="closed"] .titlecell { width: var(--rb-topbar-h); }
 .shellapp[data-pane="closed"] .projectcell { flex: none; max-width: 280px; }
 .shellapp[data-pane="closed"] .projectpick { width: auto; }
 .shellapp[data-pane="closed"] .titlemain { flex: 1 1 auto; }
@@ -2070,28 +1663,13 @@
   backdrop-filter: blur(30px) saturate(125%);
   box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
 }
-.projectmenu { min-width: 340px; }
+
 /* The tab menu is fixed to the pointer, since the strip clips its overflow. */
 .tabctx { position: fixed; min-width: 260px; }
 
-.projectrow { display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: left; }
-.projectrowname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.projectrowpath {
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-  color: var(--rb-ink-4);
-  /* Two spans (see `.projectrowhead` / `.projectrowtail` at the foot of this
-     sheet): the folders above shrink and ellipse, the project folder never
-     does. The right-to-left trick that elided the start of the path
-     re-ordered the punctuation of left-to-right text. */
-  display: flex;
-  min-width: 0;
-  direction: ltr;
-  text-align: left;
-  overflow: hidden;
-  white-space: nowrap;
-}
+
+
+
 .menuitem.missing, .menuitem:disabled { color: var(--rb-ink-dim); cursor: default; }
 .menuitem.missing:hover, .menuitem:disabled:hover { background: transparent; }
 
@@ -2155,187 +1733,40 @@
   background: var(--rb-panel);
   overflow: hidden;
 }
-/*
- * ONE centred, capped column — header, body and footer aligned to it.
- *
- * Capping only the sections left the title hard against the left edge, the
- * search field hard against the right, and a metre of empty panel between a
- * setting and its switch on a maximized window. The column is the layout, so
- * everything in the view sits inside it.
- */
-.settings-main > * > .settings-col,
-.settings-col {
-  width: 100%;
-  max-width: 880px;
-  margin-inline: auto;
-}
-/*
- * One inline padding for all three rows, declared where the column is.
- *
- * The header, the body and the footer each wrap the same centred 880px
- * column, so they have to agree about where its edges are — and they did not:
- * the header carried an asymmetric `0 sp-2 0 sp-4` from its own rule and the
- * footer a `sp-2 pad-row`, which put the title 4px right of the settings
- * underneath it. `!important` is the wrong tool and a later rule the fragile
- * one, so this is stated as a longhand the shorthands above cannot silently
- * reset out from under it.
- */
-.settings-head, .settings-foot, .settings-body { padding-inline: var(--ads-sp-6); }
 
-.settings-nav {
-  display: flex;
-  flex-direction: column;
-  width: 196px;
-  flex: none;
-  background: var(--rb-chrome);
-  border-right: 1px solid var(--rb-line);
-}
-.settings-navhead {
-  display: flex;
-  align-items: center;
-  height: var(--rb-topbar-h);
-  padding-inline: var(--rb-pad-row);
-  border-bottom: 1px solid var(--rb-line);
-  font-weight: 600;
-}
-.settings-navrow {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  height: var(--rb-row);
-  padding-inline: var(--rb-pad-row);
-  border: 0;
-  background: transparent;
-  color: var(--rb-ink-3);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.settings-navrow:hover { background: var(--rb-hover); color: var(--rb-ink); }
-.settings-navrow.on {
-  background: var(--rb-selected);
-  color: var(--rb-ink);
-  box-shadow: inset 2px 0 0 var(--rb-accent);
-}
-.settings-navfoot {
-  padding: var(--ads-sp-2) var(--rb-pad-row);
-  border-top: 1px solid var(--rb-line);
-  color: var(--rb-ink-4);
-  font-size: var(--ads-text-xs);
-}
 
-.settings-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-.settings-head {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  height: var(--rb-topbar-h);
-  padding-block: 0;
-  border-bottom: 1px solid var(--rb-line);
-  flex: none;
-}
-.settings-title { font-weight: 600; white-space: nowrap; }
-.settings-search { flex: 1 1 auto; min-width: 0; display: flex; }
-.settings-search input {
-  width: 100%;
-  height: var(--rb-control);
-  padding: 0 var(--ads-sp-2);
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-canvas);
-  color: var(--rb-ink);
-  font: inherit;
-  font-size: var(--ads-text-xs);
-}
-.settings-search input:focus-visible { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner); }
-.settings-close {
-  display: grid;
-  place-items: center;
-  width: var(--ads-sp-7);
-  height: var(--ads-sp-7);
-  flex: none;
-  border: 0;
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-3);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-.settings-close:hover { background: var(--rb-hover); color: var(--rb-ink); }
 
-/*
- * `scrollbar-gutter: stable both-edges` so the header and the content agree
- * where centre is.
- *
- * Only the body scrolls, so only the body loses width to a scrollbar — which
- * put its centred 880px column 4px right of the header's and the footer's.
- * Small, but it is the kind of misalignment you see without being able to say
- * what you are looking at, on the one screen whose whole job is to look
- * settled.
- */
-.settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; }
-.settings-section > h4 {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  margin: 0;
-  min-height: var(--rb-head);
-  padding: 0 var(--rb-pad-row);
-  background: var(--rb-chrome);
-  border-block: 1px solid var(--rb-line);
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  font-weight: 600;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--rb-ink-3);
-}
-.settings-section:first-child > h4 { border-top: 0; }
-.settings-empty { padding: var(--ads-sp-4) var(--rb-pad-row); color: var(--rb-ink-3); }
-.settings-foot {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding-block: var(--ads-sp-2);
-  border-top: 1px solid var(--rb-line);
-  color: var(--rb-ink-3);
-  font-size: var(--ads-text-xs);
-  flex: none;
-}
-.settings-reset {
-  height: var(--rb-control);
-  padding-inline: var(--ads-sp-3);
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: transparent;
-  color: var(--rb-ink-2);
-  font: inherit;
-  font-size: var(--ads-text-xs);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.settings-reset:hover:not(:disabled) { background: var(--rb-hover); color: var(--rb-ink); }
-.settings-reset:disabled { color: var(--rb-ink-dim); cursor: default; }
 
-/* Rows: the registry's own, re-spaced to this shell's density. */
-.settings .settingrow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--ads-sp-4);
-  padding: var(--ads-sp-2) var(--rb-pad-row);
-  border-bottom: 1px solid var(--rb-line);
-}
-.settings .settingrow label { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
-.settings .settinglabel { color: var(--rb-ink); }
-.settings .settingdesc {
-  color: var(--rb-ink-3);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-}
-.settings .settingrow.modified { box-shadow: inset 2px 0 0 var(--rb-warn); }
-.settings .settingrow.modified .settinglabel { color: var(--rb-warn); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ---- window controls ---- */
 /*
@@ -2393,113 +1824,38 @@
  */
 .tab.active { box-shadow: inset 0 -2px 0 var(--rb-accent); }
 
-/* ---- density, second pass ---- */
-/*
- * The first pass took the obvious air out. This one removes rows that existed
- * only to hold one control, and takes the remaining one-line rows to 22px —
- * the floor where a full-width click target is still comfortably bigger than
- * the pointer.
- */
-.markuprow { min-height: var(--rb-row-sm); padding: 0 var(--rb-pad-row); }
-.mgrouphead, .sheetgrouphead { min-height: var(--ads-sp-5); padding: 0 var(--rb-pad-row); }
+
+.sheetgrouphead { min-height: var(--ads-sp-5); padding: 0 var(--rb-pad-row); }
 .panesearch { padding: var(--ads-sp-1) var(--rb-pad); }
 .panesearch > svg { left: calc(var(--rb-pad) + var(--ads-sp-2)); }
-.scopecard { padding: var(--ads-sp-2); }
-.scopecard .estname { font-size: var(--ads-text-sm); line-height: 1.3; }
-.scopecard .scopemeta { line-height: 1.3; }
-.kvrow { min-height: var(--rb-row-sm); }
 
-/* The grouping control now rides in the header it controls. */
-.wssection > h3 > .seg { flex: none; display: inline-flex; gap: 1px; }
-.wssection > h3 > .seg .segbtn { padding: var(--ads-sp-1); }
-.hcount {
-  color: var(--rb-ink-4);
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  letter-spacing: 0;
-  text-transform: none;
-}
 
-/* ---- the specification, as a form ---- */
-/*
- * A label column and a control, on every row, always live.
- *
- * The label column is fixed at 78px rather than sized to content: a form whose
- * labels are ragged reads as a list of unrelated statements, and these are
- * seven settings on one object. 78 holds "Orientation" — the longest label the
- * product types actually produce — without wrapping at 11px.
- */
-.specfield {
-  display: grid;
-  grid-template-columns: 78px 1fr;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  min-height: var(--rb-row);
-  padding: var(--ads-sp-1) var(--rb-pad-row);
-}
-.specfield + .specfield { border-top: 1px solid var(--rb-line); }
-.specfield > label {
-  color: var(--rb-ink-4);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-}
-.specpair { display: flex; align-items: center; gap: var(--ads-sp-2); min-width: 0; }
-.specpair > .kvcontrol:first-child { flex: 1 1 auto; min-width: 0; }
-.specpair > select.kvcontrol { flex: none; width: auto; }
-.specpair > select.kvcontrol.grow { flex: 1 1 auto; width: auto; min-width: 0; }
-.specpair > .wsmuted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The swatch is a control, not a row: same height as the field beside it. */
-.specfield .defswatch,
-.speccell .defswatch {
-  flex: none;
-  width: var(--ads-sp-7);
-  height: var(--rb-control);
-  padding: 2px;
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-canvas);
-  cursor: pointer;
-}
-.specfield.wide { grid-template-columns: 78px 1fr; }
 
-/*
- * Measures, two per line.
- *
- * A plank scope has seven; one per row was a column of half-empty rows and a
- * spec you had to scroll to finish. They are short, uniform controls, so two
- * fit across a 380px panel with room to spare. The last odd one spans the full
- * width rather than leaving a hole.
- */
-.specgrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--rb-line);
-  border-top: 1px solid var(--rb-line);
-}
-.speccell {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: var(--ads-sp-2) var(--rb-pad-row);
-  background: var(--rb-panel);
-  min-width: 0;
-}
-.speccell > label {
-  color: var(--rb-ink-4);
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-2xs);
-}
-.speccell .specpair > .kvcontrol:first-child { min-width: 0; }
-/*
- * The UNIT select only — the one that follows a measure's input. This
- * matched every select in a pair, so Product, Counts, Yield and Seams were
- * squeezed to "B.", "a..", "fu", "fre". Aaron sent the picture.
- */
-.speccell .specpair > .kvcontrol + select.kvcontrol { max-width: 5.5ch; padding-inline: 2px; }
-.speccell .specpair > select.kvcontrol:first-child { max-width: none; flex: 1 1 auto; }
-/* An odd last cell spans, so the grid never ends on a gap. */
-.speccell:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
  * A warning that carries its own fix. The message and the action sit on one
@@ -2510,97 +1866,20 @@
 .wswarn.action > .grow { flex: 1 1 auto; min-width: 0; }
 .wswarn.action > .link { flex: none; color: inherit; font-weight: 600; }
 
-/* ---- the focused scope, full bleed ---- */
-/*
- * A band, not a card: no radius and no side borders, because the body has no
- * gutter for them to sit in. The scope's colour is the 2px leading bar (set
- * inline, since it is per-scope data) plus a 7% wash, which is the same
- * selected-thing grammar the rail and the tabs use.
- */
-.scopecard {
-  border: 0;
-  border-bottom: 1px solid var(--rb-line);
-  border-radius: 0;
-  padding: var(--ads-sp-2) var(--rb-pad-row);
-  gap: var(--ads-sp-2);
-}
-.scopecard .scopemeta { color: var(--rb-ink-3); font-weight: 400; }
-/* White, like every other primary action. */
-.takeoffbtn {
-  height: var(--rb-control);
-  padding-inline: var(--ads-sp-3);
-  background: var(--rb-accent);
-  color: var(--rb-accent-ink);
-}
-.takeoffbtn:hover { background: var(--rb-accent-2); filter: none; }
 
-/* ---- the switch ---- */
-/*
- * One control for a boolean, everywhere. Settings drew a browser checkbox and
- * the comps drew a switch; the checkbox was the single control in the product
- * that looked like it belonged to another application.
- */
-/*
- * The TRACK is 17px; the BUTTON is 24, which is the product's control height.
- *
- * Drawn as one 17px element the switch was a 17px-tall hit target — under the
- * height of every other control in the app and small enough to miss. The track
- * is a pseudo-element inside a full-height button, so it looks the same and can
- * actually be hit.
- */
-.swtoggle {
-  position: relative;
-  flex: none;
-  width: 40px;
-  height: var(--rb-control);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.swtoggle::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40px;
-  height: 20px;
-  box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, .5442);   /* ControlStrongStrokeColorDefault */
-  border-radius: 999px;
-  background: transparent;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.swtoggle > span {
-  position: absolute;
-  top: 50%;
-  left: 4px;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
-  border-radius: 999px;
-  background: var(--rb-ink-2);
-  transition: left 120ms ease, background 120ms ease;
-}
-.swtoggle.on::before { background: var(--rb-accent); border-color: var(--rb-accent); }
-.swtoggle.on > span { left: 24px; background: var(--rb-accent-ink); }
-.swtoggle:focus-visible { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner); }
 
-/* Settings' own controls, matching the sidebar's. */
-.settings-search { flex: 0 1 280px; margin-left: auto; }
-.settings .settingrow input[type="number"],
-.settings .settingrow select {
-  height: var(--rb-control);
-  min-width: 96px;
-  padding: 0 var(--ads-sp-2);
-  border: 1px solid var(--rb-line-2);
-  border-radius: var(--ads-radius-s);
-  background: var(--rb-canvas);
-  color: var(--rb-ink);
-  font: inherit;
-  font-size: var(--ads-text-xs);
-}
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ---- consistency sweep ---- */
 /*
@@ -2672,110 +1951,99 @@
   white-space: nowrap;
 }
 
-/* ==================================================== dock collapse tiers == */
+/* ==================================================== dock density tiers == */
 /*
- * These live at the END of the file on purpose.
+ * Four tiers of DRAWING width (board 2, approved 2026-09-18). Each sheds the
+ * least load-bearing thing, and everything shed lands in that surface's "…"
+ * — a control is never unreachable. Heights never change: density here is
+ * horizontal, and 32px is already WinUI's compact.
  *
- * A container query adds no specificity, so an unconditional rule further down
- * the sheet beats it. `.dockscope { max-width: 30ch }` sits below the old
- * position of this block and silently won every tier that tried to narrow the
- * pill — the queries fired, the pill did not move, and the dock overflowed its
- * own shell at any width where both groups were open.
+ *   Spacious  ≥ 1440    labels on the tools and Direction; zoom steppers; the
+ *                       scale with its full label and regions count.
+ *   Standard  900–1439  tool labels go (tooltips keep them); the scale keeps
+ *                       a short label; the scope pill's ceiling drops to 200px.
+ *   Compact   640–899   the read tools fold to the one in hand + "…"; Done
+ *                       and Take off are icons; Direction, the page arrows and
+ *                       Fit go to the overflows; zoom steppers into the zoom
+ *                       menu; the scale is the ruler alone; the scope pill
+ *                       floors at 120px.
+ *   Minimum   < 640     the sheet surface keeps the page value and a "…" with
+ *                       zoom, fit width and scale; the pill fills what is
+ *                       left. One row, pinned to the edges, never wrapped.
  *
- * Order of sacrifice, and the reasoning for each:
- * The tool row is icon-only at every width — see toolButton — so there is no
- * "drop the labels" tier. It measured 1442px with them, which is wider than the
- * drawing area at any window size this app supports.
+ * Two numbers differ from the board, both measured rather than drawn. The
+ * board says 1280 for Spacious: the labelled row plus the sheet surface is
+ * ~1500px, so 1440 is where the labels actually fit. And the board's Compact
+ * kept three read icons, the page arrows and Fit down to 600px: at 658px the
+ * real row ran 856px and the sheet surface painted over the tools, so those
+ * fold one tier earlier and Minimum begins at 640.
  *
- * There is no tier for the scope pill either. It shrinks CONTINUOUSLY (see "the
- * dock shrinks before it overflows"), so a max-width tier could only make it
- * narrower than the space actually available — which is exactly what happened:
- * at a 716px stage the pill was capped at 14ch and truncated to one character
- * while 45px of dock sat empty beside it.
- *
- *   <  900  the zoom stepper. The percentage beside it opens a menu of zooms
- *           and ctrl+wheel does the same job continuously, so minus and plus
- *           are the third way to do one thing.
- *   <  820  setup, the panel buttons and Exit move into the overflow, and the
- *           scope name gives up half its width. These are used once per sheet,
- *           not once per markup.
- *   <  700  the scale keeps its glyph and loses its words. Its menu still names
- *           the scale at the top, so the value is one click away, not gone.
- *   <  560  the two pills stop sharing a row and the dock wraps. The tools
- *           STAY: they are what takeoff mode is for, and a second row has
- *           room for them.
- *   <  480  the scope name goes and its dot stands alone.
- *   <  400  and only now do the drawing tools fold into the overflow. What
- *           survives is the scope, Pan and the menu: what this lands in, how
- *           to move, and where everything else went.
- *
- * The tools used to go at 560, in the same tier that starts the wrapping —
- * so they were hidden in the one arrangement that had somewhere to put them.
- * A 1280 window with both panes open leaves the drawing about 556px, which
- * meant a normal window in takeoff mode had every drawing tool behind a menu.
+ * These live at the END of the dock rules on purpose: a container query adds
+ * no specificity, so a tier stated above the base rules would lose to them.
  */
+.docklabel { display: none; }
+.docktool { padding-inline: 0; width: var(--rb-dock-btn); justify-content: center; }
+.dockscaleshort { display: none; }
+.dockvalue.off { color: var(--rb-ink-dim); }
+/* No scope in hand: the pill names the state in the caption ink, and the dot goes grey. */
+.dockscope.muted { color: var(--rb-ink-3); }
+.dockscope.muted .scopedot { background: var(--rb-ink-4); }
+/* Done: the same slot as Take off, outlined. Nothing else on the surface is filled. */
+.docktakeoff.done {
+  background: transparent;
+  color: var(--rb-ink);
+  border: 1px solid var(--rb-line-2);
+  font-weight: 500;
+}
+.docktakeoff.done:hover:not(:disabled) { background: var(--rb-hover); }
+/* The Filled check in the accent, on the chosen row. */
+.dockcheck { display: inline-flex; color: var(--rb-accent); }
+/* The overflow and its items exist at every width; a tier reveals them. */
+.dockmorewrap { display: none; }
+.dock .dockmenu [data-from] { display: none; }
+/* A half-finished gesture on the sheet surface holds the work surface. */
+.dock[data-pinned="true"] .dockwork { opacity: .5; pointer-events: none; }
+.dockgroup > .dockscopewrap { flex: 0 1 auto; min-width: 160px; max-width: 240px; }
+.dockgroup > .dockscalewrap { flex: 0 1 auto; }
+
+@container viewport (min-width: 1440px) {
+  .dock .docklabel { display: inline; }
+  .dock .docktool { width: auto; padding-inline: var(--ads-sp-2) var(--ads-sp-3); }
+}
+@container viewport (max-width: 1439px) {
+  .dock .dockscalefull { display: none; }
+  .dock .dockscaleshort { display: inline; }
+  .dockgroup > .dockscopewrap { max-width: 200px; }
+}
 @container viewport (max-width: 899px) {
   .dock [data-collapse="zoomstep"] { display: none; }
-}
-@container viewport (max-width: 819px) {
   .dock [data-collapse="setup"] { display: none; }
+  .dock .dockscaleshort { display: none; }
+  .dock .dockscale { padding-inline: var(--ads-sp-2); }
+  .dock [data-collapse="read"]:not([aria-pressed="true"]) { display: none; }
+  .dock [data-collapse="pagestep"], .dock [data-collapse="fit"] { display: none; }
+  .dock .docktakeofflabel { display: none; }
+  .dock .docktakeoff { padding-inline: var(--ads-sp-2); }
+  .dockgroup > .dockscopewrap { min-width: 120px; max-width: 160px; }
+  .dock .dockmorewrap[data-from="compact"] { display: block; }
+  .dock .dockmenu [data-from="compact"] { display: flex; }
+  .dock .dockmenu .menusep[data-from="compact"] { display: block; }
 }
-@container viewport (max-width: 699px) {
-  .dockscale > span:not(.mono) { display: none; }
-  .dockscale { padding-inline: var(--ads-sp-2); }
-}
-@container viewport (max-width: 559px) {
-  .dock [data-collapse="fit"] { display: none; }
-  /* The dock's own margins are the cheapest 16px left to reclaim. */
+@container viewport (max-width: 639px) {
   /*
-   * Pinned to both edges, so the centring transform has to go with the
-   * centring `left`: `translateX(-50%)` on a dock that is already at the
-   * left edge pushed half of it under the pane, and the first control on
-   * each wrapped row — Take off, the sheet arrows — was out of reach.
+   * Pinned to both edges, so the centring transform goes with the centring
+   * left: translateX(-50%) on a dock already at the left edge pushed half of
+   * it under the pane.
    */
-  .dock { left: var(--ads-sp-2); right: var(--ads-sp-2); transform: none; max-width: none; gap: var(--ads-sp-2); }
-  .dockgroup > .dockscalewrap { min-width: var(--rb-dock-btn); }
-  /*
-   * AND THEN IT WRAPS.
-   *
-   * Below this the two groups cannot share a row even with every control at
-   * its floor — 360px of drawing is less than the dock's own irreducible
-   * width. Wrapping puts the document controls on a second line; clipping
-   * puts them nowhere. The design rejected a second permanent strip, and this
-   * is not one: it appears only where the alternative is a control the
-   * estimator cannot reach.
-   */
-  .dock { flex-wrap: wrap; justify-content: flex-start; row-gap: var(--ads-sp-2); }
+  .dock { left: var(--ads-sp-2); right: var(--ads-sp-2); transform: none; max-width: none; flex-wrap: nowrap; }
+  .dock .dockwork { flex: 1 1 auto; }
+  .dock [data-collapse="zoom"], .dock [data-collapse="scale"] { display: none; }
+  .dock .dockscalewrap.pinned [data-collapse="scale"] { display: inline-flex; }
+  .dockgroup > .dockscopewrap { flex: 1 1 auto; max-width: none; }
+  .dock .dockmorewrap[data-from="minimum"] { display: block; }
+  .dock .dockmenu [data-from="minimum"] { display: flex; }
+  .dock .dockmenu .menusep[data-from="minimum"] { display: block; }
 }
-@container viewport (max-width: 479px) {
-  .dockscope .dockscopename { display: none; }
-  .dockscope { padding-inline: var(--ads-sp-2); }
-  .dockgroup > .dockscopewrap { min-width: var(--rb-dock-btn); }
-}
-/*
- * The last thing to go, because it is the thing the mode exists for. Below
- * this even a row of its own cannot hold the scope dot, Pan and five tools.
- */
-@container viewport (max-width: 399px) {
-  .dock [data-collapse="tools"] { display: none; }
-}
-/*
- * The overflow button is the inverse: it exists once anything is in it, which
- * is the first tier that hides something — 820, where setup goes. It was
- * revealed at 760, so between 820 and 761 the setup tools were hidden with no
- * way to reach them at all.
- */
-.dockmore { display: none; }
-@container viewport (max-width: 819px) {
-  .dockmore { display: inline-flex; }
-}
-
-.settings-headrow, .settings-footrow {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-}
-.settings-head, .settings-foot { display: block; }
 
 /*
  * The pop-out affordance in a file row is a real button, at the row's height.
@@ -2937,23 +2205,8 @@
 .menuitem.danger { color: var(--rb-bad); }
 .menuitem.danger:hover { background: color-mix(in srgb, var(--rb-bad) 14%, transparent); }
 
-/*
- * A shape that contributes nothing to the layout, said where the shape is
- * listed. The scope-level blocker says what the SCOPE is missing; it cannot
- * say that four of six areas sit on an unscaled sheet while the other two
- * carry the whole number — which is the question actually being asked when a
- * count looks too low.
- *
- * Dimmed rather than hidden: it is still takeoff, and still yours.
- */
-.markuprow.excluded .mkind,
-.markuprow.excluded .mvalue { color: var(--rb-ink-4); }
-.mnote {
-  display: block;
-  color: var(--rb-warn);
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-xs);
-}
+
+
 
 /* ------------------------------------------------------ the search pane -- */
 
@@ -3005,90 +2258,23 @@
  */
 .panefoot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/*
- * A hit: the page in the margin, the snippet beside it, under the group head
- * that names the document. The snippet gets two lines and no more — it is a
- * place to recognise the match, not to read the sheet, and a pane of
- * five-line snippets holds four hits.
- */
-.hitrow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: var(--ads-sp-2);
-  width: 100%;
-  padding: var(--ads-sp-1) var(--rb-pad-row) var(--ads-sp-1) var(--ads-sp-6);
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.hitrow:hover { background: var(--rb-hover); }
-.hitpage {
-  min-width: 4ch;
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-2xs);
-  line-height: var(--ads-leading-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--rb-ink-4);
-}
-.hittext {
-  color: var(--rb-ink-2);
-  font-size: var(--ads-text-xs);
-  line-height: var(--ads-leading-xs);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-/* The match itself: the one place a highlight is data rather than decoration. */
-.hittext mark {
-  padding: 0 1px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--rb-accent) 28%, transparent);
-  color: var(--rb-ink);
-}
+
+
+
+
+
 
 /* ------------------------------------------------------------- committing -- */
 
-/*
- * The line between a live number and a committed one. Quiet: it reports a
- * state most of the time and only asks for attention when something has moved.
- */
-.commitrow {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  padding: var(--ads-sp-2) 0 0;
-}
-.commitrow > :first-child { flex: 1 1 auto; min-width: 0; font-size: var(--ads-text-2xs); }
-.wswarnink { color: var(--rb-warn); }
-/* A row that moved since it was committed. The arrow carries the meaning. */
-.kvrow.delta .kvvalue { color: var(--rb-warn); }
 
-/*
- * An estimate row is now a row with an action on it rather than one big
- * button, so the opening half has to carry the layout the row used to.
- */
-.estrow { display: flex; align-items: center; gap: var(--ads-sp-1); }
-.estopen {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  padding: var(--ads-sp-1) var(--rb-pad-row);
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.estopen:hover { background: var(--rb-hover); }
-.esttext { flex: 1 1 auto; min-width: 0; display: grid; }
+
+.wswarnink { color: var(--rb-warn); }
+
+
+
+
+
+
 .paneact.danger:hover { background: color-mix(in srgb, var(--rb-bad) 16%, transparent); color: var(--rb-bad); }
 
 /* ---- sheet selection (14.4) ----
@@ -3176,8 +2362,7 @@
  * here with corners showing. Full bleed and a hairline beneath, the same
  * grammar as the sections below it.
  */
-.wsbody > .wswarn,
-.wswarnstack > .wswarn {
+.wsbody > .wswarn {
   border-radius: 0;
   border-bottom: 1px solid var(--rb-line);
   padding: var(--ads-sp-2) var(--rb-pad-row);
@@ -3408,11 +2593,7 @@
  * `.shelfitem`, `.scoperow`) get the same treatment in styles.css, the sheet
  * that owns them — `styles.test.ts` refuses a bare selector defined in both.
  */
-.sheetrow:focus-visible, .filerow:focus-visible, .sheetgrouphead:focus-visible, .estrow:focus-visible,
-.estopen:focus-visible, .markuprow:focus-visible, .menuitem:focus-visible,
-.sidetab:focus-visible, .sidesettings:focus-visible, .settings-navrow:focus-visible, .hitrow:focus-visible,
-.tab:focus-visible, .titleicon:focus-visible, .wcbtn:focus-visible,
-.projectpick:focus-visible, .tabmore:focus-visible {
+.sheetrow:focus-visible, .filerow:focus-visible, .sheetgrouphead:focus-visible, .menuitem:focus-visible, .sidetab:focus-visible, .sidesettings:focus-visible, .tab:focus-visible, .titleicon:focus-visible, .wcbtn:focus-visible, .projectpick:focus-visible, .tabmore:focus-visible {
   outline-offset: -2px;
 }
 
@@ -3426,24 +2607,37 @@
  */
 
 /* ---- the dock: three pills ---- */
-/*
- * `read` and the tool pill share the left end. Three direct children under
- * `space-between` would put the tool pill in the middle of the drawing, which
- * is nowhere; the wrapper keeps the row's two ends and lets the left one hold
- * two groups. Pointer events are turned off on the wrapper for the same
- * reason they are on `.dock` — the drawing under the gap must stay drawable.
- */
-.dockside {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-/* No wrap: a single bar sheds controls into the collapse tiers above rather
-   than stacking itself into three rows over the drawing. */
-
 /* The zoom chip: a value that opens a menu, styled as the readout it replaces. */
 .dockread { flex: none; }
+
+/*
+ * Column grips: a 6px strip on each edge of the drawing, over the pane's
+ * border. Invisible until hovered or dragged, when the border brightens to
+ * the accent — the way a Windows splitter shows itself.
+ */
+.colgrip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 60;
+  cursor: col-resize;
+  touch-action: none;
+}
+.colgrip.left { left: 0; }
+.colgrip.right { right: 0; }
+.colgrip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--rb-motion-fast) var(--rb-ease-decel);
+}
+.colgrip.left::after { left: 0; }
+.colgrip.right::after { right: 0; }
+.colgrip:hover::after, .colgrip.dragging::after { background: var(--rb-accent); }
 .dockzoom {
   border: 0;
   border-radius: var(--rb-dock-btn-r);
@@ -3584,27 +2778,19 @@
 .scalemenu .scalepickhead, .scalemenu .scalepickname { padding-inline: var(--ads-sp-2); }
 .scalemenu .scalepick > .wswarn { margin-inline: var(--ads-sp-2); }
 
-/* ---- the sidebar: scopes managed where they are read ---- */
-.archivedfold { display: flex; flex-direction: column; border-top: 1px solid var(--rb-line); padding-top: var(--ads-sp-1); }
-.archivedfold > .hlink { align-self: flex-start; margin: var(--ads-sp-1) var(--ads-sp-2); }
-/* Archived rows are not buttons — there is nothing to open — so the row's
-   hover, which promises one, is off. */
-.archivedrow { cursor: default; }
-.archivedrow:hover { background: transparent; }
-.scopeactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); padding: var(--ads-sp-1) 0; }
+
+
+
+
+
 .hlink.danger:hover { color: var(--rb-bad); background: color-mix(in srgb, var(--rb-bad) 12%, transparent); }
 
-/* ---- the bill, in the sidebar's row grammar ---- */
-.bomactions { display: flex; flex-wrap: wrap; gap: var(--ads-sp-2); }
-.bomline > span:first-child { display: flex; align-items: baseline; gap: var(--ads-sp-2); min-width: 0; }
-/* Confidence is a word beside the line, in the status colour: a tinted row
-   alone is a legend nobody has. */
-.bomconf {
-  font-size: var(--ads-text-xs);
-}
-.bomconf.unverified { color: var(--rb-warn); }
-.bomconf.blocked { color: var(--rb-bad); }
-.bomline.blocked > .num { color: var(--ads-ink-3); }
+
+
+
+
+
+
 
 /* ---- the files pane: which documents already have a tab ---- */
 .fileopen { font-family: var(--ads-mono); font-size: var(--ads-text-2xs); letter-spacing: .06em; text-transform: uppercase; }
@@ -3659,179 +2845,66 @@ html[data-backdrop="tabbed"] .prefs {
  * off, and the quantity it produces with one status line beneath it.
  */
 
-/* The quantity is the header: two measures side by side in Subtitle tabular
-   figures, and the status line under them. */
-.scopehero {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 var(--ads-sp-3);
-  padding: var(--ads-sp-2) var(--rb-pad-row) var(--ads-sp-1);
-  border-bottom: 1px solid var(--rb-line);
-}
-.herov {
-  font-family: var(--ads-mono);
-  font-size: 20px;
-  line-height: 26px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--rb-ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.herov > small {
-  margin-left: var(--ads-sp-1);
-  font-family: var(--ads-sans);
-  font-size: var(--ads-text-sm);
-  font-weight: 400;
-  color: var(--rb-ink-3);
-}
-.herov.unset { color: var(--rb-ink-4); }
-.herol {
-  font-size: var(--ads-text-sm);
-  line-height: var(--ads-leading-sm);
-  color: var(--rb-ink-3);
-}
-.herostatus {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  margin-top: var(--ads-sp-1);
-  min-height: var(--rb-row-sm);
-  font-size: var(--ads-text-sm);
-  line-height: var(--ads-leading-sm);
-  color: var(--rb-ink-2);
-}
-.herostatus > svg { flex: none; }
-.herostatus > .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.herostatus > .hlink { flex: none; color: var(--rb-accent); }
-.herostatus.caution > svg { color: var(--rb-warn); }
-.herostatus.good > svg { color: var(--rb-good); }
-.herostatus.note > svg { color: var(--rb-attention); }
 
-/*
- * SelectorBar: 32px items at Body 14, and the 16x3 accent pill under the
- * selected one — the same indicator NavigationView draws in top mode.
- */
-.selbar {
-  flex: none;
-  display: flex;
-  gap: 2px;
-  padding: 0 var(--ads-sp-2);
-  border-bottom: 1px solid var(--rb-line);
-}
-.selitem {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  height: var(--rb-rail-btn);
-  padding: 0 var(--ads-sp-3);
-  border: 0;
-  background: transparent;
-  color: var(--rb-ink-3);
-  font: inherit;
-  font-size: var(--rb-text-body);
-  cursor: pointer;
-}
-.selitem:hover { color: var(--rb-ink-2); }
-.selitem[aria-selected="true"] { color: var(--rb-ink); }
-.selitem[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: var(--ads-sp-3);
-  right: var(--ads-sp-3);
-  bottom: 0;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--rb-accent);
-}
-.selcount {
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--rb-ink-4);
-}
 
-/* A row holding a switch and its words. */
-.swrow {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-3);
-  min-height: var(--rb-row-2);
-  padding: var(--ads-sp-1) var(--rb-pad-row);
-  border-top: 1px solid var(--rb-line);
-  font-size: var(--ads-text-sm);
-  color: var(--rb-ink-2);
-}
-.swrow > .grow { flex: 1 1 auto; min-width: 0; }
-.swrow.off { color: var(--rb-ink-4); }
 
-/* Since the commit: what moved, on one line. */
-.partsdelta {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  min-height: var(--rb-row-sm);
-  padding: 0 var(--rb-pad-row);
-  border-top: 1px solid var(--rb-line);
-  font-size: var(--ads-text-sm);
-  color: var(--rb-ink-3);
-}
-.partsdelta > .grow { flex: 1 1 auto; min-width: 0; text-align: right; font-family: var(--ads-mono); font-variant-numeric: tabular-nums; color: var(--rb-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Direction: the value, and the one action that sets it. */
-.dirrow {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  min-height: var(--rb-row-2);
-  padding: var(--ads-sp-1) var(--rb-pad-row);
-  border-top: 1px solid var(--rb-line);
-  font-size: var(--ads-text-sm);
-}
-.dirrow > .kvlabel { flex: none; width: 72px; }
-.dirrow > .grow { flex: 1 1 auto; min-width: 0; color: var(--rb-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dirrow > .grow.unset { color: var(--rb-warn); }
 
-/* Parts that cannot be counted yet: the InfoBar, then the parts it would list, dimmed. */
-.partsblocked { margin: var(--ads-sp-2) var(--rb-pad-row); border-radius: var(--ads-radius-s); }
-.partsrow.pending, .partsrow.pending > .num { color: var(--rb-ink-4); }
 
-/* What can be done TO the scope, last. */
-.scopefoot {
-  display: flex;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  margin-top: auto;
-  padding: var(--ads-sp-1) var(--rb-pad-row);
-  border-top: 1px solid var(--rb-line);
-}
-.scopefoot > .grow { flex: 1 1 auto; }
 
-/* Setup: two controls per line, positional pairing. */
-.setupgrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--rb-line);
-}
-.setupgrid > .speccell:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
-/* One total per scope in the round's list, set to be compared down the column. */
-.esttotal {
-  flex: none;
-  font-family: var(--ads-mono);
-  font-size: var(--ads-text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--rb-ink-2);
-  white-space: nowrap;
-}
 
-/* The round's menu, hanging off the head. */
-.wshead { position: relative; }
-.roundmenu { position: absolute; top: 100%; right: var(--rb-pad-row); bottom: auto; z-index: 120; min-width: 232px; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 .menuitem.grow { flex: 1 1 auto; }
 
 /* ---- rows never wrap ----
@@ -3840,32 +2913,553 @@ html[data-backdrop="tabbed"] .prefs {
    beneath it moves and the eye loses its place. Rows truncate with an
    ellipsis and carry the full text in their title. Prose (notes, empty
    states, warnings, help) is exempt and keeps wrapping. */
-.menuitem > .grow, .menuitem > .hint,
-.estname, .estrow .wsmuted, .esttext > span,
-.crumb, .crumbs .current,
-.tab .tabname, .tab > span,
-.projectrowname,
-.sheetgrouphead .grow, .sheettitle > span, .sheetnum,
-.filename,
-.dockscopename, .dockmenu .menuitem > .grow,
-.markuprow .mkind, .markuprow .mvalue,
-.wshead h2, .wshead .wsmuted,
-.exportline > .grow, .exportscopehead input,
-.palette-row .palette-title, .palette-row .palette-detail,
-.scopemenuname {
+.menuitem > .grow, .menuitem > .hint, .crumb, .crumbs .current, .tab .tabname, .tab > span, .sheetgrouphead .grow, .sheettitle > span, .sheetnum, .filename, .dockscopename, .dockmenu .menuitem > .grow, .scopemenuname {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
 }
 /* A flex row can only ellipse its children when it may itself shrink. */
-.menuitem, .estrow, .estopen, .esttext, .projectrow, .markuprow, .crumbs { min-width: 0 }
+.menuitem, .crumbs { min-width: 0 }
 
-/* ---- project switcher paths ----
-   The path is two spans: the folders before the project (which shrink and
-   ellipse) and the project folder itself (which never does). The old
-   right-to-left trick that elided the START of a path re-ordered the
-   punctuation of left-to-right text, so a drive letter came out at the end. */
-.projectrowhead { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.projectrowtail { flex: none; white-space: nowrap }
 
+
+
+
+
+
+
+
+
+
+/* ======================================== estimates pane: the 8-grid pass == */
+/*
+ * Every row in the estimates pane on the 8px grid, one label voice (Aaron,
+ * 2026-09-11: "spacing is inconsistent across the estimates pane"). Rows
+ * are 24 (one-line lists), 32 (headings, controls), 40 (a control with a
+ * label beside it) or 48 (two lines); insets are 12 inline, 8 block. At the
+ * very end of the sheet so it wins the per-surface rules by order alone.
+ */
+.crumbs { min-height: 32px; padding-block: 0; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* A surface arriving: menus fade in over the base duration, decelerating. */
+@keyframes rb-surface-in { from { opacity: 0; } }
+.dockmenu, .titlemenu { animation: rb-surface-in var(--rb-motion-base) var(--rb-ease-decel); }
+.dockbtn { transition: background var(--rb-motion-fast) var(--rb-ease-decel), color var(--rb-motion-fast) var(--rb-ease-decel); }
+
+/* The title-bar mark is the app icon itself: the orange on dark glass. */
+.brand:has(.brandmark) { background: transparent; padding: 0; }
+.brandmark { display: block; width: 20px; height: 20px; border-radius: 5px; }
+
+/* =========================================================================
+ * THE ESTIMATES SIDEBAR, to the board Aaron approved on 2026-09-18
+ * (docs/design/estimates-sidebar-2026-09-18/board.html is the spec; the
+ * pixel values below are its values, not tokens rounded towards it).
+ *
+ *   type      12px body · 11px meta · 14px surface name · 17px quantities
+ *   rows      44px navigable two-line · 24px data · 28px section head
+ *   controls  28px buttons · 24px compact fields · 32px InfoBar
+ * ========================================================================= */
+.es-panel { font-size: 12px; line-height: 16px; }
+.es-panel .wsbody { display: flex; flex-direction: column; }
+.es-sp { flex: 1 1 auto; }
+.es-muted { color: var(--rb-ink-3); font-size: 12px; line-height: 16px; }
+.es-muted.pad { padding: 6px var(--rb-pad-row); }
+.es-muted.wide { grid-column: 1 / -1; padding: 2px 0 4px; font-size: 11px; line-height: 14px; }
+.es-warnink { color: var(--rb-warn); }
+.es-aside { font-weight: 400; color: var(--rb-ink-3); font-size: 11px; white-space: nowrap; }
+.es-rowmeta.mono { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+
+/* ---- buttons: Fluent Button, 28px; accent for the surface's output ---- */
+.es-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 11px; flex: none;
+  border: 1px solid var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-raised); color: var(--rb-ink);
+  font: inherit; font-size: 12px; line-height: 16px; white-space: nowrap; cursor: pointer;
+}
+.es-btn:hover { background: var(--rb-hover); }
+.es-btn:disabled { color: var(--rb-ink-dim); cursor: default; }
+.es-btn:disabled:hover { background: var(--rb-raised); }
+.es-btn.primary { background: var(--rb-accent); border-color: transparent; color: var(--rb-accent-ink); font-weight: 600; }
+.es-btn.primary:hover { background: var(--rb-accent-2); }
+.es-btn.primary:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); }
+.es-btn.subtle { border-color: transparent; background: transparent; color: var(--rb-ink-2); }
+.es-btn.subtle:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.es-btn.subtle.on { background: var(--rb-selected); color: var(--rb-ink); }
+.es-btn.icon { width: 28px; padding: 0; }
+.es-btn.tiny { height: 22px; padding: 0 8px; font-size: 11px; }
+.es-btn.icon.tiny { width: 22px; }
+.es-btn > svg { flex: none; }
+.es-btn:focus-visible, .es-link:focus-visible, .es-cmd:focus-visible, .es-row:focus-visible, .es-mk:focus-visible, .es-sbi:focus-visible, .es-sw:focus-visible {
+  outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; box-shadow: 0 0 0 1px var(--rb-focus-inner);
+}
+/* HyperlinkButton */
+.es-link {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; margin: 0 -4px; flex: none;
+  border: 0; border-radius: 3px; background: transparent; color: var(--rb-accent);
+  font: inherit; font-size: 12px; line-height: 16px; white-space: nowrap; cursor: pointer;
+}
+.es-link:hover { text-decoration: underline; }
+.es-link > svg { color: var(--rb-ink-3); }
+/* A section's one command, in the accent voice. */
+.es-cmd {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; margin-right: -6px; flex: none;
+  border: 0; border-radius: 3px; background: transparent; color: var(--rb-accent);
+  font: inherit; font-size: 12px; font-weight: 400; white-space: nowrap; cursor: pointer;
+}
+.es-cmd:hover { background: var(--rb-hover); }
+.es-cmd > svg { color: var(--rb-accent); }
+
+/* ---- header block: [colour] [name / subline] [accent] [⋯] ---- */
+.es-hd {
+  position: relative;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px; align-items: center;
+  padding: 8px var(--rb-pad-row);
+}
+.es-hd.nodot { grid-template-columns: minmax(0, 1fr) auto auto; }
+.es-hdtext { min-width: 0; }
+.es-hdname { font-size: 14px; line-height: 18px; font-weight: 600; color: var(--rb-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-hdsub { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--rb-ink-3); font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-hdsub > span { white-space: nowrap; }
+.es-rename { height: 24px; font-size: 14px; font-weight: 600; width: 100%; }
+/* The MenuFlyout under the ⋯: the shared menu surface, anchored to the header. */
+.es-menu { position: absolute; top: calc(100% - 4px); right: var(--rb-pad-row); z-index: 120; min-width: 210px; }
+.es-menu.es-context { position: fixed; top: auto; right: auto; }
+.es-menu .menuitem { min-height: 28px; font-size: 12px; }
+/* The scope colour: a round Button that opens the colour picker. */
+.es-dotbtn { position: relative; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
+.es-dotbtn:hover { background: var(--rb-hover); }
+.es-dotbtn > input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.es-dotbtn:focus-within { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; }
+.es-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+.es-dot.lg { width: 10px; height: 10px; }
+/* The product, as a subtle DropDownButton: a select wearing plain text and a chevron. */
+.es-ddb { position: relative; display: inline-flex; align-items: center; height: 20px; margin-left: -6px; border-radius: 3px; color: var(--rb-ink-2); }
+.es-ddb:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.es-ddb:focus-within { outline: 2px solid var(--rb-focus-outer); outline-offset: 1px; }
+.es-ddbsel { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font: inherit; }
+.es-ddbface { display: inline-flex; align-items: center; gap: 3px; padding: 0 4px 0 6px; pointer-events: none; font-size: 12px; }
+.es-chev { color: var(--rb-ink-3); font-size: 11px; line-height: 1; position: relative; top: -2px; }
+
+/* ---- the three quantity slots ---- */
+.es-qs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 2px var(--rb-pad-row) 0; }
+.es-q { min-width: 0; padding: 4px 0 2px; border-top: 2px solid var(--rb-line-2); }
+.es-q + .es-q { margin-left: 6px; }
+.es-q.on { border-top-color: var(--rb-accent); }
+.es-qv { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; font-size: 17px; line-height: 22px; font-weight: 600; color: var(--rb-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-qv > small { font-family: var(--ads-sans); font-size: 11px; font-weight: 400; color: var(--rb-ink-3); margin-left: 3px; }
+.es-qv.unset { color: var(--rb-ink-4); }
+.es-ql { color: var(--rb-ink-3); font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-was { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; color: var(--rb-ink-4); }
+.es-was > b { font-weight: 400; color: var(--rb-warn); }
+
+/* ---- InfoBar: severity glyph, one sentence, at most one action ---- */
+.es-ib {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 32px; margin: 6px var(--rb-pad-row) 0; padding: 4px 8px 4px 12px;
+  border: 1px solid var(--rb-line); border-radius: 4px; background: var(--rb-raised);
+  color: var(--rb-ink); font-size: 12px; line-height: 16px;
+}
+.es-ibstack + .es-ib, .es-ib + .es-ib { margin-top: 4px; }
+.es-ibic { flex: none; width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; font-size: 10px; font-weight: 700; color: #1b1b1b; background: var(--rb-ink-3); }
+.es-ib.info .es-ibic { background: var(--rb-ink-3); }
+.es-ib.warn { background: var(--rb-warn-bg); border-color: transparent; }
+.es-ib.warn .es-ibic { background: var(--rb-warn); }
+.es-ib.good { background: var(--rb-good-bg); border-color: transparent; }
+.es-ib.good .es-ibic { background: var(--rb-good); }
+.es-ibtext { flex: 1 1 auto; min-width: 0; }
+.es-ib > .es-btn { flex: none; }
+
+/* ---- section heads: 28px Body Strong, the count in ink-3, one thing right ---- */
+.es-sect {
+  display: flex; align-items: center; gap: 8px;
+  height: 28px; margin: 4px 0 0; padding: 0 var(--rb-pad-row);
+  font-size: 12px; line-height: 16px; font-weight: 600; color: var(--rb-ink);
+}
+.es-sect .es-n { color: var(--rb-ink-3); font-weight: 400; }
+.es-swrow { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.es-swrow.off { color: var(--rb-ink-4); cursor: default; }
+.es-swrow.off .es-aside { color: var(--rb-ink-4); }
+
+/* ---- navigable rows: 44px, two lines, a chevron ---- */
+.es-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 10px; align-items: center; width: 100%;
+  height: 44px; padding: 0 var(--rb-pad-row);
+  border: 0; border-top: 1px solid var(--rb-line); border-radius: 0;
+  background: transparent; color: var(--rb-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.es-row.nodot { grid-template-columns: minmax(0, 1fr) auto auto; }
+.es-row.static { grid-template-columns: auto minmax(0, 1fr) auto; cursor: default; }
+.es-row:hover { background: var(--rb-hover); }
+.es-row.static:hover { background: transparent; }
+.es-row:last-of-type { border-bottom: 1px solid var(--rb-line); }
+.es-row > svg { color: var(--rb-ink-3); flex: none; }
+.es-rowtext { min-width: 0; display: flex; flex-direction: column; }
+.es-rowname { font-weight: 600; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-rowproduct { font-weight: 400; color: var(--rb-ink-3); }
+.es-rowmeta { color: var(--rb-ink-3); font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-rowqty { display: flex; flex-direction: column; align-items: flex-end; text-align: right; white-space: nowrap; line-height: 15px; }
+.es-v { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; color: var(--rb-ink); }
+.es-v.unset { color: var(--rb-ink-4); }
+.es-u { color: var(--rb-ink-3); font-size: 11px; margin-left: 3px; }
+.es-rowstate { color: var(--rb-ink-3); font-size: 11px; line-height: 14px; }
+.es-rowstate.warn { color: var(--rb-warn); }
+.es-rowstate.good { color: var(--rb-good); }
+.es-row.off .es-rowname, .es-row.off .es-v { color: var(--rb-ink-3); }
+.es-archived { display: flex; flex-direction: column; padding-top: 2px; }
+.es-archived > .es-link { align-self: flex-start; margin: 4px var(--rb-pad-row); }
+
+/* The naming row: one field, its action, Cancel. */
+.es-namerow { display: flex; align-items: center; gap: 8px; padding: 4px var(--rb-pad-row) 8px; }
+.es-namerow > .es-field { flex: 1 1 auto; min-width: 0; height: 28px; }
+
+/* ---- data table: 24px rows, numerics right and tabular ---- */
+.es-tbl { margin: 0 var(--rb-pad-row); border-top: 1px solid var(--rb-line); }
+.es-tr {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 3ch auto;
+  gap: 10px; align-items: center; height: 24px;
+  border-bottom: 1px solid var(--rb-line); color: var(--rb-ink);
+}
+.es-tbl.nowas .es-tr { grid-template-columns: minmax(0, 1fr) auto 3ch; }
+.es-tr.h { height: 22px; color: var(--rb-ink-3); font-size: 11px; }
+.es-trl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-trn { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.es-tru { color: var(--rb-ink-3); }
+.es-trw { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; min-width: 6ch; color: var(--rb-ink-4); }
+.es-trw.chg { color: var(--rb-warn); }
+.es-tr.pending, .es-tr.pending .es-trn { color: var(--rb-ink-4); }
+
+/* ---- ToggleSwitch, 30 × 16 ---- */
+.es-sw { position: relative; flex: none; width: 30px; height: 16px; padding: 0; border: 1px solid var(--rb-line-2); border-radius: 8px; background: transparent; cursor: pointer; }
+.es-sw > span { position: absolute; top: 1px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--rb-ink-3); transition: left var(--rb-motion-fast) var(--rb-ease-decel); }
+.es-sw.on { background: var(--rb-accent); border-color: var(--rb-accent); }
+.es-sw.on > span { left: 15px; background: var(--rb-accent-ink); }
+.es-sw:disabled { cursor: default; opacity: .5; }
+
+/* ---- compact fields: WinUI compact TextBox / ComboBox, 24px, label left ---- */
+.es-sg {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 4px 8px; align-items: center; padding: 2px var(--rb-pad-row) 4px;
+}
+.es-sg.one { grid-template-columns: auto minmax(0, 1fr); }
+.es-k { display: flex; align-items: center; height: 24px; color: var(--rb-ink-3); white-space: nowrap; }
+.es-k.needed { color: var(--rb-warn); }
+.es-fieldwrap { display: flex; min-width: 0; }
+.es-fieldwrap.wide, .es-ro.wide { grid-column: 2 / -1; }
+.es-field {
+  width: 100%; min-width: 0; height: 24px; padding: 0 7px;
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-raised); color: var(--rb-ink);
+  font: inherit; font-size: 12px; line-height: 16px;
+}
+.es-field.mono { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.es-field::placeholder { color: var(--rb-ink-4); }
+.es-field.needed { border-bottom-color: var(--rb-warn); }
+.es-field:hover { background: var(--rb-hover); }
+.es-field:focus { outline: 0; background: var(--rb-canvas); border-bottom: 2px solid var(--rb-accent); padding-bottom: 0; }
+select.es-field { padding-right: 20px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--rb-ink-3) 50%), linear-gradient(135deg, var(--rb-ink-3) 50%, transparent 50%); background-position: calc(100% - 11px) 10px, calc(100% - 7px) 10px; background-size: 4px 4px; background-repeat: no-repeat; }
+select.es-field > option { background: var(--rb-panel); color: var(--rb-ink); }
+.es-ro { display: flex; align-items: center; gap: 8px; height: 24px; min-width: 0; }
+.es-rotext { min-width: 0; color: var(--rb-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-rotext.unset { color: var(--rb-warn); }
+
+/* ---- SelectorBar ---- */
+.es-sb { display: inline-flex; gap: 2px; }
+.es-sbi { padding: 2px 6px 1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--rb-ink-3); font: inherit; font-size: 11px; line-height: 16px; cursor: pointer; }
+.es-sbi:hover { color: var(--rb-ink-2); }
+.es-sbi[aria-pressed="true"] { color: var(--rb-ink); border-bottom-color: var(--rb-accent); }
+
+/* ---- grouped markups: sticky sheet heads, 23px rows, a Net line ---- */
+.es-grp { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 var(--rb-pad-row); border-top: 1px solid var(--rb-line); background: var(--rb-raised); color: var(--rb-ink-3); font-size: 11px; }
+.es-grp > b { color: var(--rb-ink); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-grpdetail { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-mk {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%;
+  height: 23px; padding: 0 var(--rb-pad-row) 0 14px;
+  border: 0; background: transparent; color: var(--rb-ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.es-mk:hover { background: var(--rb-hover); }
+.es-mk > svg { color: var(--rb-ink-3); }
+.es-mkname { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-mkin { color: var(--rb-ink-4); }
+.es-mkwhy { color: var(--rb-warn); font-size: 11px; margin-left: 6px; }
+.es-mkv { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.es-mk.off { color: var(--rb-ink-3); }
+.es-mk.off .es-mkv { color: var(--rb-ink-4); }
+.es-net { display: grid; grid-template-columns: 1fr auto; align-items: center; height: 26px; padding: 0 var(--rb-pad-row); border-top: 1px solid var(--rb-line-2); font-weight: 600; }
+.es-netv { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.es-scope { display: flex; flex-direction: column; padding-bottom: 12px; }
+.es-scope > section { display: flex; flex-direction: column; }
+
+/* =========================================================================
+ * THE SEARCH PANE, to board 3 of docs/design/prompt-settings-icons-2026-09-18
+ * (round two): the reach as a SelectorBar, the highlight gate, sheets as
+ * groups, hits as snippets with the match in the accent.
+ * ========================================================================= */
+.sr-field .sr-count { position: absolute; right: var(--ads-sp-3); font: 11px var(--ads-mono); color: var(--rb-ink-3); }
+.sr-reach { display: flex; gap: 2px; padding: 0 var(--ads-sp-2) var(--ads-sp-2); }
+.sr-reachitem {
+  padding: 2px 8px 1px; border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--rb-ink-3); font: 11px var(--ads-sans); line-height: 16px; cursor: pointer;
+}
+.sr-reachitem:hover { color: var(--rb-ink-2); }
+.sr-reachitem[aria-pressed="true"] { color: var(--rb-ink); border-bottom-color: var(--rb-accent); }
+/* The gate. */
+.sr-into {
+  position: relative; display: flex; align-items: center; gap: var(--ads-sp-2);
+  height: 36px; margin: 0 var(--ads-sp-2) var(--ads-sp-1); padding: 0 6px 0 10px;
+  border-radius: 4px; background: var(--rb-raised); font-size: 12px;
+}
+.sr-intolabel { color: var(--rb-ink-3); white-space: nowrap; }
+.sr-target {
+  display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
+  height: 24px; padding: 0 6px 0 8px;
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-panel); color: var(--rb-ink); font: 12px var(--ads-sans); text-align: left; cursor: pointer;
+}
+.sr-target.unset { color: var(--rb-ink-4); }
+.sr-target > svg { color: var(--rb-ink-3); flex: none; }
+/* A long scope name ends in an ellipsis rather than wrapping the row to three lines. */
+.sr-targetname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sr-markall {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 8px;
+  border: 0; border-radius: 4px; background: var(--rb-accent); color: var(--rb-accent-ink);
+  font: 600 11px var(--ads-sans); white-space: nowrap; cursor: pointer;
+}
+.sr-markall.off { background: var(--rb-hover); color: var(--rb-ink-4); cursor: default; }
+.sr-chooser {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 4; padding: 6px;
+  border: 1px solid var(--rb-line-2); border-radius: 6px; background: var(--rb-hover);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .6);
+}
+.sr-chooserhead { padding: 6px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--rb-line); color: var(--rb-ink-2); font-size: 12px; line-height: 16px; }
+.sr-chooserhead > b { color: var(--rb-ink); }
+.sr-chooserempty { padding: 6px 8px; color: var(--rb-ink-3); }
+.sr-choice {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 10px; align-items: center; width: 100%;
+  height: 32px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink);
+  font: 12px var(--ads-sans); text-align: left; cursor: pointer;
+}
+.sr-choice:hover, .sr-choice[aria-selected="true"] { background: var(--rb-selected); }
+.sr-choicesub { color: var(--rb-ink-3); margin-left: 6px; }
+.sr-choicenew {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; margin-top: 4px;
+  border: 0; border-top: 1px solid var(--rb-line); border-radius: 0; background: transparent;
+  color: var(--rb-accent); font: 12px var(--ads-sans); text-align: left; cursor: pointer;
+}
+/* Groups and hits. */
+.sr-group { border-bottom: 1px solid var(--rb-line); }
+.sr-grouphead {
+  display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 var(--rb-pad-row);
+  background: var(--rb-raised); color: var(--rb-ink-3); font-size: 11px;
+}
+.sr-grouphead > b { color: var(--rb-ink); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.sr-groupdetail { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--rb-ink-4); }
+.sr-hit { display: grid; grid-template-columns: minmax(0, 1fr) 24px; gap: 4px; align-items: center; min-height: 36px; padding: 0 6px 0 4px; }
+.sr-hit.armed { background: var(--rb-hover); }
+.sr-hittext {
+  min-width: 0; padding: 4px 8px; border: 0; background: transparent; color: var(--rb-ink-2);
+  font: 12px/15px var(--ads-sans); text-align: left; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sr-hittext mark { background: transparent; color: var(--rb-accent); font-weight: 600; }
+.sr-hitmark {
+  display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 3px;
+  background: transparent; color: var(--rb-ink-4); cursor: pointer;
+}
+.sr-hitmark:hover { background: var(--rb-selected); color: var(--rb-ink-2); }
+.sr-hitmark.on { color: var(--rb-accent); }
+.sr-foot { display: flex; align-items: center; gap: 10px; }
+.sr-foot > .grow { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-keys { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
+.sr-keys kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--rb-line-2); border-radius: 3px; background: var(--rb-raised); color: var(--rb-ink-2); font: 10px var(--ads-sans);
+}
+
+/* =========================================================================
+ * THE PROJECT SWITCHER, to board 2 of docs/design/prompt-settings-icons-2026-09-18
+ * (round two): a 380px flyout under the project name. Header = where you
+ * are, one fact line, a filter, 40px rows, the ways out in a footer.
+ * ========================================================================= */
+.pf {
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 120;
+  width: 380px; max-width: calc(100vw - 16px);
+  display: flex; flex-direction: column;
+  border: 1px solid var(--rb-line-2); border-radius: 8px;
+  background: var(--rb-hover); box-shadow: 0 12px 36px rgba(0, 0, 0, .6);
+  overflow: hidden; animation: rb-surface-in var(--rb-motion-base) var(--rb-ease-decel);
+  font-size: 13px; line-height: 18px; color: var(--rb-ink);
+}
+.pf .grow { flex: 1 1 auto; min-width: 0; }
+.pf kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 4px;
+  border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-2); font: 11px var(--ads-sans);
+}
+.pf-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 12px 10px; }
+.pf-ico { width: 36px; height: 36px; border-radius: 6px; background: var(--rb-selected); display: grid; place-items: center; color: var(--rb-ink); }
+.pf-headtext { min-width: 0; }
+.pf-name { font-size: 14px; line-height: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-rename { width: 100%; height: 22px; padding: 0 4px; border: 0; border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); color: var(--rb-ink); font: 600 14px var(--ads-sans); }
+.pf-rename:focus { outline: 0; }
+.pf-path { font: 11px var(--ads-mono); color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-verbs { display: flex; gap: 2px; }
+.pf-verb { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-2); cursor: pointer; }
+.pf-verb:hover { background: var(--rb-selected); color: var(--rb-ink); }
+.pf-facts { padding: 0 12px 10px 60px; border-bottom: 1px solid var(--rb-line); font-size: 11px; color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-find {
+  display: flex; align-items: center; gap: 8px; height: 32px; margin: 8px 8px 4px; padding: 0 10px;
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-3);
+}
+.pf-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
+.pf-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: 12px var(--ads-sans); }
+.pf-find > input:focus { outline: 0; }
+.pf-find > input::placeholder { color: var(--rb-ink-4); }
+.pf-group { padding: 6px 12px 2px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--rb-ink-4); }
+.pf-empty { padding: 6px 12px 10px; color: var(--rb-ink-3); font-size: 12px; }
+.pf-list { max-height: 320px; overflow-y: auto; padding: 0 4px; }
+.pf-row {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 24px; gap: 10px; align-items: center; width: 100%;
+  height: 40px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--rb-ink);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.pf-row.armed { background: var(--rb-selected); }
+.pf-row > svg { color: var(--rb-ink-3); justify-self: center; }
+.pf-row.missing { cursor: default; }
+.pf-row.missing .pf-rowname { color: var(--rb-ink-4); }
+.pf-rowtext { min-width: 0; display: flex; flex-direction: column; }
+.pf-rowname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-rowpath { font: 11px var(--ads-mono); color: var(--rb-ink-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-when { font-size: 11px; color: var(--rb-ink-4); white-space: nowrap; }
+.pf-new { display: grid; place-items: center; width: 24px; height: 24px; color: var(--rb-ink-3); opacity: 0; }
+.pf-row.armed .pf-new { opacity: 1; }
+.pf-foot { display: flex; align-items: center; gap: 4px; padding: 6px; margin-top: 4px; border-top: 1px solid var(--rb-line); }
+.pf-footbtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-2); font: 12px var(--ads-sans); white-space: nowrap; cursor: pointer;
+}
+.pf-footbtn:hover { background: var(--rb-selected); color: var(--rb-ink); }
+.pf-footbtn > svg { color: var(--rb-ink-3); }
+.pf-footbtn.subtle { color: var(--rb-ink-4); }
+
+/* ---- the export sheet: the same grammar, taking the body over ---- */
+.es-export { display: flex; flex-direction: column; padding-bottom: 12px; }
+.es-exportbar { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 var(--rb-pad-row); border-bottom: 1px solid var(--rb-line); background: var(--rb-chrome); }
+.es-exporttitle { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-exscope.off .es-rowname, .es-exscope.off .es-rowmeta, .es-exscope.off .es-rowproduct { color: var(--rb-ink-4); }
+.es-note {
+  display: block; width: calc(100% - 2 * var(--rb-pad-row)); margin: 0 var(--rb-pad-row) 8px; padding: 6px 8px;
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-raised); color: var(--rb-ink); font: inherit; font-size: 12px; line-height: 16px; resize: vertical;
+}
+.es-note:focus { outline: 0; background: var(--rb-canvas); border-bottom: 2px solid var(--rb-accent); }
+.es-note::placeholder { color: var(--rb-ink-4); }
+
+/* ================================================== materials, Fluent's == */
+/*
+ * Three materials and nothing else (Aaron, 2026-09-18: "do a pass of all UI
+ * elements to ensure they follow Fluent Design standards from a materials
+ * perspective").
+ *
+ *   Mica     the window. The panes paint nothing and DWM's tinted wallpaper
+ *            shows through — which it could not while `html` kept the design
+ *            system's opaque #191918 under a transparent body. That one rule
+ *            was the whole "it just shows a warm grey".
+ *   Layer    cards on Mica: `--rb-raised`, a white at 5%.
+ *   Acrylic  everything transient — flyouts, menus, the dock, a toast: a
+ *            tint, a 40px blur of what is behind, and a 5% grain. One recipe;
+ *            the surfaces below all take it, whatever they used to paint.
+ *
+ * The drawing stays opaque (`.viewport`), and every Mica rule stays behind
+ * the backdrop gate — see the section above and backdrop.test.ts.
+ */
+/*
+ * Both attributes named: ads/tokens.css paints `html[data-theme="dark"]`
+ * at the same specificity as a lone backdrop selector, and it is loaded
+ * later, so the lone selector lost and the ground stayed #191918.
+ */
+html[data-backdrop="tabbed"],
+html[data-backdrop="tabbed"][data-theme="dark"],
+html[data-backdrop="tabbed"][data-theme="light"] {
+  background-color: transparent;
+}
+
+.dockgroup,
+.dockmenu,
+.tabmenu,
+.titlemenu,
+.statustoast,
+.pf,
+.sr-chooser {
+  background-image: var(--rb-noise);
+  backdrop-filter: var(--rb-acrylic-blur);
+}
+.pf,
+.sr-chooser {
+  background-color: var(--rb-flyout);
+  border-color: var(--rb-surface-stroke);
+}
+/*
+ * Under Mica the flyouts are OPAQUE, and the blur is off.
+ *
+ * WebView2 does not run backdrop-filter in a window created transparent:
+ * a capture of the live switcher showed the sidebar's rows faint and sharp
+ * behind a 90% tint — no blur at all — and on screen the remaining 10% is
+ * the desktop, so a menu read as a see-through card (Aaron, 2026-09-18,
+ * twice). Real acrylic is a compositor material, and a webview cannot ask
+ * DWM for it per element. What it can do is what WinUI's dark acrylic
+ * amounts to at luminosity .96: the #2C2C2C tint, solid, with the grain.
+ * The dock keeps a little of the sheet through it: it floats over an
+ * opaque drawing, where the tint alone reads as glass.
+ */
+html[data-backdrop="tabbed"] .dockmenu,
+html[data-backdrop="tabbed"] .tabmenu,
+html[data-backdrop="tabbed"] .titlemenu,
+html[data-backdrop="tabbed"] .statustoast,
+html[data-backdrop="tabbed"] .pf,
+html[data-backdrop="tabbed"] .sr-chooser,
+html[data-backdrop="tabbed"] .palette-panel,
+html[data-backdrop="tabbed"] .pp-filtermenu,
+html[data-backdrop="tabbed"] .pp-actions {
+  background-color: #2C2C2C;
+  backdrop-filter: none;
+}
+html[data-backdrop="tabbed"] .dockgroup {
+  background-color: rgba(44, 44, 44, .88);
+  backdrop-filter: none;
+}
+
+/* The two surfaces by name, and the overflow button that a tier reveals. */
+.docksheet { flex: none; }
+.dockmore { color: var(--rb-ink-2); }
+
+/* ---- the parts list, to board 4 (2026-09-18) ---- */
+/* A part is one line; its size is a chip; its arithmetic is a quiet line beneath. */
+.es-trg { display: contents; }
+.es-trchip {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
+  background: var(--rb-raised); color: var(--rb-ink-3); font: 10.5px var(--ads-mono); vertical-align: 1px;
+}
+.es-tr.es-trsub { grid-template-columns: 1fr; height: 18px; margin-top: -4px; color: var(--rb-ink-3); font-size: 11px; }
+/* Accessories: real things to buy, not the product — a second, quieter group. */
+.es-tr.es-trhead { grid-template-columns: 1fr; height: 24px; margin-top: 4px; border-top: 1px solid var(--rb-line); color: var(--rb-ink-2); font-weight: 600; font-size: 11.5px; }
+.es-tr.es-tracc, .es-tr.es-tracc .es-trn { color: var(--rb-ink-3); }
+/* Confidence, said once on the Parts header. */
+.es-chip { padding: 0 5px; border-radius: 3px; background: var(--rb-raised); color: var(--rb-ink-3); font: 10.5px var(--ads-mono); white-space: nowrap; }

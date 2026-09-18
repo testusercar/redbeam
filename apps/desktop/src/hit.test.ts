@@ -1,5 +1,43 @@
 import { describe, it, expect } from 'vitest'
-import { hitTest, insertVertexAt, removeVertexAt } from './hit.js'
+import { hitTest, insertVertexAt, removeVertexAt, isAxisAlignedRect, resizeRectVertex, resizeRectEdge } from './hit.js'
+
+describe('rectangle grips', () => {
+  const rect = [{ x: 0.1, y: 0.1 }, { x: 0.3, y: 0.1 }, { x: 0.3, y: 0.2 }, { x: 0.1, y: 0.2 }]
+
+  it('recognises an axis-aligned rectangle and nothing else', () => {
+    expect(isAxisAlignedRect(rect)).toBe(true)
+    expect(isAxisAlignedRect([...rect].reverse())).toBe(true)
+    expect(isAxisAlignedRect(rect.slice(0, 3))).toBe(false)
+    expect(isAxisAlignedRect([{ x: 0, y: 0 }, { x: 1, y: 0.1 }, { x: 1, y: 1 }, { x: 0, y: 1 }])).toBe(false)
+    expect(isAxisAlignedRect([...rect, { x: 0.2, y: 0.15 }])).toBe(false)
+  })
+
+  it('keeps the rectangle when a corner moves', () => {
+    const next = resizeRectVertex(rect, 2, { x: 0.5, y: 0.4 })
+    expect(next).toEqual([{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.5, y: 0.4 }, { x: 0.1, y: 0.4 }])
+    expect(isAxisAlignedRect(next)).toBe(true)
+  })
+
+  it('moves the opposite corner of the first vertex too', () => {
+    const next = resizeRectVertex(rect, 0, { x: 0.05, y: 0.05 })
+    expect(next).toEqual([{ x: 0.05, y: 0.05 }, { x: 0.3, y: 0.05 }, { x: 0.3, y: 0.2 }, { x: 0.05, y: 0.2 }])
+  })
+
+  it('moves a vertical edge sideways and a horizontal edge up and down', () => {
+    // Edge 1 is (0.3,0.1)-(0.3,0.2): vertical.
+    expect(resizeRectEdge(rect, 1, { x: 0.45, y: 0.9 }))
+      .toEqual([{ x: 0.1, y: 0.1 }, { x: 0.45, y: 0.1 }, { x: 0.45, y: 0.2 }, { x: 0.1, y: 0.2 }])
+    // Edge 2 is (0.3,0.2)-(0.1,0.2): horizontal.
+    expect(resizeRectEdge(rect, 2, { x: 0.9, y: 0.35 }))
+      .toEqual([{ x: 0.1, y: 0.1 }, { x: 0.3, y: 0.1 }, { x: 0.3, y: 0.35 }, { x: 0.1, y: 0.35 }])
+  })
+
+  it('leaves a non-rectangle alone', () => {
+    const tri = rect.slice(0, 3)
+    expect(resizeRectVertex(tri, 0, { x: 0, y: 0 })).toEqual(tri)
+    expect(resizeRectEdge(tri, 0, { x: 0, y: 0 })).toEqual(tri)
+  })
+})
 import type { Markup } from '@redbeam/domain'
 import type { Viewport } from '@redbeam/viewer'
 

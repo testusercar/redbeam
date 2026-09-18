@@ -1,17 +1,18 @@
 /**
- * Settings, built the way Windows 11 Settings is built.
+ * Settings: one page.
  *
- * A NavigationView in Left mode on Mica — back, the title, Find a setting,
- * one item per category and About as the footer item — beside a content
- * layer with the 8px top-left corner, a breadcrumb title, and the page's
- * settings as SettingsCards: a 68px card with its icon at the left, the
- * setting's name and what it does, and the control at the right with its
- * On or Off word. A family of settings is a SettingsExpander — the parent's
- * card with a chevron, and its children indented beneath on the lower fill,
- * dimmed while the parent is off.
+ * Built to board 2 of docs/design/prompt-settings-icons-2026-09-18 (Aaron,
+ * 2026-09-18). Sixteen switches do not need a navigation pane: what was a
+ * category rail, a breadcrumb, a search box, a reset button and a folder
+ * icon on every card is now one scrolling page of eight titled runs, a 44px
+ * row per setting — the label, one line of description, the control on the
+ * right — and the five layout-preview switches drawn as the family they
+ * are, hanging off their parent and dimmed together while it is off.
  *
- * Standard sizing here on purpose: a settings page is a place you go, not a
- * pane you work in, and Windows draws it at this density.
+ * A changed setting shows a 2px accent bar and an inline "Default …" link,
+ * the VS Code convention; "Reset all" survives in the header. The filter
+ * field narrows the page to the rows that match, and the prompt's `=` mode
+ * finds a setting by any word in it. About is the last run, not a page.
  *
  * Every row is still generated from the descriptor registry. A setting that
  * exists in the registry appears here, and one that does not, cannot — which
@@ -20,55 +21,68 @@
  * It is a full view, mounted in the shell's `.settingsview` beneath the title
  * bar — a place you go, not a question over the work.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  CATEGORY_LABEL, SETTINGS, categories, childrenOf, inCategory,
-  type SettingCategory, type SettingDescriptor,
+  CATEGORY_LABEL, SETTINGS, childrenOf, type SettingDescriptor,
 } from './registry.js'
 import type { SettingsStore } from './store.js'
 import { useReturnFocus } from '../returnFocus.js'
 import { UpdateRow } from '../update/UpdateRow.js'
+import { accentReport } from '../accent.js'
 import { DiagnosticsRow } from '../update/DiagnosticsRow.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import {
-  ChevronDown, ChevronLeft, ChevronRight, Crosshair, FileText, Glyph, Info, Search, Status,
-  TriangleAlert, X, type Icon,
-} from '../shell/icons.js'
+import { ChevronDown, ChevronUp, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
 import './settings.css'
 
 interface Props {
   store: SettingsStore
   onClose: () => void
+  /**
+   * Open scrolled to this setting's row, which flashes. From the prompt: a
+   * row's Shift+Enter is "show me where it lives".
+   */
+  initialSettingId?: string
 }
 
-type Page = SettingCategory | 'about'
-
-/** The glyph each page — and each card on it — carries. */
-const PAGE_ICON: Record<Page, Icon> = {
-  viewer: FileText,
-  takeoff: Crosshair,
-  performance: Status,
-  about: Info,
+/** The page's runs: every root descriptor under its section, in registry order. */
+function runs(): Array<{ title: string; roots: SettingDescriptor[] }> {
+  const out: Array<{ title: string; roots: SettingDescriptor[] }> = []
+  for (const d of SETTINGS) {
+    if (d.parent !== undefined) continue
+    const title = d.section ?? CATEGORY_LABEL[d.category]
+    const last = out[out.length - 1]
+    if (last !== undefined && last.title === title) last.roots.push(d)
+    else out.push({ title, roots: [d] })
+  }
+  return out
 }
 
-export function SettingsPanel({ store, onClose }: Props) {
+export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
   const [values, setValues] = useState(() => store.all())
   const [error, setError] = useState<string | null>(null)
-  const [page, setPage] = useState<Page>(() => categories()[0] ?? 'about')
   const [query, setQuery] = useState('')
   const [rejectedDismissed, setRejectedDismissed] = useState(false)
 
   useEffect(() => store.subscribe(setValues), [store])
 
+  // Once the page has painted, bring the row into view and flash it.
+  useEffect(() => {
+    if (initialSettingId === undefined) return
+    const el = document.getElementById(initialSettingId)?.closest('.prefs-row')
+    if (!(el instanceof HTMLElement)) return
+    el.scrollIntoView({ block: 'center' })
+    el.classList.add('flash')
+    const t = setTimeout(() => el.classList.remove('flash'), 1800)
+    return () => clearTimeout(t)
+  }, [initialSettingId])
+
   /*
-   * Escape clears the search first and leaves second — the same two-step
-   * every find field uses. From anywhere on the page: the old panel only
-   * listened on its field, and a full-screen place that does not answer
-   * Escape reads as stuck.
+   * Escape clears the filter first and leaves second — the same two-step
+   * every find field uses. From anywhere on the page.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -84,86 +98,43 @@ export function SettingsPanel({ store, onClose }: Props) {
   const set = (id: string, raw: unknown) => setError(store.set(id, raw))
   const changed = store.modifiedCount()
 
-  /*
-   * Find a setting: the label and the description, every category, as the
-   * palette matches them. The results replace the page rather than opening a
-   * flyout, which is what Windows Settings does with its own search.
-   */
+  /* The filter narrows the page: a row stays when any word of it matches, and a run stays while any row in it does. */
   const q = query.trim().toLowerCase()
-  const hits = useMemo(
-    () => (q === '' ? [] : SETTINGS.filter((d) => `${d.label} ${d.description}`.toLowerCase().includes(q))),
-    [q],
-  )
-
-  const title = page === 'about' ? 'About REDBEAM' : CATEGORY_LABEL[page]
+  const shows = (d: SettingDescriptor) => q === '' || `${d.label} ${d.description}`.toLowerCase().includes(q)
+  const page = useMemo(() => runs(), [])
+  const visible = page
+    .map((r) => ({ ...r, roots: r.roots.filter((d) => shows(d) || childrenOf(d.id).some(shows)) }))
+    .filter((r) => r.roots.length > 0)
 
   return (
     <div className="prefs" role="dialog" aria-label="Settings" aria-modal="true" ref={trap}>
-      {/* NAVIGATION PANE — on Mica, nothing painted. */}
-      <nav className="prefs-nav" aria-label="Settings pages">
-        <div className="prefs-navhead">
-          <button className="prefs-back" aria-label="Back to the drawing" title="Back" onClick={onClose}>
-            <Glyph icon={ChevronLeft} role="inline" />
-          </button>
-          <h1 className="prefs-title">Settings</h1>
-        </div>
-        <label className="prefs-search">
-          <input
-            value={query}
-            placeholder="Find a setting"
-            aria-label="Find a setting"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <Glyph icon={Search} role="inline" />
-        </label>
-        {categories().map((c) => (
-          <button
-            key={c}
-            className={`prefs-navitem${page === c && q === '' ? ' on' : ''}`}
-            aria-current={page === c && q === '' ? 'page' : undefined}
-            onClick={() => { setQuery(''); setPage(c) }}
-          >
-            <Glyph icon={PAGE_ICON[c]} role="card" />
-            <span className="grow">{CATEGORY_LABEL[c]}</span>
-            <span className="prefs-navcount">{inCategory(c).length}</span>
-          </button>
-        ))}
-        <span className="grow" />
-        <div className="prefs-navsep" />
-        {/* About is the pane's footer item, the way Windows Settings pins its own. */}
-        <button
-          className={`prefs-navitem${page === 'about' && q === '' ? ' on' : ''}`}
-          aria-current={page === 'about' && q === '' ? 'page' : undefined}
-          onClick={() => { setQuery(''); setPage('about') }}
-        >
-          <Glyph icon={Info} role="card" />
-          <span className="grow">About REDBEAM</span>
-          <span className="prefs-navcount">{APP_VERSION}</span>
-        </button>
-      </nav>
-
-      {/* CONTENT LAYER */}
       <div className="prefs-layer">
         <div className="prefs-page">
-          <div className="prefs-crumbs">
-            <span className="prefs-crumb">Settings</span>
-            <Glyph icon={ChevronRight} role="inline" />
-            <h2 className="prefs-pagetitle">{q === '' ? title : 'Results'}</h2>
+          <div className="prefs-head">
+            <h1 className="prefs-title">Settings</h1>
             <span className="grow" />
-            {/*
-              Shown only when there is something to reset. A disabled Reset
-              on a page at its defaults is a control that explains itself by
-              not working; the count beside it is the same fact, stated once.
-            */}
+            <label className="prefs-find">
+              <Glyph icon={Search} role="row" />
+              <input
+                value={query}
+                placeholder="Find a setting"
+                aria-label="Find a setting"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+            {/* Only when there is something to reset: a disabled Reset on a page at its defaults explains itself by not working. */}
             {changed > 0 && (
               <button
                 className="prefs-resetall"
                 title="Restore every setting. Projects, takeoffs and recent projects are not touched."
                 onClick={() => store.resetAll()}
               >
-                Reset all<span className="prefs-resetcount">· {changed} changed</span>
+                <b>{changed} changed</b> · Reset all
               </button>
             )}
+            <button className="prefs-close" aria-label="Back to the drawing" title="Back to the drawing (Esc)" onClick={onClose}>
+              <Glyph icon={X} role="inline" />
+            </button>
           </div>
 
           {error !== null && (
@@ -187,153 +158,120 @@ export function SettingsPanel({ store, onClose }: Props) {
             </div>
           )}
 
-          {q !== '' && hits.length === 0 && (
+          {q !== '' && visible.length === 0 && (
             <p className="prefs-empty">No setting matches “{query.trim()}”.</p>
           )}
-          {q !== '' && hits.length > 0 && (
-            <section className="prefs-section" aria-label="Results">
-              {hits.map((d) => (
-                <Card key={d.id} d={d} value={values[d.id]} modified={store.isModified(d.id)} onSet={set} icon={PAGE_ICON[d.category]} caption={CATEGORY_LABEL[d.category]} />
-              ))}
-            </section>
-          )}
 
-          {q === '' && page !== 'about' && <CategoryPage category={page} values={values} store={store} onSet={set} />}
-          {q === '' && page === 'about' && <AboutPage />}
+          {visible.map((r) => (
+            <section key={r.title} className="prefs-run" aria-labelledby={`prefs-run-${r.title}`}>
+              <h3 className="prefs-runtitle" id={`prefs-run-${r.title}`}>{r.title}</h3>
+              {/* A SettingsCard group: one raised card per run, the rows divided inside it. */}
+              <div className="prefs-group">
+                {r.roots.map((d) => (
+                  <Family key={d.id} d={d} values={values} store={store} onSet={set} shows={shows} />
+                ))}
+              </div>
+            </section>
+          ))}
+
+          {q === '' && <AboutRun />}
         </div>
       </div>
     </div>
   )
 }
 
-/** A category: its sections in registry order, each a titled run of cards. */
-function CategoryPage({
-  category, values, store, onSet,
+/**
+ * A setting and, beneath it, the settings that only apply while it is on.
+ * The children are dimmed, not removed, while the parent is off: removing
+ * them would make a change to "show seams" look lost when the preview is
+ * next turned on; dimming says "remembered, not in effect".
+ */
+function Family({
+  d, values, store, onSet, shows,
 }: {
-  category: SettingCategory
+  d: SettingDescriptor
   values: Record<string, unknown>
   store: SettingsStore
   onSet: (id: string, raw: unknown) => void
+  shows: (d: SettingDescriptor) => boolean
 }) {
-  // Children render under their parent, so the page walks only the roots.
-  const roots = inCategory(category).filter((d) => d.parent === undefined)
-  const sections: Array<{ title: string; roots: SettingDescriptor[] }> = []
-  for (const d of roots) {
-    const title = d.section ?? CATEGORY_LABEL[category]
-    const last = sections[sections.length - 1]
-    if (last !== undefined && last.title === title) last.roots.push(d)
-    else sections.push({ title, roots: [d] })
-  }
+  const children = childrenOf(d.id).filter(shows)
+  const on = values[d.id] === true
+  const [open, setOpen] = useState(true)
   return (
     <>
-      {sections.map((s) => (
-        <section key={s.title} className="prefs-section" aria-labelledby={`prefs-${category}-${s.title}`}>
-          <h3 className="prefs-sectiontitle" id={`prefs-${category}-${s.title}`}>{s.title}</h3>
-          {s.roots.map((d) => (
-            <Family key={d.id} d={d} values={values} store={store} onSet={onSet} icon={PAGE_ICON[category]} />
-          ))}
-        </section>
+      <Row
+        d={d}
+        value={values[d.id]}
+        modified={store.isModified(d.id)}
+        onSet={onSet}
+        {...(children.length > 0 ? { expanded: open, onExpand: () => setOpen((v) => !v) } : {})}
+      />
+      {open && children.map((child, i) => (
+        <Row
+          key={child.id}
+          d={child}
+          value={values[child.id]}
+          modified={store.isModified(child.id)}
+          onSet={onSet}
+          child={i === children.length - 1 ? 'last' : 'mid'}
+          dimmed={!on}
+        />
       ))}
     </>
   )
 }
 
-/**
- * A setting and, beneath it, the settings that only apply while it is on —
- * a SettingsExpander. The children are dimmed, not removed, while the parent
- * is off: removing them would make a change to "show seams" look lost when
- * the preview is next turned on; dimming says "remembered, not in effect".
- */
-function Family({
-  d, values, store, onSet, icon,
-}: {
-  d: SettingDescriptor
-  values: Record<string, unknown>
-  store: SettingsStore
-  onSet: (id: string, raw: unknown) => void
-  icon: Icon
-}) {
-  const children = childrenOf(d.id)
-  const on = values[d.id] === true
-  const [expanded, setExpanded] = useState(true)
-  if (children.length === 0) {
-    return <Card d={d} value={values[d.id]} modified={store.isModified(d.id)} onSet={onSet} icon={icon} />
-  }
-  return (
-    <div className="prefs-expander">
-      <Card
-        d={d}
-        value={values[d.id]}
-        modified={store.isModified(d.id)}
-        onSet={onSet}
-        icon={icon}
-        trailing={
-          <button
-            className="prefs-chevron"
-            aria-expanded={expanded}
-            aria-label={expanded ? `Collapse ${d.label}` : `Expand ${d.label}`}
-            onClick={() => setExpanded((v) => !v)}
-          >
-            <Glyph icon={ChevronDown} role="inline" style={expanded ? { transform: 'rotate(180deg)' } : undefined} />
-          </button>
-        }
-      />
-      {expanded && (
-        <div className={`prefs-children${on ? '' : ' off'}`} aria-disabled={!on}>
-          {children.map((child) => (
-            <Card key={child.id} d={child} value={values[child.id]} modified={store.isModified(child.id)} onSet={onSet} child />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * A SettingsCard: icon, header, description, and the control at the right.
- *
- * A row that differs from its default says so with a control, not a colour:
- * "Default" restores this one row, which is the reset most people want.
- */
-function Card({
-  d, value, modified, onSet, icon, caption, trailing, child = false,
+/** One setting: label, one line about it, the control at the right; the accent bar and "Default" when it differs. */
+function Row({
+  d, value, modified, onSet, child, dimmed = false, expanded, onExpand,
 }: {
   d: SettingDescriptor
   value: unknown
   modified: boolean
   onSet: (id: string, raw: unknown) => void
-  icon?: Icon
-  /** Where the setting lives, for a search result. */
-  caption?: string
-  trailing?: ReactNode
-  child?: boolean
+  child?: 'mid' | 'last'
+  dimmed?: boolean
+  /** A parent with children: the chevron that folds them. */
+  expanded?: boolean
+  onExpand?: () => void
 }) {
   const on = value === true
+  const defaultText = d.type === 'enum'
+    ? d.choices.find((c) => c.value === d.default)?.label ?? String(d.default)
+    : d.type === 'bool' ? (d.default ? 'on' : 'off') : String(d.default)
+  const place = child === 'mid' ? 'child mid' : child === 'last' ? 'child last' : ''
+  const rowClass = ['prefs-row', place, modified ? 'mod' : '', dimmed ? 'dimmed' : ''].filter(Boolean).join(' ')
   return (
-    <div className={`prefs-card${child ? ' child' : ''}${modified ? ' modified' : ''}`}>
-      {icon !== undefined && <span className="prefs-cardicon"><Glyph icon={icon} role="card" /></span>}
-      <label htmlFor={d.id} className="prefs-cardtext">
-        <span className="prefs-cardtitle">{d.label}</span>
-        <span className="prefs-cardnote">{d.description}{caption !== undefined && <span className="prefs-cardwhere"> · {caption}</span>}</span>
+    <div className={rowClass}>
+      <label htmlFor={d.id} className="prefs-rowtext" title={d.description}>
+        <span className="prefs-label">{d.label}</span>
+        <span className="prefs-desc">{d.description}</span>
       </label>
-      <span className="prefs-cardctl">
+      <span className="prefs-ctl">
         {modified && (
           <button
             className="prefs-default"
-            title={`Restore the default (${String(d.default)})`}
+            title={`Restore the default: ${defaultText}`}
+            aria-label={`Restore the default, ${defaultText}`}
             onClick={() => onSet(d.id, d.default)}
-          >Default</button>
+          >
+            <Glyph icon={Reset} role="inline" />
+          </button>
         )}
         {d.type === 'bool' && (
           <>
-            <span className="prefs-onoff">{on ? 'On' : 'Off'}</span>
+            {/* The word beside the switch: a toggle with no On or Off is a shape, not a setting. */}
+            <span className="prefs-onoff" aria-hidden="true">{on ? 'On' : 'Off'}</span>
             <button
               id={d.id}
               type="button"
               role="switch"
-              className={`swtoggle${on ? ' on' : ''}`}
+              className={`prefs-sw${on ? ' on' : ''}`}
               aria-checked={on}
               aria-label={d.label}
+              disabled={dimmed}
               onClick={() => onSet(d.id, !on)}
             ><span /></button>
           </>
@@ -341,7 +279,7 @@ function Card({
         {d.type === 'int' && (
           <input
             id={d.id}
-            className="prefs-control"
+            className="prefs-num"
             type="number"
             min={d.min}
             max={d.max}
@@ -350,43 +288,62 @@ function Card({
           />
         )}
         {d.type === 'enum' && (
-          <select id={d.id} className="prefs-control" value={String(value)} onChange={(e) => onSet(d.id, e.target.value)}>
+          <select id={d.id} className="prefs-select" value={String(value)} onChange={(e) => onSet(d.id, e.target.value)}>
             {d.choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         )}
-        {trailing}
+        {onExpand !== undefined && (
+          <button
+            className="prefs-expander"
+            aria-expanded={expanded}
+            aria-label={expanded ? `Fold ${d.label}` : `Unfold ${d.label}`}
+            onClick={onExpand}
+          >
+            <Glyph icon={expanded ? ChevronUp : ChevronDown} role="inline" />
+          </button>
+        )}
       </span>
     </div>
   )
 }
 
-/**
- * Facts about the installed copy: which version this is, whether it can
- * update, what it recorded when it broke, and what it is built on. Cards
- * without switches — nothing here is a preference.
- */
-function AboutPage() {
+/** Where the accent came from, with the colour beside it. */
+function AccentRow() {
+  const report = accentReport()
   return (
-    <>
-      <section className="prefs-section" aria-label="This copy">
-        <h3 className="prefs-sectiontitle">This copy</h3>
-        <UpdateRow desktop={isTauri()} />
-        <DiagnosticsRow desktop={isTauri()} />
-      </section>
-      <section className="prefs-section" aria-label="Licences">
-        <h3 className="prefs-sectiontitle">Licences</h3>
-        <div className="prefs-card">
-          <span className="prefs-cardicon"><Glyph icon={FileText} role="card" /></span>
-          <span className="prefs-cardtext">
-            <span className="prefs-cardtitle">Third-party notices</span>
-            <span className="prefs-cardnote">
-              PDFium (BSD) · sql.js (MIT) · Fluent UI System Icons (MIT) · React (MIT) ·
-              Tauri (MIT/Apache-2.0) · Segoe UI Variable and Cascadia Mono are the system's own faces.
-            </span>
-          </span>
-        </div>
-      </section>
-    </>
+    <div className="prefs-card">
+      <div className="prefs-cardtext">
+        <div className="prefs-cardtitle">Accent colour</div>
+        <div className="prefs-cardnote">{report.text}</div>
+      </div>
+      <span className="prefs-swatch" aria-hidden="true" style={{ background: report.colour ?? 'var(--rb-accent)' }} />
+    </div>
   )
 }
 
+/**
+ * Facts about the installed copy, as the last run: which version this is,
+ * whether it can update, what it recorded when it broke, and what it is
+ * built on. Rows without switches — nothing here is a preference.
+ */
+function AboutRun() {
+  return (
+    <section className="prefs-run prefs-about" aria-label="About REDBEAM">
+      <h3 className="prefs-runtitle"><Glyph icon={Info} role="row" /> About REDBEAM <span className="prefs-version">{APP_VERSION}</span></h3>
+      <div className="prefs-group">
+        <UpdateRow desktop={isTauri()} />
+        <DiagnosticsRow desktop={isTauri()} />
+        <AccentRow />
+        <div className="prefs-card">
+          <div className="prefs-cardtext">
+            <div className="prefs-cardtitle">Third-party notices</div>
+            <div className="prefs-cardnote">
+              PDFium (BSD) · sql.js (MIT) · Fluent UI System Icons (MIT) · React (MIT) ·
+              Tauri (MIT/Apache-2.0) · Segoe UI Variable and Cascadia Mono are the system's own faces.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}

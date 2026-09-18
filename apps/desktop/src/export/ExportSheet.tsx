@@ -5,17 +5,19 @@
  * the estimate name, project name, and scope data before exporting, in case
  * there's anything wrong or anything needs to be cleaned up for client
  * presentation." So this is a page in the estimates sidebar, not a save
- * dialog: the names and the scope lines are fields, what is typed here goes
- * into every format, and nothing here writes back to the project — a client
- * name for the cover is not a reason to rename the round.
+ * dialog: the cover is fields, a note can be added per scope, what is typed
+ * here goes into every format, and nothing here writes back to the project —
+ * a client name for the cover is not a reason to rename the round.
  *
- * Three ways out, all from the same edited draft: the branded PDF with the
- * quantities and the pictures, a CSV file, or a TSV on the clipboard.
+ * Built to the approved board (docs/design/estimates-sidebar-2026-09-18):
+ * the same header block as every other surface, Save PDF in the accent slot,
+ * CSV and TSV in ⋯, scopes as the same 44px rows the round uses, notes opt-in,
+ * and a scope with no takeoff greyed and left out of what is written.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useReturnFocus } from '../returnFocus.js'
-import { Copy, DocumentPdf, FileText, Glyph, X } from '../shell/icons.js'
-import { estimateToCsv, estimateToTsv, exportFileName, type EstimateExport } from './estimateExport.js'
+import { Copy, Ellipsis, FileText, Glyph, X } from '../shell/icons.js'
+import { estimateToCsv, estimateToTsv, exportFileName, type EstimateExport, type ExportScope } from './estimateExport.js'
 import { saveFile, saveOutcomeText } from './saveFile.js'
 
 export interface ExportSheetProps {
@@ -33,6 +35,19 @@ export interface ExportSheetProps {
   onClose: () => void
 }
 
+const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 1 })
+
+/**
+ * A scope with nothing measured has no line to print. A component with no
+ * quantity is the bill's "needs a direction" placeholder, not a part.
+ */
+export const hasTakeoff = (s: ExportScope) => s.quantities.length > 0 || s.components.some((c) => c.quantity !== null)
+
+/** What is written: the draft, dated, without the scopes that have nothing. */
+export function toWrite(draft: EstimateExport): EstimateExport {
+  return { ...draft, generatedAt: new Date(), scopes: draft.scopes.filter(hasTakeoff) }
+}
+
 export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
   useReturnFocus(true)
   const [draft, setDraft] = useState<EstimateExport>(initial)
@@ -41,10 +56,22 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
   /** What the last save did — the path it went to, or that it was cancelled. */
   const [saved, setSaved] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  /** Scopes whose note field is open. A note is opt-in: most scopes have none. */
+  const [noting, setNoting] = useState<Set<string>>(() => new Set(initial.scopes.filter((s) => s.note !== '').map((s) => s.id)))
   const firstField = useRef<HTMLInputElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { firstField.current?.focus(); firstField.current?.select() }, [])
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (menuRef.current !== null && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
+  }, [menuOpen])
 
-  const patchScope = useCallback((id: string, patch: Partial<EstimateExport['scopes'][number]>) => {
+  const patchScope = useCallback((id: string, patch: Partial<ExportScope>) => {
     setDraft((d) => ({ ...d, scopes: d.scopes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }))
   }, [])
 
@@ -54,7 +81,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
     setProblem(null)
     setSaved(null)
     try {
-      const result = await onSavePdf({ ...draft, generatedAt: new Date() }, setBusy)
+      const result = await onSavePdf(toWrite(draft), setBusy)
       // A problem is a string; a success reports where it went.
       if (result.problem !== null) setProblem(result.problem)
       else setSaved(result.said)
@@ -67,7 +94,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
 
   const saveCsv = async () => {
     if (busy !== null) return
-    const e = { ...draft, generatedAt: new Date() }
+    const e = toWrite(draft)
     setBusy('Choosing where to save…')
     setProblem(null)
     try {
@@ -86,7 +113,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
 
   const copyTsv = async () => {
     try {
-      await navigator.clipboard.writeText(estimateToTsv(draft))
+      await navigator.clipboard.writeText(estimateToTsv(toWrite(draft)))
       setCopied(true)
       setTimeout(() => setCopied(false), 1600)
     } catch {
@@ -94,125 +121,139 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
     }
   }
 
-  const lines = draft.scopes.reduce((n, s) => n + s.quantities.length + s.components.length, 0)
+  const included = draft.scopes.filter(hasTakeoff)
+  const lines = included.reduce((n, s) => n + s.quantities.length + s.components.length, 0)
 
   return (
-    <div className="exportsheet" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
-      <div className="wshead">
-        <div className="grow">
-          <h2>Export estimate</h2>
-          <div className="wsmuted">
-            Check the names and the scopes before they go to a client. Edits here change the
-            export only.
-          </div>
-        </div>
-        <button className="paneact" title="Back" aria-label="Back" onClick={onClose}>
+    <div className="es-export" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
+      <div className="es-exportbar">
+        <span className="es-exporttitle">Export {initial.estimateName}</span>
+        <button className="es-btn subtle icon" title="Close" aria-label="Close" onClick={onClose}>
           <Glyph icon={X} role="row" />
         </button>
       </div>
 
-      <section className="wssection">
-        <h3><span className="grow">Cover</span></h3>
-        <label className="exportfield">
-          <span>Project</span>
+      <div className="es-hd nodot" ref={menuRef}>
+        <div className="es-hdtext">
+          <div className="es-hdname">{included.length} scope{included.length === 1 ? '' : 's'} · {lines} line{lines === 1 ? '' : 's'}</div>
+          <div className="es-hdsub">The PDF adds an image per sheet</div>
+        </div>
+        <button className="es-btn primary" onClick={() => void savePdf()} disabled={busy !== null || included.length === 0}>
+          {busy === null ? 'Save PDF' : 'Saving…'}
+        </button>
+        <button
+          className={menuOpen ? 'es-btn subtle icon on' : 'es-btn subtle icon'}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="More ways out"
+          title="More ways out"
+          onClick={() => setMenuOpen((v) => !v)}
+        ><Glyph icon={Ellipsis} role="row" /></button>
+        {menuOpen && (
+          <div className="dockmenu es-menu" role="menu" aria-label="More ways out" onClick={() => setMenuOpen(false)}>
+            <button className="menuitem" role="menuitem" disabled={busy !== null || included.length === 0} onClick={() => void saveCsv()}>
+              <Glyph icon={FileText} role="row" /><span className="grow">Save CSV…</span>
+            </button>
+            <button className="menuitem" role="menuitem" disabled={included.length === 0} onClick={() => void copyTsv()}>
+              <Glyph icon={Copy} role="row" /><span className="grow">{copied ? 'Copied' : 'Copy TSV'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {(problem !== null || busy !== null || saved !== null || copied) && (
+        <div className={`es-ib ${problem !== null ? 'warn' : saved !== null || copied ? 'good' : 'info'}`} role="status">
+          <span className="es-ibic" aria-hidden="true">{problem !== null ? '!' : saved !== null || copied ? '✓' : 'i'}</span>
+          <span className="es-ibtext">{problem ?? busy ?? (copied ? 'Copied as TSV.' : saved)}</span>
+          {problem !== null && (
+            <button className="es-btn subtle icon tiny" aria-label="Dismiss" onClick={() => setProblem(null)}><Glyph icon={X} role="small" /></button>
+          )}
+        </div>
+      )}
+
+      <h3 className="es-sect">Cover<span className="es-sp" /></h3>
+      <div className="es-sg one">
+        <label className="es-k" htmlFor="export-project">Project</label>
+        <span className="es-fieldwrap">
           <input
+            id="export-project"
             ref={firstField}
+            className="es-field"
             value={draft.projectName}
             onChange={(e) => setDraft({ ...draft, projectName: e.target.value })}
           />
-        </label>
-        <label className="exportfield">
-          <span>Estimate</span>
+        </span>
+        <label className="es-k" htmlFor="export-estimate">Estimate</label>
+        <span className="es-fieldwrap">
           <input
+            id="export-estimate"
+            className="es-field"
             value={draft.estimateName}
             onChange={(e) => setDraft({ ...draft, estimateName: e.target.value })}
           />
-        </label>
-        <label className="exportfield">
-          <span>Subtitle</span>
+        </span>
+        <label className="es-k" htmlFor="export-subtitle">Subtitle</label>
+        <span className="es-fieldwrap">
           <input
+            id="export-subtitle"
+            className="es-field"
             value={draft.subtitle}
             placeholder="Issued for pricing · Rev 2"
             onChange={(e) => setDraft({ ...draft, subtitle: e.target.value })}
           />
-        </label>
-      </section>
+        </span>
+      </div>
 
-      <section className="wssection">
-        <h3><span className="grow">Scopes</span><span>{draft.scopes.length}</span></h3>
-        {draft.scopes.length === 0 && (
-          <div className="wsmuted">This estimate has no scopes, so there is nothing to export yet.</div>
-        )}
-        {draft.scopes.map((s) => (
-          <div key={s.id} className="exportscope">
-            <div className="exportscopehead">
-              <span className="scopedot" style={{ background: s.color }} aria-hidden="true" />
-              <input
-                className="exportscopename"
-                value={s.label}
-                aria-label="Scope name"
-                onChange={(e) => patchScope(s.id, { label: e.target.value })}
-              />
-              <input
-                className="exportscopeproduct"
-                value={s.product}
-                aria-label="Product"
-                onChange={(e) => patchScope(s.id, { product: e.target.value })}
-              />
+      <h3 className="es-sect">
+        Scopes<span className="es-n">{included.length === draft.scopes.length ? draft.scopes.length : `${included.length} of ${draft.scopes.length}`}</span>
+        <span className="es-sp" />
+      </h3>
+      {draft.scopes.length === 0 && (
+        <div className="es-muted pad">This estimate has no scopes, so there is nothing to export yet.</div>
+      )}
+      {draft.scopes.map((s) => {
+        const inExport = hasTakeoff(s)
+        const parts = s.components.length
+        const meta = inExport
+          ? [...s.quantities.map((q) => `${fmt(q.quantity)} ${q.unit}`), `${parts} part${parts === 1 ? '' : 's'}`].join(' · ')
+          : 'No takeoff'
+        const open = noting.has(s.id)
+        return (
+          <div key={s.id} className={inExport ? 'es-exscope' : 'es-exscope off'}>
+            <div className="es-row static">
+              <span className="es-dot" style={{ background: s.color }} aria-hidden="true" />
+              <span className="es-rowtext">
+                <span className="es-rowname">{s.label} <span className="es-rowproduct">{s.product}</span></span>
+                <span className={inExport ? 'es-rowmeta mono' : 'es-rowmeta'}>{meta}</span>
+              </span>
+              {inExport
+                ? (
+                  <button
+                    className="es-link"
+                    aria-expanded={open}
+                    onClick={() => setNoting((n) => {
+                      const next = new Set(n)
+                      if (next.has(s.id)) { next.delete(s.id); patchScope(s.id, { note: '' }) } else next.add(s.id)
+                      return next
+                    })}
+                  >{open ? 'Note ▾' : '+ Note'}</button>
+                  )
+                : <span className="es-aside">not in the export</span>}
             </div>
-            <div className="exportlines">
-              {s.quantities.map((q) => (
-                <div key={`q-${q.label}`} className="exportline">
-                  <span className="grow">{q.label}</span>
-                  <span className="exportqty">{q.quantity.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
-                  <span className="wsmuted">{q.unit}</span>
-                </div>
-              ))}
-              {s.components.map((c) => (
-                <div key={`c-${c.label}`} className={`exportline${c.confidence === 'verified' ? '' : ' flagged'}`}>
-                  <span className="grow">{c.label}</span>
-                  <span className="exportqty">
-                    {c.quantity === null ? '—' : c.quantity.toLocaleString('en-US', { maximumFractionDigits: 1 })}
-                  </span>
-                  <span className="wsmuted">{c.unit}</span>
-                </div>
-              ))}
-              {s.quantities.length === 0 && s.components.length === 0 && (
-                <div className="exportline wsmuted">No takeoff yet</div>
-              )}
-            </div>
-            <textarea
-              className="exportnote"
-              value={s.note}
-              rows={1}
-              placeholder="Note for the client, if any"
-              aria-label={`Note for ${s.label}`}
-              onChange={(e) => patchScope(s.id, { note: e.target.value })}
-            />
+            {inExport && open && (
+              <textarea
+                className="es-note"
+                value={s.note}
+                rows={2}
+                autoFocus={s.note === ''}
+                placeholder="Note for the client"
+                aria-label={`Note for ${s.label}`}
+                onChange={(e) => patchScope(s.id, { note: e.target.value })}
+              />
+            )}
           </div>
-        ))}
-      </section>
-
-      <div className="exportactions">
-        <button className="primarybtn" onClick={() => void savePdf()} disabled={busy !== null}>
-          <Glyph icon={DocumentPdf} role="inline" /> {busy === null ? 'Save PDF' : 'Saving…'}
-        </button>
-        <button className="ghostbtn" onClick={() => void saveCsv()} disabled={busy !== null}>
-          <Glyph icon={FileText} role="inline" /> Save CSV
-        </button>
-        <button className="ghostbtn" onClick={() => void copyTsv()} disabled={busy !== null}>
-          <Glyph icon={Copy} role="inline" /> {copied ? 'Copied' : 'Copy TSV'}
-        </button>
-      </div>
-      <div className="exportstatus" role="status">
-        {problem !== null
-          ? <span className="exportproblem">{problem}</span>
-          : busy !== null
-            ? busy
-            : saved !== null
-              ? saved
-              : `${lines} line${lines === 1 ? '' : 's'} · the PDF adds a picture of every sheet with takeoff`}
-      </div>
+        )
+      })}
     </div>
   )
 }

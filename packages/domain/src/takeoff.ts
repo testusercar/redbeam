@@ -19,8 +19,9 @@
  */
 
 import { resolveScaleForRings, type ScaleRegion } from './scaleRegion.js'
-import { ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
-import type { Point, Region } from './geometry.js'
+import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
+import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
+import { ringsOverlap, subtractRings } from './clip.js'
 import {
   directionGroupKey, resolvePatternDirection, type PageSize,
   type NormalizedDirection,
@@ -53,6 +54,12 @@ export interface PieceResult {
    * drawn from a second layout run could disagree with the count beside it.
    */
   cells: PanelCell[]
+  /**
+   * A run product's face width in feet, when its scope states one. For the
+   * preview, which draws each piece as a band that wide; absent, pieces are
+   * drawn as lines.
+   */
+  componentWidthFeet?: number
   /**
    * Why nothing could be calculated, in the estimator's words. Empty means the
    * numbers are real. Non-empty means they are ABSENT, not zero — a scope
@@ -328,23 +335,26 @@ function groupRegions(
   }
 
   const byKey = new Map<string, GroupedRegion>()
+  /*
+   * Cutouts wait until every area has its group, then each is taken out of
+   * every group it overlaps on its sheet, measured in THAT group's space,
+   * because a hole is in a particular ceiling and has to be at its scale.
+   *
+   * This used to key a cutout by the area containing its FIRST vertex and
+   * push its ring in beside the area's, for the nesting rule to read as a
+   * hole. A cutout across the area's edge then left its outside part
+   * counted as material, and one starting outside found no owner and did
+   * nothing. Clipping (clip.ts) is what a QPainterPath subtraction did.
+   */
+  const cutouts: Markup[] = []
+  const openings = new Map<string, Polygon[]>()
   for (const m of markups) {
-    if (m.kind !== 'area' && m.kind !== 'cutout') continue
+    if (m.kind === 'cutout') { cutouts.push(m); continue }
+    if (m.kind !== 'area') continue
     const probe: Point | undefined = m.rings[0]?.[0]
     if (!probe) continue
 
-    /*
-     * A cutout takes its OWNER's scale, not its own.
-     *
-     * It is a hole in a particular area and has to be measured in the same
-     * space as the thing it opens; resolving it independently would let a
-     * cutout whose centroid strayed over a region boundary punch a hole of the
-     * wrong size, or none at all.
-     */
-    const scaleSource = m.kind === 'cutout'
-      ? (markups.find((x) => x.id === ownerAreaId(m, markups)) ?? m)
-      : m
-    const { cal: pageCal, regionId } = scaleFor(scaleSource)
+    const { cal: pageCal, regionId } = scaleFor(m)
     const dir = directionFor(m)
     if (dir === null) continue
     const directionLine = lineFor(m.pageId, dir)
@@ -361,19 +371,15 @@ function groupRegions(
     })
     if (!resolution) continue
 
-    // A cutout must land in the SAME group as the area it opens, so it is
-    // keyed by that area rather than by its own id. Keying it by itself would
-    // give the opening its own grid and stop it ever punching a hole.
-    const owner = m.kind === 'cutout' ? ownerAreaId(m, markups) ?? m.id : m.id
     /*
      * The region is NOT part of the key, and does not need to be:
      * `directionGroupKey` already ends in the area id, so every area is its
      * own group and two details can never share one. Adding the region here
-     * looked prudent and was dead — a perturbation test proved it changed
+     * looked prudent and was dead: a perturbation test proved it changed
      * nothing, which is the only reason this comment is not a claim that it
      * matters.
      */
-    const key = `${m.pageId}|${directionGroupKey(resolution, owner)}`
+    const key = `${m.pageId}|${directionGroupKey(resolution, m.id)}`
 
     const rings = m.rings.map((ring) => ringToPoints(ring, pageCal))
     const existing = byKey.get(key)
@@ -381,31 +387,26 @@ function groupRegions(
     else byKey.set(key, { pageId: m.pageId, region: rings, calibration: pageCal, directionLine })
   }
 
-  return [...byKey.values()]
-}
-
-/** The area whose ring contains this cutout's first vertex, if any. */
-function ownerAreaId(cutout: Markup, markups: readonly Markup[]): string | null {
-  const probe = cutout.rings[0]?.[0]
-  if (!probe) return null
-  for (const m of markups) {
-    if (m.kind !== 'area' || m.pageId !== cutout.pageId) continue
-    const ring = m.rings[0]
-    if (ring && containsPoint(ring, probe)) return m.id
-  }
-  return null
-}
-
-/** Even/odd point-in-ring on normalized coordinates. */
-function containsPoint(ring: readonly Point[], p: Point): boolean {
-  let inside = false
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!, b = ring[j]!
-    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside
+  for (const c of cutouts) {
+    for (const [key, group] of byKey) {
+      if (group.pageId !== c.pageId) continue
+      const rings = c.rings.map((ring) => ringToPoints(ring, group.calibration))
+      const overlapping = rings.filter((r) => group.region.some((a) => ringsOverlap(r, a)))
+      if (overlapping.length === 0) continue
+      const list = openings.get(key)
+      if (list) list.push(...overlapping)
+      else openings.set(key, overlapping)
     }
   }
-  return inside
+  // One subtraction per group, so a second cutout cannot union the first
+  // one's hole shut (see subtractRings). Groups with no cutout keep their
+  // rings exactly as drawn.
+  for (const [key, list] of openings) {
+    const group = byKey.get(key)!
+    group.region = subtractRings(group.region, list)
+  }
+
+  return [...byKey.values()]
 }
 
 /**
@@ -432,6 +433,65 @@ function noGroups(mine: readonly Markup[]): string[] {
   return ['a scale on the sheet these markups are drawn on']
 }
 
+/**
+ * A LINEAR PARTS product: the scope's polylines, each divided by the part
+ * length and rounded up ON ITS OWN, because a part does not span two runs.
+ *
+ * Every run is measured at its own sheet's scale, or its scale region's, the
+ * way the area products are. No direction is needed: there is no grid.
+ * "Ordered" is parts times part length, and "Offcut" is what that leaves
+ * over the measured length: the waste conversation, in feet.
+ */
+function linearParts(
+  specs: Specifications,
+  mine: readonly Markup[],
+  cal: Calibration,
+  opts: PieceOptions,
+): PieceResult {
+  const empty = (blockers: string[]): PieceResult =>
+    ({ productType: 'linear_parts', quantities: [], cells: [], runs: [], blockers })
+  const partLength = measureToFeet(specs, { valueKey: 'partLength', unitKey: 'partLengthUnit', label: 'Part Len' })
+  if (partLength === null || !(partLength > 0)) return empty(['Part Len'])
+
+  const calFor = (pageId: string): Calibration | null =>
+    opts.calibrations?.get(pageId) ?? (opts.calibrations === undefined ? cal : null)
+  const sizeFor = (pageId: string): PageSize => opts.pageSizes?.get(pageId) ?? opts.pageSize
+
+  let parts = 0, measured = 0, runs = 0, unscaled = 0
+  for (const m of mine) {
+    if (m.kind !== 'polyline') continue
+    const ring = m.rings[0]
+    if (!ring || ring.length < 2) continue
+    runs++
+    const pageCal = calFor(m.pageId)
+    const regions = opts.scaleRegions?.get(m.pageId) ?? []
+    const feetPerPoint = regions.length > 0
+      ? resolveScaleForRings(m.rings, regions, pageCal?.feetPerPoint ?? null).feetPerPoint
+      : (pageCal?.feetPerPoint ?? null)
+    if (feetPerPoint === null) { unscaled++; continue }
+    const size = sizeFor(m.pageId)
+    const feet = polylineLength(ring, size.width, size.height) * feetPerPoint
+    measured += feet
+    parts += Math.ceil(feet / partLength - 1e-9)
+  }
+  if (runs > 0 && runs === unscaled) return empty(noGroups(mine))
+
+  const ordered = parts * partLength
+  const r1 = (x: number): number => Math.round(x * 10) / 10
+  return {
+    productType: 'linear_parts',
+    blockers: [],
+    cells: [],
+    runs: [],
+    quantities: [
+      { itemKey: 'linear_parts', label: 'Parts', quantity: parts, unit: 'EA' },
+      { itemKey: 'linear_measured', label: 'Measured length', quantity: r1(measured), unit: 'LF' },
+      { itemKey: 'linear_ordered', label: 'Ordered length', quantity: r1(ordered), unit: 'LF' },
+      { itemKey: 'linear_offcut', label: 'Offcut', quantity: r1(ordered - measured), unit: 'LF' },
+    ].filter((q) => q.quantity > 0),
+  }
+}
+
 export function calculatePieces(
   scope: Scope,
   markups: readonly Markup[],
@@ -449,6 +509,9 @@ export function calculatePieces(
     return { productType: product, quantities: [], cells: [], runs: [], blockers: [] }
   }
   if (blockers.length > 0) return { productType: product, quantities: [], cells: [], runs: [], blockers }
+
+  // No grid and no direction: a length, divided by a part.
+  if (product === 'linear_parts') return linearParts(specs, mine, cal, opts)
 
   /*
    * Blocked only when there is NO direction anywhere.
@@ -475,6 +538,7 @@ export function calculatePieces(
   if (product === 'panels') {
     const width = measureToFeet(specs, { valueKey: 'panelWidth', unitKey: 'panelWidthUnit', label: 'Panel W' })
     const length = measureToFeet(specs, { valueKey: 'panelLength', unitKey: 'panelLengthUnit', label: 'Panel L' })
+    const trimLength = measureToFeet(specs, { valueKey: 'perimeterTrimLength', unitKey: 'perimeterTrimLengthUnit', label: 'Trim Len' })
     if (width === null || length === null) {
       return { productType: product, quantities: [], cells: [], runs: [], blockers: ['Panel W', 'Panel L'] }
     }
@@ -498,12 +562,81 @@ export function calculatePieces(
         { itemKey: 'panel_count', label: 'Panels', quantity: result.panelCount, unit: 'EA' },
         { itemKey: 'panel_full', label: 'Full panels', quantity: result.fullPieceCount, unit: 'EA' },
         { itemKey: 'panel_half', label: 'Half panels', quantity: result.halfPieceCount, unit: 'EA' },
+        /*
+         * A panel order is panels AND trim (Aaron, 2026-09-18). Trim is cut
+         * per edge of each area — every edge divided by the scope's Trim Len
+         * and rounded up on its own — as the run products cut theirs. With
+         * no Trim Len there is no line, not a zero.
+         */
+        ...(trimLength === null
+          ? []
+          : [{ itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: perimeterTrimPieces(mine, cal, trimLength), unit: 'EA' }]),
       ].filter((q) => q.quantity > 0),
     }
   }
 
   /*
-   * Planks, baffles and cassettes.
+   * Baffle cassettes.
+   *
+   * Aaron, 2026-09-18: "A cassette is a predefined, pre-assembled module of
+   * multiple baffles onto a discrete set of backer rails that then connect
+   * using torsion springs to the ceiling grid ... I provide entire modules,
+   * which may cause worse yield and more offcuts than a freeform baffle
+   * ceiling. For example, 2-inch-wide baffles spaced 6 inches center,
+   * assembled into 24-inch-wide cassettes by 8-foot baffle length — a
+   * 16-square-foot module."
+   *
+   * So a cassette is a PANEL — Cassette W across the baffles by the baffle
+   * length along them — laid whole, never cut: the panel engine, at full
+   * granularity, on the same directions the runs would follow. Baffles are
+   * the modules times the baffles each holds (Cassette W over the spacing,
+   * rounded down); end caps are two per baffle. Backer rails and their
+   * connections are inside the module, so no rails, connectors or joiners
+   * are ordered separately. Trim keeps its convention: the cassette width is
+   * its trim length.
+   */
+  if (product === 'baffle_cassette') {
+    const cassetteWidth = measureToFeet(specs, { valueKey: 'cassetteWidth', unitKey: 'cassetteWidthUnit', label: 'Cassette W' })
+    const stock = measureToFeet(specs, { valueKey: 'stockLength', unitKey: 'stockLengthUnit', label: 'Stock' })
+    const spacing = measureToFeet(specs, { valueKey: 'spacing', unitKey: 'spacingUnit', label: 'Spacing OC' })
+    const missing = [
+      ...(cassetteWidth === null ? ['Cassette W'] : []),
+      ...(stock === null ? ['Stock'] : []),
+      ...(spacing === null ? ['Spacing OC'] : []),
+    ]
+    if (cassetteWidth === null || stock === null || spacing === null) {
+      return { productType: product, quantities: [], cells: [], runs: [], blockers: missing }
+    }
+    const groups = layoutGroupsFor(mine, cal, withDirections)
+    if (groups.length === 0) return { productType: product, quantities: [], cells: [], runs: [], blockers: noGroups(mine) }
+    const result = layoutPanels(groups, {
+      panelWidthFeet: cassetteWidth,
+      panelLengthFeet: stock,
+      feetPerPoint: cal.feetPerPoint,
+      panelGranularity: 'full',
+      ...(opts.perAreaOrigin === true ? { perAreaOrigin: true } : {}),
+    })
+    const perCassette = Math.max(1, Math.floor(cassetteWidth / spacing + 1e-9))
+    const cassettes = result.panelCount
+    const baffles = cassettes * perCassette
+    return {
+      productType: product,
+      blockers: [],
+      // The modules themselves, for the preview: a cassette ceiling is drawn
+      // as its cassettes, not as free baffle runs.
+      cells: result.cells,
+      runs: [],
+      quantities: [
+        { itemKey: 'cassette_count', label: 'Cassettes', quantity: cassettes, unit: 'EA' },
+        { itemKey: 'primary_stock', label: 'Baffles', quantity: baffles, unit: 'EA' },
+        { itemKey: 'end_caps', label: 'End caps', quantity: baffles * 2, unit: 'EA' },
+        { itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: perimeterTrimPieces(mine, cal, cassetteWidth), unit: 'EA' },
+      ].filter((q) => q.quantity > 0),
+    }
+  }
+
+  /*
+   * Planks and baffles.
    *
    * These used to return a blocker reading "not verified against the Qt build
    * yet" and no numbers at all, even though pieces.ts had been a complete port
@@ -551,6 +684,7 @@ export function calculatePieces(
   return {
     productType: product,
     blockers: [],
+    ...(inputs.componentWidthFeet > 0 ? { componentWidthFeet: inputs.componentWidthFeet } : {}),
     // A run product has no panel cells: its geometry is the cut pieces along
     // each run, which is what `runs` carries to the preview.
     cells: [],

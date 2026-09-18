@@ -82,7 +82,7 @@ function loadFixtures(): Fixture[] {
  */
 const MEASURES_AS: Record<ProductType, ScopeType> = {
   panels: 'area', planks: 'area', baffle_cassette: 'area',
-  baffle: 'area', custom_assembly: 'area',
+  baffle: 'area', custom_assembly: 'area', linear_parts: 'linear',
 }
 
 const toScope = (f: Fixture, override: Record<string, string> = {}): Scope => ({

@@ -18,6 +18,7 @@
  * by a test.
  */
 import { useEffect, useRef, useState } from 'react'
+import { formatMeasureValue, isLengthUnit, parseLengthInput } from '@redbeam/domain'
 import { Glyph, TriangleAlert } from './icons.js'
 
 export interface CalibrationEntryProps {
@@ -41,7 +42,18 @@ export function CalibrationEntry({ lengthPdfPoints, error, onSubmit, onCancel }:
     <form
       className="calibrate"
       aria-label="Calibrate this sheet"
-      onSubmit={(e) => { e.preventDefault(); onSubmit(value, unit) }}
+      onSubmit={(e) => {
+        e.preventDefault()
+        // 20'-6" names its own unit; the dropdown follows it rather than
+        // arguing with it. A bare number keeps the dropdown's unit.
+        const parsed = parseLengthInput(value, isLengthUnit(unit) ? unit : 'ft')
+        if (parsed !== null && parsed.explicit) {
+          setUnit(parsed.unit)
+          onSubmit(formatMeasureValue(parsed.value), parsed.unit)
+        } else {
+          onSubmit(value, unit)
+        }
+      }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }}
     >
       <div className="scopemenuhead">
@@ -62,7 +74,7 @@ export function CalibrationEntry({ lengthPdfPoints, error, onSubmit, onCancel }:
             value={value}
             aria-label="Real length"
             onChange={(e) => setValue(e.target.value)}
-            placeholder="20  or  7 1/2"
+            placeholder={`20  or  7 1/2  or  20'-6"`}
             inputMode="decimal"
           />
           <select
@@ -76,7 +88,7 @@ export function CalibrationEntry({ lengthPdfPoints, error, onSubmit, onCancel }:
           </select>
         </div>
         {/* Fractions are how an estimator reads a dimension, so they are how this reads one. */}
-        <div className="wsmuted">A dimension off the drawing — a whole number, a decimal, or a fraction like 7 1/2.</div>
+        <div className="wsmuted">A dimension off the drawing — 20, 7 1/2, 20'-6", 66", 6.1m. A unit in the text wins over the dropdown.</div>
         {error && (
           <div className="wswarn" role="alert">
             <Glyph icon={TriangleAlert} role="row" />

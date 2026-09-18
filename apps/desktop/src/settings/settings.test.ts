@@ -325,26 +325,46 @@ describe('SettingsStore', () => {
 })
 
 /**
- * The page's shape is Windows Settings' shape, and the stylesheet says so in
- * numbers: a navigation pane the width of the sidebar's column, 36px
- * navigation items, 68px SettingsCards, and one scrolling layer whose
- * scrollbar never shifts the column.
+ * The page's shape is board 2 of docs/design/prompt-settings-icons-2026-09-18
+ * (Aaron, 2026-09-18): one page, no navigation pane, a 44px row per setting,
+ * and one scrolling layer whose scrollbar never shifts the column.
  */
 describe('the settings page', () => {
   const css = readFileSync(join(HERE, 'settings.css'), 'utf8')
+  const src = readFileSync(join(HERE, 'SettingsPanel.tsx'), 'utf8')
   const block = (selector: string) => {
     const start = css.indexOf(`\n${selector} {`)
     expect(start, `${selector} is gone from settings.css`).toBeGreaterThan(-1)
     return css.slice(start, css.indexOf('\n}', start))
   }
 
-  it("puts the navigation pane in the sidebar's column", () => {
-    expect(block('.prefs-nav')).toContain('width: var(--rb-pane-w)')
+  it('is one page with no navigation pane', () => {
+    expect(css).not.toContain('.prefs-nav')
+    expect(src).not.toContain('prefs-navitem')
+    expect(src).not.toContain('CategoryPage')
   })
 
-  it('draws NavigationView items at 36 and SettingsCards at 68', () => {
-    expect(block('.prefs-navitem')).toContain('height: 36px')
-    expect(block('.prefs-card')).toContain('min-height: 68px')
+  it('draws a 56px row per setting, with no icon on it', () => {
+    expect(block('.prefs-row')).toContain('min-height: 56px')
+    expect(src).not.toContain('PAGE_ICON')
+  })
+
+  it('draws the family as one: children hang off the parent and dim with it', () => {
+    expect(src).toContain("child={i === children.length - 1 ? 'last' : 'mid'}")
+    expect(src).toContain('dimmed={!on}')
+  })
+
+  it('says a changed setting with the accent bar on the card edge, a reset glyph, and On or Off beside a switch', () => {
+    expect(block('.prefs-row.mod')).toContain('inset 3px 0 0 var(--rb-accent)')
+    expect(src).toContain('<Glyph icon={Reset} role="inline" />')
+    expect(src).toContain("{on ? 'On' : 'Off'}")
+  })
+
+  /** Each run is one raised card with its rows divided inside it, centred in the window. */
+  it('draws each run as a SettingsCard group in a centred column', () => {
+    expect(block('.prefs-group')).toContain('border-radius: 8px')
+    expect(block('.prefs-page')).toContain('width: 920px')
+    expect(block('.prefs-layer')).toContain('justify-content: center')
   })
 
   it('scrolls only the layer, with the gutter reserved', () => {
@@ -357,5 +377,13 @@ describe('the settings page', () => {
     // `.settings` is the retired two-column layout's root, still in
     // shell.css. Defining it here too would let bundler order pick a layout.
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/(^|[\s,])\.settings\s*[{,:]/m)
+  })
+})
+
+describe('the registry reads as a product', () => {
+  it('names no person in a label or a description', () => {
+    for (const s of SETTINGS) {
+      expect(`${s.label} ${s.description}`, s.id).not.toMatch(/\b(Kenneth|Aaron)\b/)
+    }
   })
 })

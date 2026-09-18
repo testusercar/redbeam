@@ -157,7 +157,7 @@ body {
 .muted { color: var(--ink-3); white-space: normal }
 .mono { font-family: ui-monospace, monospace; font-size: 11px }
 .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none }
-.scrolllist { overflow: auto; flex: 1; min-height: 80px }
+
 /* A section caption: Fluent's Caption size in ink-3, not a mono all-caps
    label. The letterspaced monospace heading was the Qt build's idiom. */
 h4 {
@@ -201,8 +201,7 @@ h4 {
 /* the sheet is paper, not chrome — see --paper */
 .thumb canvas { display: block; background: var(--paper); transition: opacity .15s; border-radius: 2px }
 
-.banner { background: var(--warn-bg); color: var(--warn); border-bottom: 1px solid var(--warn-rule);
-  padding: 5px 10px; font-size: 12px; flex: none }
+
 
 /* ---- search ---- */
 /*
@@ -219,21 +218,15 @@ h4 {
 .pad { padding: 10px }
 
 .shelf { display: flex; flex-direction: column }
-.shelfitem { background: none; border: none; border-bottom: 1px solid var(--rule-soft); color: var(--ink-2);
-  font: inherit; font-size: 12px; text-align: left; cursor: pointer; padding: 5px 10px;
-  display: flex; gap: 7px; align-items: center }
-.shelfitem:hover { background: var(--hover) }
-.shelfitem.editing { background: var(--hover) }
-/* the ACTIVE scope is where new markups land — it needs to be unmistakable,
-   and it says so in the grammar every other selected thing in the shell uses:
-   the selected fill and the red bar. A white bar here was the one selection
-   in the product drawn differently. */
-.shelfitem.active { background: var(--rb-selected); box-shadow: inset 2px 0 0 var(--rb-accent) }
-.newscope { color: var(--ink-3); font-style: italic }
 
-.archivedblock { border-top: 1px solid var(--rule); padding: 4px 10px }
 
-.scopeform { border-top: 1px solid var(--rule); padding: 6px 0 12px }
+
+
+
+
+
+
+
 .field { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px }
 .field > span:first-child { width: 66px; flex: 0 0 66px; color: var(--ink-3) }
 .field input, .field select { flex: 1; min-width: 0; background: var(--input-deep); color: var(--ink);
@@ -248,37 +241,22 @@ h4 {
 
 .measure { display: grid; grid-template-columns: 66px 1fr 52px; gap: 6px; align-items: center;
   padding: 3px 10px; font-size: 12px }
-.measure .mlabel { color: var(--ink-3) }
+
 .measure .req { color: var(--warn); font-style: normal; margin-left: 2px }
 .measure input, .measure select { background: var(--input-deep); color: var(--ink);
   border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px;
   font: inherit; font-size: 12px; min-width: 0 }
-/* the echo is the whole point of a fraction-aware field: "7 1/2" in and
-   "7.5" ft both look plausible and differ by a factor of twelve */
-.measure .echo { grid-column: 2 / 4; font-size: 10px; color: var(--ok); margin-top: -2px }
-.measure.bad input { border-color: var(--danger) }
-.measure.bad .echo { color: var(--danger) }
 
-.checkrow { display: flex; gap: 7px; align-items: center; padding: 4px 10px; font-size: 12px }
-/**
- * A block-level warning panel.
- *
- * This used to be called `.warn`, colliding with the INLINE `.warn` severity
- * mark used by document tabs and browser rows. Being later in the sheet it
- * won, so every inline "!" silently picked up 8px of margin, a padded amber
- * background and a left border inside a 12px-tall tab.
- */
-.warnblock { margin: 8px 10px; padding: 6px 8px; background: var(--warn-bg);
-  border-left: 3px solid var(--warn); color: var(--warn); font-size: 11px }
-.formactions { display: flex; gap: 6px; padding: 10px 10px 0 }
-.formactions button { background: var(--surface); border: 1px solid var(--rule-strong); color: var(--ink-2);
-  border-radius: var(--r-sm); padding: 4px 9px; font: inherit; font-size: 12px; cursor: pointer }
-.formactions button:hover:not(:disabled) { background: var(--hover-2) }
-/* Action ink on the action fill. This was `--paper` on `--primary`, and both
-   resolve near-white on this ground — "Save" was invisible, and its disabled
-   "Saved" state an empty grey box. */
-.formactions .primary { background: var(--rb-action); border-color: var(--rb-action); color: var(--rb-action-ink) }
-.formactions button:disabled { opacity: .45; cursor: default }
+.measure.bad input { border-color: var(--danger) }
+
+
+
+
+
+
+
+
+
 
 /* The perf readout moved to shell/PerfReadout.tsx and shell.css, with the
    setting that shows it. */
@@ -338,42 +316,111 @@ h4 {
   background: var(--ads-bg);
 }
 .startdrag { grid-row: 1; }
-.startcard {
+
+/*
+ * The start window, to board 1 of docs/design/prompt-settings-icons-2026-09-18
+ * (round two): recents on the left with a filter and 56px rows, the ways in
+ * on the right as cards with the primary in the accent, the version in the
+ * footer. The whole window is a drop target.
+ */
+.st { position: relative; font-size: 13px; line-height: 18px; color: var(--rb-ink); }
+.st.dropping { box-shadow: inset 0 0 0 2px var(--rb-accent); }
+.st-body {
   grid-row: 2;
-  align-self: center;
-  justify-self: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 64px;
   width: 100%;
-  max-width: 560px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ads-sp-5);
-  padding: var(--ads-sp-6);
-  /* Fluent's Layer fill and card radius — the same treatment the estimate
-     cards carry, so a card is a card wherever it appears. */
-  border: 1px solid var(--ads-line);
-  border-radius: var(--ads-radius-l);
-  background: var(--rb-layer);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  max-width: 1440px;
+  justify-self: center;
+  padding: var(--ads-sp-8) 72px 64px;
 }
-.starthead { display: flex; align-items: center; gap: var(--ads-sp-3); }
-.starthead h1 {
-  margin: 0;
-  font-weight: 600;
-  font-size: var(--ads-text-xl);
-  line-height: var(--ads-leading-xl);
-  letter-spacing: -0.015em;
+.st-left, .st-right { min-width: 0; }
+.st-right { padding-top: 66px; }
+.st-head { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+/* The app mark: the one place red is spent (theme.test.ts, "the red budget"). */
+.st-mark {
+  width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center;
+  color: var(--rb-ink); font: 700 15px var(--ads-sans);
+  background: var(--rb-red);
 }
-.starthead p { margin: 0; }
-.startnotice { margin: 0; }
-
-.startactions { display: flex; gap: var(--ads-sp-2); flex-wrap: wrap; }
-/* The one action that is right nine times out of ten gets the room to say so. */
-.startprimary { flex: 1 1 auto; justify-content: center; padding-block: var(--ads-sp-3); }
-
-.startrecents { gap: var(--ads-sp-1); }
-.startdisclose { align-self: flex-start; font-size: var(--ads-text-xs); }
-.startpath { border-top: 1px solid var(--ads-line); padding-top: var(--ads-sp-4); }
-.startpath h4 { margin: 0 0 var(--ads-sp-2); }
+.st-title { margin: 0; font-size: 24px; line-height: 28px; font-weight: 600; }
+.st-tag { margin: 0; color: var(--rb-ink-3); font-size: 12px; }
+.st-notice { margin: 0 0 var(--ads-sp-3); color: var(--rb-ink-3); font-size: 12px; }
+.st-error { display: flex; align-items: center; gap: var(--ads-sp-2); margin: 0 0 var(--ads-sp-3); padding: var(--ads-sp-2) var(--ads-sp-3); border-radius: 4px; background: var(--rb-bad-bg); font-size: 12px; }
+.st-error > svg { color: var(--rb-bad); flex: none; }
+.st-sec { margin: 0 0 10px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--rb-ink-3); }
+.st-find {
+  display: flex; align-items: center; gap: var(--ads-sp-2);
+  height: 32px; padding: 0 10px; margin-bottom: var(--ads-sp-2);
+  border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-3);
+}
+.st-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
+.st-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: 13px var(--ads-sans); }
+.st-find > input:focus { outline: 0; }
+.st-find > input::placeholder { color: var(--rb-ink-4); }
+.st-keys { display: inline-flex; gap: 4px; }
+.st-keys kbd, .st-card kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px;
+  border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-2); font: 11px var(--ads-sans);
+}
+.st-list { display: flex; flex-direction: column; }
+.st-empty { padding: var(--ads-sp-3) var(--ads-sp-2); color: var(--rb-ink-3); font-size: 12px; }
+.st-row {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 24px; gap: 12px; align-items: center;
+  height: 56px; padding: 0 10px 0 6px; border-radius: 6px; cursor: pointer;
+}
+.st-row:hover, .st-row.armed { background: var(--rb-raised); }
+.st-row.renaming, .st-row.confirming { grid-template-columns: 36px minmax(0, 1fr) auto auto; cursor: default; }
+.st-row.confirming { height: auto; min-height: 56px; padding-block: var(--ads-sp-2); }
+.st-row.busy { opacity: .7; }
+.st-ico { width: 36px; height: 36px; border-radius: 6px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink-2); }
+.st-row.armed .st-ico { background: var(--rb-hover); color: var(--rb-ink); }
+.st-row.missing .st-name { color: var(--rb-ink-3); }
+.st-row.missing .st-ico { color: var(--rb-ink-4); }
+.st-rowtext { min-width: 0; display: flex; flex-direction: column; }
+.st-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-path { font: 11px var(--ads-mono); color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-row.confirming .st-path { font-family: var(--ads-sans); white-space: normal; }
+.st-when { font-size: 11px; color: var(--rb-ink-3); white-space: nowrap; }
+.st-link { border: 0; background: transparent; padding: 0; color: var(--rb-accent); font: 11px var(--ads-sans); cursor: pointer; white-space: nowrap; }
+.st-link:hover { text-decoration: underline; }
+.st-pin { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-4); cursor: pointer; opacity: 0; }
+.st-row:hover .st-pin, .st-row.armed .st-pin, .st-pin.on { opacity: 1; }
+.st-pin.on { color: var(--rb-ink-2); }
+.st-pin:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.st-rename { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); color: var(--rb-ink); font: 600 13px var(--ads-sans); }
+.st-rename:focus { outline: 0; }
+.st-btn { height: 28px; padding: 0 10px; border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink); font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap; }
+.st-btn.subtle { border-color: transparent; background: transparent; color: var(--rb-ink-2); }
+.st-btn.danger { color: var(--rb-bad); }
+.st-count { padding: 10px 8px; color: var(--rb-ink-4); font-size: 11px; }
+/* The ways in, as cards. */
+.st-card {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; width: 100%;
+  padding: 14px 16px; margin-bottom: 10px;
+  border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-panel); color: var(--rb-ink);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.st-card:hover { background: var(--rb-raised); }
+.st-card:disabled { cursor: default; opacity: .7; }
+.st-card.primary { border-color: transparent; background: var(--rb-accent); color: var(--rb-accent-ink); }
+.st-card.primary:hover { background: var(--rb-accent-2); }
+.st-cardico { width: 40px; height: 40px; border-radius: 8px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink); }
+.st-card.primary .st-cardico { background: rgba(0, 0, 0, .14); color: var(--rb-accent-ink); }
+.st-cardtext { min-width: 0; display: flex; flex-direction: column; }
+.st-cardtitle { font-size: 13px; font-weight: 600; }
+.st-carddesc { font-size: 11px; line-height: 14px; color: var(--rb-ink-3); }
+.st-card.primary .st-carddesc { color: rgba(0, 0, 0, .65); }
+.st-card kbd { background: transparent; border-color: rgba(255, 255, 255, .25); }
+.st-card.primary kbd { border-color: rgba(0, 0, 0, .35); color: var(--rb-accent-ink); }
+.st-pathcard { margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-panel); }
+.st-pathcard h4 { margin: 0 0 var(--ads-sp-2); }
+.st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: 12px; text-align: center; }
+.st-drop b { color: var(--rb-ink-2); }
+.st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
+.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-4); font-size: 11px; }
+.st-menu { position: fixed; z-index: 120; min-width: 230px; }
 
 /* The scale picker and the list of a sheet's regions are the Contents pane's
    and the dock's now — shell.css, "the scale picker, as a column of its
@@ -381,64 +428,40 @@ h4 {
 /* The dock's "+2" note: the page scale is not the whole sheet. */
 .dockscaleregions { color: var(--ink-3) }
 
-/* ---- focus on full-width rows ---- */
-/* Inset for the same reason the shell's rows are (shell.css, "focus on
-   full-width rows"): a ring outside a row that already fills its column is
-   clipped to two loose lines by the scrolling container around it. */
-.shelfitem:focus-visible { outline-offset: -2px }
 
-/* ---- updates (TH.7) ----
-   `attention` covers "no update channel" as well as "an update is waiting":
-   a build that cannot receive fixes is a fact about the copy someone is
-   bidding from, even though it is nothing they did and nothing they can fix. */
-.updaterow { display: flex; gap: 12px; align-items: center; padding: 8px 10px;
-  border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised) }
-.updaterow.attention { border-color: var(--warn) }
-.updateversion { font-size: 13px; font-weight: 600 }
-.updatemsg { font-size: 12px; color: var(--ink-3); margin-top: 2px }
+
+
+
+
+
 /* Where the crash report went (TH.8). Selectable, because the next thing
    somebody does with a path is copy it. */
 .crashsaved { font-size: 12px; color: var(--ink-3); margin-top: 8px }
-/* Problem reports (TH.8). A prompt to send one, not a log viewer. */
-.diagrow { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
-  border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised) }
-.diaglist { list-style: none; margin: 2px 0 0; padding: 0; display: flex;
-  flex-direction: column; gap: 4px }
-.diaglist li { display: grid; grid-template-columns: auto auto 1fr; gap: 8px;
-  align-items: baseline; font-size: 12px }
-.diagkind { font-weight: 600 }
-.diagwhen { color: var(--ink-3); white-space: nowrap }
-.diagmsg { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 
-/* ---- export sheet ----
-   The page in the estimates sidebar where an estimate is checked and named
-   before it leaves as a PDF, a CSV or a TSV. Fields use the sidebar's own
-   input grammar (see `.nameeditor input` in shell.css); the layout is the
-   panel's sections. */
-.exportsheet { display: flex; flex-direction: column; min-height: 0 }
-.exportfield { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center;
-  gap: 8px; padding: 3px 0 }
-.exportfield > span { font-size: 12px; color: var(--ink-3) }
-.exportfield input, .exportscopehead input, .exportnote {
-  width: 100%; min-width: 0; padding: 4px 8px; border: 1px solid var(--rule);
-  border-radius: var(--r-sm); background: var(--inset); color: var(--ink);
-  font: inherit; font-size: 12px }
-.exportfield input:focus-visible, .exportscopehead input:focus-visible, .exportnote:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: -1px }
-.exportscope { padding: 6px 0 8px; border-bottom: 1px solid var(--rule) }
-.exportscope:last-child { border-bottom: 0 }
-.exportscopehead { display: grid; grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr);
-  align-items: center; gap: 6px }
-.exportscopename { font-weight: 600 }
-.exportscopeproduct { color: var(--ink-3) }
-.exportlines { display: flex; flex-direction: column; gap: 2px; padding: 6px 0 4px 14px }
-.exportline { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--ink-2) }
-.exportline.flagged { box-shadow: inset 2px 0 0 var(--warn); padding-left: 6px; margin-left: -8px }
-.exportqty { font-variant-numeric: tabular-nums; white-space: nowrap }
-.exportnote { resize: vertical; min-height: 26px; margin-top: 2px; font-size: 12px }
-.exportactions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px }
-.exportstatus { font-size: 12px; color: var(--ink-3); padding: 2px 0 12px }
-.exportproblem { color: var(--bad) }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ---- search indexing ----
    Progress with two faces. Collapsed, the Search tab is an icon and wears a

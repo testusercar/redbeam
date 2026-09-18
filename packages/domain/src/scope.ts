@@ -10,7 +10,8 @@
  * and it is enforced here by `npm run check:domain-purity`.
  */
 
-import { regionArea, regionPerimeter, polylineLength, pointInPolygon, type Point, type Region } from './geometry.js'
+import { regionArea, regionEdgeLengths, regionPerimeter, polylineLength, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
+import { clipRingToRings, ringsOverlap, subtractRings } from './clip.js'
 import { unitToFeet } from './units.js'
 
 export type ScopeType = 'area' | 'linear' | 'count'
@@ -76,14 +77,23 @@ export function ringToPoints(ring: Point[], cal: Calibration): Point[] {
  * Rings that actually participate in the area calculation, for markups that
  * are all on the SAME PAGE.
  *
- * A cutout only counts if it lies inside at least one area ring. Without this
- * filter a cutout drawn on blank paper sits at nesting depth 0 and regionArea()
- * would ADD it as material.
+ * A cutout removes the part of it that lies inside an area, and only that
+ * part. The Qt build subtracted cutouts into a QPainterPath and got this
+ * for free; reconstructing from explicit rings lost it twice over:
  *
- * The Qt build could not hit this: cutouts were subtracted into a QPainterPath,
- * and subtracting a region that does not intersect the path is a no-op, so no
- * ring ever appeared. Reconstructing from explicit rings loses that property,
- * so it has to be restored here.
+ *  - a cutout drawn on blank paper sat at nesting depth 0 and regionArea()
+ *    ADDED it as material. Caught early, and filtered by whether its first
+ *    vertex was inside an area;
+ *  - a cutout that STARTED inside an area and ran past its edge passed that
+ *    filter, and the part outside sat at depth 1 under its own ring alone,
+ *    which even/odd counts as material. Kenneth, 2026-09-10: "the cutout tool
+ *    appears to be adding product instead of removing it". And one that
+ *    started outside and ran in was dropped: "it doesn't actually work".
+ *
+ * So the cutouts are CLIPPED now: the material is the union of the areas
+ * with every overlapping cutout subtracted (clip.ts). A cutout that touches
+ * no area does nothing, as before. With no overlapping cutout the area rings
+ * are returned exactly as drawn.
  *
  * Callers with markups from more than one page must use areaSquareFeet, which
  * groups first. Passing mixed pages here treats two sheets as one plane.
@@ -97,11 +107,53 @@ export function effectiveAreaRings(markups: Markup[], cal: Calibration): Region 
   }
   if (areaRings.length === 0) return []
 
-  const applicable = cutRings.filter((c) => {
-    const probe = c[0]
-    return probe !== undefined && areaRings.some((a) => pointInPolygon(probe, a))
-  })
-  return [...areaRings, ...applicable]
+  const applicable = cutRings.filter((c) => areaRings.some((a) => ringsOverlap(c, a)))
+  if (applicable.length === 0) return areaRings
+  return subtractRings(areaRings, applicable)
+}
+
+/** Area rings of `markups` on the cutout's page and in its scope, in points. */
+function areasAround(cutout: Markup, markups: readonly Markup[], cal: Calibration): Polygon[] {
+  const out: Polygon[] = []
+  for (const m of markups) {
+    if (m.kind !== 'area' || m.pageId !== cutout.pageId || m.scopeId !== cutout.scopeId) continue
+    for (const r of m.rings) out.push(ringToPoints(r, cal))
+  }
+  return out
+}
+
+/**
+ * What ONE cutout removes, in square feet: the part of it inside the areas
+ * of its own scope on its own sheet. Zero for a cutout beside every area.
+ *
+ * For the markups list, which shows each shape's own measurement. Measuring
+ * a lone cutout with areaSquareFeet gives 0, there being no area in the list
+ * for it to open, which is how every cutout read "-0.0 SF" while the
+ * scope's total was right.
+ */
+export function cutoutSquareFeet(cutout: Markup, markups: readonly Markup[], cal: Calibration): number {
+  if (cutout.kind !== 'cutout') return 0
+  const areas = areasAround(cutout, markups, cal)
+  if (areas.length === 0) return 0
+  let points2 = 0
+  for (const r of cutout.rings) points2 += regionArea(clipRingToRings(ringToPoints(r, cal), areas))
+  return points2 * cal.feetPerPoint * cal.feetPerPoint
+}
+
+/**
+ * True when the cutout removes anything: some area of its scope on its
+ * sheet shares interior with it. The rule `effectiveAreaRings` applies,
+ * exposed so a cutout that subtracts nothing can be pointed at.
+ */
+export function cutoutSubtracts(cutout: Markup, markups: readonly Markup[]): boolean {
+  if (cutout.kind !== 'cutout') return false
+  // Normalized coordinates are fine for an overlap test: the question is
+  // topological and the page box scales both rings alike.
+  for (const m of markups) {
+    if (m.kind !== 'area' || m.pageId !== cutout.pageId || m.scopeId !== cutout.scopeId) continue
+    for (const a of m.rings) for (const c of cutout.rings) if (ringsOverlap(c, a)) return true
+  }
+  return false
 }
 
 /**
@@ -144,6 +196,23 @@ export function perimeterFeet(markups: Markup[], cal: Calibration): number {
     for (const ring of m.rings) rings.push(ringToPoints(ring, cal))
   }
   return regionPerimeter(rings) * cal.feetPerPoint
+}
+
+/**
+ * Perimeter trim pieces across every area markup, cut per EDGE: each edge of
+ * each ring — cutouts included, since a cutout's edge is trimmed too — is
+ * divided by the trim length and rounded up on its own, and the pieces are
+ * summed (Aaron, 2026-09-18: "divide each segment of the perimeter by the
+ * total length of the desired trim to get the number of unique parts").
+ */
+export function perimeterTrimPieces(markups: Markup[], cal: Calibration, trimLengthFeet: number): number {
+  if (!(trimLengthFeet > 0)) return 0
+  const rings: Region = []
+  for (const m of markups) {
+    if (m.kind !== 'area') continue
+    for (const ring of m.rings) rings.push(ringToPoints(ring, cal))
+  }
+  return trimPiecesForEdges(regionEdgeLengths(rings).map((d) => d * cal.feetPerPoint), trimLengthFeet)
 }
 
 /** Total length in linear feet across every polyline markup. */

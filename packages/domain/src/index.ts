@@ -1,4 +1,5 @@
 export * from './geometry.js'
+export * from './clip.js'
 export * from './units.js'
 export * from './scope.js'
 export * from './specs.js'

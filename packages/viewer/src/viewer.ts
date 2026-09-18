@@ -14,6 +14,7 @@ import { drawOverlay, type OverlayOptions, type OverlayStats } from './overlay.j
 import type { NormClip } from './geometry.js'
 import type { DocumentIndex } from './outline.js'
 import type { PageText } from './text.js'
+import type { PageAnnotation } from './annots.js'
 import { TileCache } from './tileCache.js'
 import {
   PRIORITY_PREFETCH,
@@ -24,6 +25,7 @@ import {
   emptyOverlay,
   geometryKey,
   textKey,
+  annotKey,
   thumbKey,
   tileKey,
   type OverlaySet,
@@ -166,6 +168,8 @@ export class Viewer {
   private prefetchSig = ''
   private statsWaiters: Array<(s: WorkerStats) => void> = []
   private texts = new Map<number, PageText>()
+  private annots = new Map<number, PageAnnotation[]>()
+  private annotWaiters = new Map<string, Array<{ resolve: (a: PageAnnotation[]) => void; reject: (e: Error) => void }>>()
   private textWaiters = new Map<string, Array<{ resolve: (t: PageText) => void; reject: (e: Error) => void }>>()
   /**
    * Geometry is NOT cached by page the way text is: a windowed request and a
@@ -329,6 +333,15 @@ export class Viewer {
         }
         this.texts.set(m.page, pt)
         for (const w of waiters) w.resolve(pt)
+      }
+    } else if (m.type === 'annots') {
+      const waiters = this.annotWaiters.get(m.key) ?? []
+      this.annotWaiters.delete(m.key)
+      if (m.error) {
+        for (const w of waiters) w.reject(new Error(m.error))
+      } else {
+        this.annots.set(m.page, m.annotations)
+        for (const w of waiters) w.resolve(m.annotations)
       }
     } else if (m.type === 'index') {
       const waiters = this.indexWaiters
@@ -610,6 +623,33 @@ export class Viewer {
 
   hasText(index: number): boolean {
     return this.texts.has(index)
+  }
+
+  // ------------------------------------------------------------ annotations --
+
+  /**
+   * The page's own annotations, normalized (annots.ts). Cached per page for
+   * the life of the document; the PDF is read-only here, so they cannot
+   * change underneath the cache. Runs at the text priority: someone has
+   * right-clicked and is waiting, but a tile on screen still comes first.
+   */
+  requestAnnotations(index: number, opts: { priority?: number } = {}): Promise<PageAnnotation[]> {
+    if (index < 0 || (this.count > 0 && index >= this.count)) {
+      return Promise.reject(new Error(`page ${index} out of range (0..${this.count - 1})`))
+    }
+    const hit = this.annots.get(index)
+    if (hit) return Promise.resolve(hit)
+    const key = annotKey(index)
+    const priority = opts.priority ?? PRIORITY_TEXT
+    return new Promise<PageAnnotation[]>((resolve, reject) => {
+      const waiting = this.annotWaiters.get(key)
+      if (waiting) {
+        waiting.push({ resolve, reject })
+        return
+      }
+      this.annotWaiters.set(key, [{ resolve, reject }])
+      this.send({ type: 'annots', key, page: index, priority })
+    })
   }
 
   // ----------------------------------------------------------------- index --
@@ -948,11 +988,19 @@ export class Viewer {
  * pointer is. That was reported as "the zoom origin appears to be on the top
  * left-hand corner instead of the mouse location", and this is the cause.
  */
-export function clampViewport(v: Viewport, page: PageInfo): Viewport {
+/**
+ * `overscroll` is the fraction of the viewport the page may leave blank on
+ * a side — 0 clamps hard to the edges, 0.5 lets half a window of canvas
+ * show. Zooming at the edge of a hard-clamped page moves the anchor out
+ * from under the cursor, because the offset the anchor needs is outside
+ * the legal range; with slack the anchor holds and the canvas shows
+ * instead, which is what every drawing viewer does (Aaron, 2026-09-11).
+ */
+export function clampViewport(v: Viewport, page: PageInfo, overscroll = 0): Viewport {
   return {
     ...v,
-    ox: clampAxis(v.ox, page.width * v.zoom, v.vw),
-    oy: clampAxis(v.oy, page.height * v.zoom, v.vh),
+    ox: clampAxis(v.ox, page.width * v.zoom, v.vw, overscroll * v.vw),
+    oy: clampAxis(v.oy, page.height * v.zoom, v.vh, overscroll * v.vh),
   }
 }
 
@@ -971,13 +1019,17 @@ export function clampViewport(v: Viewport, page: PageInfo): Viewport {
  * the anchor wherever it is achievable and only overrides it at the edges,
  * which is the whole of what a clamp should do.
  */
-function clampAxis(offset: number, scaled: number, viewport: number): number {
+function clampAxis(offset: number, scaled: number, viewport: number, slack = 0): number {
+  // `0 - slack`, not `-slack`: with no slack the latter is -0, which is not
+  // the 0 an offset at the edge is compared to.
+  const lo = 0 - slack
   return scaled <= viewport
     // Page smaller than the viewport: it must stay fully visible, so the
-    // offset lives in [scaled - viewport, 0] — a window, not a point.
-    ? Math.min(0, Math.max(scaled - viewport, offset))
-    // Page larger: the usual scroll clamp, no blank margins.
-    : Math.min(Math.max(0, offset), scaled - viewport)
+    // offset lives in [scaled - viewport, 0] — a window, not a point —
+    // widened by the slack on each side.
+    ? Math.min(slack, Math.max(scaled - viewport - slack, offset))
+    // Page larger: the usual scroll clamp, blank margins only to the slack.
+    : Math.min(Math.max(lo, offset), scaled - viewport + slack)
 }
 
 /** Zoom about a fixed screen point, so the content under the cursor stays put. */

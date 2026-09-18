@@ -4,6 +4,115 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.0 — 2026-09-18
+
+The control surface, the surfaces Aaron approved from boards, Windows'
+materials, and the parts list as an estimator orders it. Everything visible
+in this release was drawn first and built to the drawing; the boards are in
+`docs/design/`.
+
+### The parts list, and what each product orders
+
+- **A part is a thing you buy.** One line per part with its size as a chip;
+  the full/cut breakdown, ordered length and offcut are a detail line
+  beneath it, never parts of their own. A run product's installed length is
+  an *Installed* tile, not an order line. Rails, connectors, end caps, joiners
+  and trim are an Accessories group. A custom assembly has no Parts section.
+  Confidence is one chip on the header, not a note on every line.
+- **The tiles show only what the scope measures.** No tile reads "—".
+- **What each product orders**, in Aaron's words: panels — panels and trim;
+  planks — planks, carrier rails and trim; baffles — baffles, suspension
+  rails, connectors, joiners, end caps; cassettes — cassettes, baffles, end
+  caps. Panels never had trim; baffles could never report a rail; planks
+  listed connectors and joiners nobody buys. All three corrected.
+- **Trim is cut per edge.** Every edge of every area — cutouts included —
+  rounds up to whole sticks on its own. The whole-perimeter division is gone.
+- **A rail is a laid run.** Perpendicular to the baffle at each connector
+  line, cut from rail stock with its own offcut. The area-over-pitch-over-
+  length estimate is gone; without a rail length there are no rails.
+- **A plank's connector spacing** is its Conn. Max, else its rail spacing,
+  else its stock length — several rails can cross one plank.
+- **A cassette is a module**: Cassette W by the baffle length, laid whole by
+  the panel engine, so partial coverage costs a whole module. Baffles are
+  cassettes times the baffles each holds; two end caps per baffle; backer
+  rails and their connections are inside the module.
+
+### The dock
+
+- Two floating surfaces instead of four: what you are doing (read tools,
+  the scope, Take off or the tools and Done) and where you are (sheet, zoom,
+  scale). Reassessed against Fluent's CommandBar.
+- Four density tiers of drawing width. Labels on the tools at Spacious;
+  every tier sheds into that surface's "…" — a command is never unreachable,
+  and the dock never wraps.
+- The tool in hand is a fill with its glyph in the accent, not a navigation
+  pill. Done takes the slot Take off held. The scope pill names its state —
+  no round, add a scope, choose a scope — and with no drawing the read tools
+  and Take off are disabled in place. A pinned calibration dims the work
+  surface.
+- Picking a scope in the dock opens it in the sidebar.
+
+### Windows' materials
+
+- **Mica shows through** the title bar and both sidebars. The window was
+  transparent and the panes painted nothing, and still the chrome was a warm
+  grey: the vendored design system painted `html` underneath. Fixed.
+- Every transient surface — menus, flyouts, the switcher, the search chooser,
+  the prompt's flyouts, the dock, toasts — is acrylic: a tint, a 40px blur, a
+  grain.
+- Hover, selected, raised and divider fills are Fluent's alpha whites, so a
+  selected row is the surface lifted, not a grey box on the wallpaper.
+- The accent is the Windows accent, on every accent-coloured thing. It read
+  as Windows' default blue on machines with another accent because the same
+  vendored block shadowed the stamped value. Fixed, and re-read on focus.
+
+### The surfaces built to approved boards
+
+- **The estimates sidebar**, rebuilt: round list, a one-page scope with
+  Parts first, Setup and Markups beneath, and the InfoBar that says what the
+  number needs.
+- **The start window**: a filterable list of recent projects with pin, inline
+  rename, locate for a moved folder and a context menu; "Open a project
+  folder" is the primary card. **A drawing opens for viewing without a
+  project**: the first markup action asks for the drawing's project folder
+  before it does anything.
+- **The project switcher** is a flyout: the current project with rename,
+  reveal and context window, a filterable recent list, Open another and
+  Start page.
+- **Search highlights ask which scope first.** A highlight is a markup and
+  a markup belongs to a scope; with none chosen, Highlight opens the chooser
+  instead of landing in whatever scope was last active. Hits are grouped by
+  sheet, the open drawing first.
+- **Settings** is one centred page of cards with an On/Off word, a Reset
+  glyph and an About that says where the accent came from.
+- **The prompt** reads as a Raycast: one field, grouped results, the action
+  bar, and the no-scale warning names its sheet.
+- **One icon dictionary**: Fluent's families, Regular at rest and Filled
+  when current, across the rail, the dock and the sidebar.
+- Contents and Thumbnails are greyed until a drawing is open; opening a
+  drawing switches the rail to Contents.
+
+### The control surface (2026-09-11 plan, all seven phases)
+
+- The prompt does the thing, in the prompt, and asks rather than assumes.
+- Lengths read as an estimator writes them: `7′ 2 7/8″`, not 7.239583.
+- Layout drawing on the sheet; the PDF's own markups as objects; a trace of
+  the region; the app icon; recent projects with settings.
+
+### Bug review of 2026-09-10 (Kenneth's 24 items, five phases)
+
+- Cutouts clip to the areas they open. Fit sheet, search hits across
+  documents, the start screen on launch. Drawing and selection: a Select tool
+  for marquee selection, and the tools stay off the keyboard's text fields.
+  Setup and quantities, project and search, and the PDF's foreign markups.
+
+### Tooling
+
+- A DevTools driver that refuses to drive anything but REDBEAM. A shell
+  harness that reaches every surface, including the highlight gate, without
+  a real project. Dead stylesheet rules pruned by a script that reads the
+  components.
+
 ## 0.2.1 — 2026-09-08
 
 What the live test of the installed 0.2.0 build on the Barclays set found

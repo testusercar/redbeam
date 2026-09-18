@@ -114,3 +114,30 @@ export function projectPathProblem(path: string): string | null {
   if (isPlausibleProjectPath(trimmed)) return null
   return 'enter a full path, for example C:\\Jobs\\260415 — REDBEAM'
 }
+
+/**
+ * The recents the start screen and the project menu SHOW: the newest
+ * `kept`, less any not opened within `expiry` days ('never' keeps all).
+ *
+ * The stored list is not touched — a project that drops off here is still
+ * found by the prompt's `~`, which reads the whole list. Missing folders
+ * are kept in the count: they are still the estimator's projects.
+ */
+export function visibleRecents(
+  projects: RecentProject[],
+  kept: number,
+  expiry: string,
+  now: number = Date.now(),
+): RecentProject[] {
+  const days = expiry === 'never' ? Number.POSITIVE_INFINITY : Number(expiry)
+  const cutoff = Number.isFinite(days) ? now - days * 86_400_000 : Number.NEGATIVE_INFINITY
+  const limit = Number.isFinite(kept) && kept > 0 ? Math.floor(kept) : projects.length
+  return projects
+    .filter((p) => {
+      const at = Date.parse(p.lastOpenedAt)
+      // An unreadable date is kept: dropping a project over a bad timestamp
+      // would be the list deciding something the estimator did not.
+      return Number.isNaN(at) || at >= cutoff
+    })
+    .slice(0, limit)
+}

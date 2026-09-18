@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Prompt, Settings, Icons, Warning</title>
+<script src="fluent-icons.js"></script>
+<style>
+:root{
+  --canvas:#161719;--chrome:#1C1D1F;--panel:#232427;--raised:#2B2D30;--hover:#35383C;--selected:#3E4146;
+  --line:#313338;--line2:#44474C;
+  --ink:#F1F3F4;--ink2:#B8BDC3;--ink3:#93979C;--ink4:#6D7175;--dim:#55585B;
+  --accent:#4CC2FF;--accentink:#1B1B1B;
+  --good:#6CCB5F;--warn:#FCE100;--bad:#FF99A4;--warnbg:#433519;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--mono:"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d0e;color:var(--ink);font:13px/18px var(--sans);padding:20px 24px 40px}
+h1{font:600 20px/26px var(--sans);margin:28px 0 4px;color:var(--ink)}
+h1 small{font-weight:400;color:#888;font-size:13px;margin-left:10px}
+.note{color:#9a9a9a;font-size:12px;line-height:17px;max-width:1100px;margin:0 0 14px}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.cap{font:11px var(--mono);color:#777;margin:0 0 6px}
+i.ic{display:inline-flex;width:20px;height:20px;flex:none;align-items:center;justify-content:center}
+i.ic svg{width:100%;height:100%;fill:currentColor}
+i.ic.s16{width:16px;height:16px}i.ic.s12{width:12px;height:12px}i.ic.s24{width:24px;height:24px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:4px;background:var(--raised);border:1px solid var(--line2);color:var(--ink2);font:11px var(--sans);box-shadow:inset 0 -1px 0 var(--line2)}
+
+/* ---------- prompt ---------- */
+.pal{width:640px;background:#2C2E31;border:1px solid var(--line2);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);overflow:hidden;position:relative}
+.pal .in{display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border-bottom:1px solid var(--line)}
+.pal .in i.ic{color:var(--ink3)}
+.pal .q{flex:1;font-size:16px;color:var(--ink);white-space:nowrap;overflow:hidden}
+.pal .q .ph{color:var(--ink4)}
+.pal .q .caret{display:inline-block;width:1px;height:18px;background:var(--ink);vertical-align:-3px;margin-left:1px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;margin-right:8px;border-radius:5px;background:var(--selected);color:var(--ink);font-size:12px}
+.chip i.ic{width:14px;height:14px;color:var(--ink3)}
+.filter{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 6px 0 10px;border-radius:5px;background:var(--raised);color:var(--ink2);font-size:12px}
+.filter i.ic{width:12px;height:12px;color:var(--ink3)}
+.gh{display:flex;align-items:center;height:26px;padding:8px 14px 0;font-size:11px;color:var(--ink4);font-weight:600;letter-spacing:.02em}
+.pr{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;height:40px;padding:0 14px}
+.pr i.ic{color:var(--ink2)}
+.pr .t{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .t b{font-weight:400;color:var(--ink)}
+.pr .t b em{font-style:normal;color:var(--accent)}
+.pr .t span{color:var(--ink3);margin-left:8px}
+.pr .r{display:flex;align-items:center;gap:6px;color:var(--ink4);font-size:11px}
+.pr.sel{background:var(--selected);margin:0 6px;padding:0 8px;border-radius:6px}
+.pr.off .t b,.pr.off i.ic{color:var(--ink4)}
+.pr .sw{width:8px;height:8px;border-radius:50%}
+.pf{display:flex;align-items:center;gap:14px;height:36px;padding:0 14px;border-top:1px solid var(--line);background:#26282B;font-size:11px;color:var(--ink3)}
+.pf .brand{display:flex;align-items:center;gap:8px;color:var(--ink2)}
+.pf .brand .m{width:16px;height:16px;border-radius:4px;background:#e0533a;display:grid;place-items:center;color:#fff;font:700 9px var(--sans)}
+.pf .sp{flex:1}
+.pf .k{display:flex;align-items:center;gap:5px;color:var(--ink2)}
+.actions{position:absolute;right:14px;bottom:44px;width:300px;background:#34373B;border:1px solid var(--line2);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.6);padding:6px;z-index:3}
+.actions .ah{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;font-size:12px;color:var(--ink3);border-bottom:1px solid var(--line);margin-bottom:4px}
+.actions .ah b{color:var(--ink)}
+.actions .ar{display:grid;grid-template-columns:20px 1fr auto;gap:10px;align-items:center;height:30px;padding:0 8px;border-radius:5px;font-size:12px}
+.actions .ar.sel{background:var(--selected)}
+.actions .ar i.ic{width:16px;height:16px;color:var(--ink2)}
+.actions .ar.danger{color:var(--bad)}.actions .ar.danger i.ic{color:var(--bad)}
+.actions .sep{height:1px;background:var(--line);margin:4px 0}
+
+/* ---------- settings ---------- */
+.set{width:760px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:0 0 12px}
+.set .top{display:flex;align-items:center;gap:12px;height:56px;padding:0 24px;border-bottom:1px solid var(--line)}
+.set .top h2{margin:0;font:600 18px/24px var(--sans)}
+.set .top .sp{flex:1}
+.set .find{display:flex;align-items:center;gap:8px;width:220px;height:28px;padding:0 10px;border-radius:4px;background:var(--raised);border:1px solid var(--line);border-bottom-color:var(--line2);color:var(--ink4);font-size:12px}
+.set .find i.ic{width:14px;height:14px;color:var(--ink3)}
+.set .reset{font-size:12px;color:var(--ink3)}
+.set .reset b{color:var(--ink2);font-weight:400}
+.set h3{display:flex;align-items:center;height:28px;margin:12px 0 0;padding:0 24px;font:600 12px var(--sans);color:var(--ink)}
+.set h3 .n{color:var(--ink3);font-weight:400;margin-left:8px}
+.srow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;min-height:44px;padding:0 24px 0 24px;border-top:1px solid var(--line);position:relative}
+.srow:last-child{border-bottom:1px solid var(--line)}
+.srow .l{min-width:0}
+.srow .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .d{font-size:11px;line-height:14px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow.child{padding-left:48px}
+.srow.child::before{content:"";position:absolute;left:31px;top:-1px;bottom:50%;width:8px;border-left:1px solid var(--line2);border-bottom:1px solid var(--line2);border-bottom-left-radius:4px}
+.srow.child.mid::before{bottom:auto;height:100%}
+.srow.child.mid::after{content:"";position:absolute;left:31px;top:50%;width:8px;border-top:1px solid var(--line2)}
+.srow.dimmed .lb,.srow.dimmed .d{color:var(--ink4)}
+.srow.mod::after{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--accent);border-radius:1px}
+.srow .ctl{display:flex;align-items:center;gap:10px}
+.srow .undo{display:inline-flex;align-items:center;gap:4px;color:var(--accent);font-size:11px}
+.srow .undo i.ic{width:14px;height:14px}
+.sw{width:40px;height:20px;border-radius:10px;border:1px solid var(--line2);position:relative;flex:none}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--ink3)}
+.sw.on{background:var(--accent);border-color:var(--accent)}
+.sw.on::after{left:auto;right:3px;background:#1b1b1b}
+.fld{display:inline-flex;align-items:center;height:28px;padding:0 8px;min-width:120px;border:1px solid var(--line);border-bottom-color:var(--line2);border-radius:4px;background:var(--raised);color:var(--ink);font-size:12px}
+.fld.num{font-family:var(--mono);min-width:88px;justify-content:space-between}
+.fld .chev{margin-left:auto;color:var(--ink3);font-size:11px}
+.fld .spin{display:flex;flex-direction:column;gap:2px;color:var(--ink3);font-size:8px;line-height:1}
+.set .about{display:flex;align-items:center;gap:12px;height:44px;padding:0 24px;margin-top:12px;color:var(--ink3);font-size:12px}
+.set .about b{color:var(--ink2);font-weight:400}
+.set .about .sp{flex:1}
+.set .about a{color:var(--accent)}
+
+/* ---------- icons ---------- */
+.ib{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px}
+.ib h4{margin:0 0 8px;font:600 12px var(--sans);color:var(--ink)}
+.ib h4 small{font-weight:400;color:var(--ink3);margin-left:8px}
+.ig{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px 8px}
+.ii{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 8px;border-radius:6px;background:var(--raised)}
+.ii i.ic{color:var(--ink)}
+.ii .nm{font-size:11px;color:var(--ink2);text-align:center;line-height:14px}
+.ii .old{font-size:10px;color:var(--ink4);text-decoration:line-through}
+.ii .sw{width:12px;height:12px;border:0;border-radius:50%;background:#5b8fd9}
+.ii .sw::after{display:none}
+.ba{display:grid;grid-template-columns:1fr 24px 1fr;gap:12px;align-items:center;margin-top:10px}
+.ba .arr{color:var(--ink4);text-align:center}
+.mini{background:var(--chrome);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.mini .r{display:flex;align-items:center;gap:10px;height:30px;font-size:12px;color:var(--ink2)}
+.mini .r i.ic{color:var(--ink3)}
+.mini .r.sel{background:var(--selected);border-radius:4px;color:var(--ink)}
+.mini .r.sel i.ic{color:var(--accent)}
+.rail{display:flex;gap:6px;background:var(--chrome);border:1px solid var(--line);border-radius:6px;padding:6px}
+.rail .b{width:44px;height:36px;display:grid;place-items:center;border-radius:4px;color:var(--ink3)}
+.rail .b.sel{color:var(--ink);background:var(--selected);box-shadow:inset 0 -2px 0 var(--accent)}
+.rail .b.act{color:var(--accent)}
+.sizes{display:flex;align-items:flex-end;gap:18px;padding:8px 0 0}
+.sizes div{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:10px;color:var(--ink4)}
+.sizes i.ic{color:var(--ink)}
+.rule{font-size:12px;color:var(--ink2);margin:0 0 6px}
+.rule b{color:var(--ink)}
+
+/* ---------- warning ---------- */
+.side{width:380px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.bar{height:32px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);font-weight:600;font-size:13px;background:var(--chrome)}
+.crumbs{display:flex;gap:6px;padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink3)}
+.crumbs b{color:var(--ink)}
+.ibar{display:flex;align-items:center;gap:8px;min-height:32px;margin:6px 12px 0;padding:4px 8px 4px 12px;border-radius:4px;background:var(--warnbg);font-size:12px}
+.ibar .ic2{width:14px;height:14px;border-radius:50%;background:var(--warn);color:#1b1b1b;display:grid;place-items:center;font:700 10px var(--sans);flex:none}
+.ibar .sp{flex:1}
+.ibar .btn{white-space:nowrap;height:22px;padding:0 8px;border:1px solid var(--line2);border-radius:4px;background:var(--raised);font-size:11px;display:inline-flex;align-items:center}
+.hd{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:8px 12px}
+.hd .dot{width:10px;height:10px;border-radius:50%;background:#5b8fd9}
+.hd .nm{font-size:14px;font-weight:600;line-height:18px}
+.hd .sb{color:var(--ink3);font-size:12px}
+.hd .pb{height:28px;padding:0 11px;border-radius:4px;background:var(--accent);color:#1b1b1b;font-weight:600;display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.hd .mb{width:28px;height:28px;display:grid;place-items:center;color:var(--ink2)}
+.qs{display:grid;grid-template-columns:1fr 1fr 1fr;padding:2px 12px 8px}
+.qs div{padding:4px 0 2px;border-top:2px solid var(--line2);font:600 17px/22px var(--mono)}
+.qs div.on{border-top-color:var(--accent)}
+.qs small{display:block;font:11px/14px var(--sans);color:var(--ink3)}
+.qs i{font-style:normal;font:11px var(--sans);color:var(--ink3);margin-left:3px}
+.tab{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;font-size:12px;color:var(--ink2);background:var(--chrome);border-bottom:1px solid var(--line)}
+.tab .pg{margin-left:auto;font-family:var(--mono);color:var(--ink3);font-size:11px}
+</style></head><body>
+
+<!-- ======================================================= A · PROMPT -->
+<section id="b1"><h1>1 · The command prompt <small>rethought from first principles · a Raycast, not a terminal</small></h1>
+<p class="note">A prompt has one job: get the estimator to the thing they mean in as few keystrokes as possible, then let them act on it. Raycast gets that right with four moves that the current prompt lacks: <b>nouns and verbs are separate</b> (a scope is one row, its actions are one keystroke deeper, not five rows of "Take off in…", "Rename…", "Colour…"), <b>the empty state is suggestions, not a catalogue</b> (what fits the sheet you are on, then what you ran last), <b>filtering is a control, not a cheat-sheet</b> (the "All ▾" menu replaces the seven prefixes as the visible affordance; the prefixes still work for anyone who learned them), and <b>nothing shouts</b>: an item that cannot run right now is hidden, or when you searched for it by name, greyed with its reason in the subtitle, never amber.</p>
+<div class="row">
+
+<div><div class="cap">A · empty · what fits here, then what you ran last</div>
+<div class="pal">
+  <div class="in"><i class="ic" data-ic="Search20Regular"></i><div class="q"><span class="ph">Search commands, sheets, scopes…</span><span class="caret"></span></div><span class="filter">All <i class="ic" data-ic="ChevronDown16Regular"></i></span></div>
+  <div class="gh">ON A24.00 · CLG02 ACTIVE</div>
+  <div class="pr sel"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>Set scale for this sheet</b><span>no scale yet · 4 markups count nothing</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Target20Regular"></i><div class="t"><b>Take off</b><span>draw into CLG02</span></div><div class="r">Command <kbd>T</kbd></div></div>
+  <div class="pr"><i class="ic" data-ic="CheckmarkCircle20Regular"></i><div class="t"><b>Commit CLG02</b><span>changed since 13 Sep</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="DocumentOnePage20Regular"></i><div class="t"><b>A24.01</b><span>B1 - Finish plan, part 2</span></div><div class="r">Sheet <kbd>PgDn</kbd></div></div>
+  <div class="gh">RECENT</div>
+  <div class="pr"><i class="ic" data-ic="ArrowExport20Regular"></i><div class="t"><b>Export 50%CD</b><span>pdf · csv · tsv</span></div><div class="r">Command</div></div>
+  <div class="pr"><span class="sw" style="background:#d95f5f"></span><div class="t"><b>SF02</b><span>Panels · 981.1 SF</span></div><div class="r">Scope</div></div>
+  <div class="pr"><i class="ic" data-ic="Settings20Regular"></i><div class="t"><b>Settings</b></div><div class="r">Command <kbd>Ctrl</kbd><kbd>,</kbd></div></div>
+  <div class="pf"><span class="brand"><span class="m">RB</span>Bentall Towers 1 &amp; 2</span><span class="sp"></span><span class="k">Open <kbd>↵</kbd></span><span class="k">Actions <kbd>Tab</kbd></span></div>
+</div></div>
+
+<div><div class="cap">B · typing "sc" · nouns first, verbs beneath, no prefixes needed</div>
+<div class="pal">
+  <div class="in"><i class="ic" data-ic="Search20Regular"></i><div class="q">sc<span class="caret"></span></div><span class="filter">All <i class="ic" data-ic="ChevronDown16Regular"></i></span></div>
+  <div class="gh">SCOPES</div>
+  <div class="pr sel"><span class="sw" style="background:#d95f5f"></span><div class="t"><b><em>SF</em>02</b><span>Panels · 6 markups · 981.1 SF</span></div><div class="r">Scope</div></div>
+  <div class="pr"><span class="sw" style="background:#5b8fd9"></span><div class="t"><b>CLG02</b><span>Baffle · 5 markups · 1,365.1 SF</span></div><div class="r">Scope</div></div>
+  <div class="gh">COMMANDS</div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>Set <em>sc</em>ale for this sheet</b><span>then pick a preset or measure</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>Set <em>sc</em>ale for a range of sheets</b><span>A20.00 – A29.00</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Add20Regular"></i><div class="t"><b>Add <em>sc</em>ope</b><span>to 50%CD</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Options20Regular"></i><div class="t"><b><em>Sc</em>ope setup</b><span>product, measures, yield</span></div><div class="r">Command</div></div>
+  <div class="gh">SHEETS</div>
+  <div class="pr"><i class="ic" data-ic="DocumentOnePage20Regular"></i><div class="t"><b>A02.00</b><span>B1 - <em>Sc</em>hedules &amp; specifications</span></div><div class="r">Sheet</div></div>
+  <div class="pr off"><i class="ic" data-ic="DocumentSearch20Regular"></i><div class="t"><b>Search the sheets for “sc”</b><span>full text, every page</span></div><div class="r"><kbd>Ctrl</kbd><kbd>↵</kbd></div></div>
+  <div class="pf"><span class="brand"><span class="m">RB</span>9 results</span><span class="sp"></span><span class="k">Open <kbd>↵</kbd></span><span class="k">Actions <kbd>Tab</kbd></span></div>
+</div></div>
+
+<div><div class="cap">C · Tab on a scope · its verbs, one level down, in one place</div>
+<div class="pal">
+  <div class="in"><i class="ic" data-ic="Search20Regular"></i><div class="q">sc<span class="caret"></span></div><span class="filter">All <i class="ic" data-ic="ChevronDown16Regular"></i></span></div>
+  <div class="gh">SCOPES</div>
+  <div class="pr sel"><span class="sw" style="background:#d95f5f"></span><div class="t"><b><em>SF</em>02</b><span>Panels · 6 markups · 981.1 SF</span></div><div class="r">Scope</div></div>
+  <div class="pr"><span class="sw" style="background:#5b8fd9"></span><div class="t"><b>CLG02</b><span>Baffle · 5 markups · 1,365.1 SF</span></div><div class="r">Scope</div></div>
+  <div class="gh">COMMANDS</div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>Set <em>sc</em>ale for this sheet</b><span>then pick a preset or measure</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>Set <em>sc</em>ale for a range of sheets</b><span>A20.00 – A29.00</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Add20Regular"></i><div class="t"><b>Add <em>sc</em>ope</b><span>to 50%CD</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="Options20Regular"></i><div class="t"><b><em>Sc</em>ope setup</b><span>product, measures, yield</span></div><div class="r">Command</div></div>
+  <div class="gh">SHEETS</div>
+  <div class="pr"><i class="ic" data-ic="DocumentOnePage20Regular"></i><div class="t"><b>A02.00</b><span>B1 - <em>Sc</em>hedules &amp; specifications</span></div><div class="r">Sheet</div></div>
+  <div class="pr off"><i class="ic" data-ic="DocumentSearch20Regular"></i><div class="t"><b>Search the sheets for “sc”</b><span>full text, every page</span></div><div class="r"><kbd>Ctrl</kbd><kbd>↵</kbd></div></div>
+  <div class="pf"><span class="brand"><span class="m">RB</span>9 results</span><span class="sp"></span><span class="k">Open <kbd>↵</kbd></span><span class="k">Actions <kbd>Tab</kbd></span></div>
+  <div class="actions">
+    <div class="ah"><span class="sw" style="width:8px;height:8px;border-radius:50%;background:#d95f5f;display:inline-block"></span><b>SF02</b> Panels</div>
+    <div class="ar sel"><i class="ic" data-ic="Open20Regular"></i><span>Open in the sidebar</span><kbd>↵</kbd></div>
+    <div class="ar"><i class="ic" data-ic="Target20Regular"></i><span>Take off</span><kbd>T</kbd></div>
+    <div class="ar"><i class="ic" data-ic="CheckmarkCircle20Regular"></i><span>Commit</span><span></span></div>
+    <div class="ar"><i class="ic" data-ic="Shapes20Regular"></i><span>Select its markups on the sheet</span><span></span></div>
+    <div class="sep"></div>
+    <div class="ar"><i class="ic" data-ic="Rename20Regular"></i><span>Rename</span><kbd>F2</kbd></div>
+    <div class="ar"><i class="ic" data-ic="Color20Regular"></i><span>Colour…</span><span></span></div>
+    <div class="ar"><i class="ic" data-ic="Copy20Regular"></i><span>Duplicate</span><span></span></div>
+    <div class="sep"></div>
+    <div class="ar danger"><i class="ic" data-ic="Delete20Regular"></i><span>Remove from round…</span><span></span></div>
+  </div>
+</div></div>
+
+<div><div class="cap">D · a step · the choice so far is a chip, Backspace steps out</div>
+<div class="pal">
+  <div class="in"><i class="ic" data-ic="Ruler20Regular"></i><div class="q"><span class="chip"><i class="ic" data-ic="Ruler20Regular"></i>Set scale for this sheet</span>1/<span class="caret"></span></div><span class="filter">Presets</span></div>
+  <div class="gh">PRESETS · OR TYPE ONE · OR MEASURE A KNOWN LENGTH</div>
+  <div class="pr sel"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>1/8" = 1'-0"</b><span>most ceiling plans</span></div><div class="r">Preset</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>1/4" = 1'-0"</b></div><div class="r">Preset</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>1/16" = 1'-0"</b></div><div class="r">Preset</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>1/2" = 1'-0"</b></div><div class="r">Preset</div></div>
+  <div class="pr"><i class="ic" data-ic="Ruler20Regular"></i><div class="t"><b>1/32" = 1'-0"</b></div><div class="r">Preset</div></div>
+  <div class="gh">OR</div>
+  <div class="pr"><i class="ic" data-ic="Crop20Regular"></i><div class="t"><b>Measure a known length on the sheet</b><span>two clicks, then the distance</span></div><div class="r">Command</div></div>
+  <div class="pr"><i class="ic" data-ic="DocumentMultiple20Regular"></i><div class="t"><b>Apply to every sheet in this set</b><span>A20.00 – A29.00, 10 sheets</span></div><div class="r">Command</div></div>
+  <div class="pf"><span class="brand"><span class="m">RB</span>A24.00 · no scale yet</span><span class="sp"></span><span class="k">Choose <kbd>↵</kbd></span><span class="k">Back <kbd>⌫</kbd></span></div>
+</div></div>
+
+</div>
+
+<!-- ===================================================== B · SETTINGS -->
+</section><section id="b2"><h1>2 · Settings <small>sixteen switches do not need a navigation pane</small></h1>
+<p class="note">What is wrong now: a category rail, a breadcrumb, a search box, a reset button and a folder icon on every card, wrapped around <b>sixteen settings</b>, four of which live alone on their own page. The architecture is Windows Settings; the content is one screen. The rethink: <b>one page, eight titled runs, a 44px row per setting</b>, the description one line, the control on the right, the five layout-preview switches drawn as the family they are. A changed setting shows a 2px accent bar and an inline "Default" link; "Reset all" survives in the header. The filter field at the top and the prompt's <span class="mono">=</span> mode find a setting by any word in it. About is the last row, not a page.</p>
+<div class="row">
+<div><div class="cap">Settings · one page · filter, reset, eight runs, About</div>
+<div class="set">
+  <div class="top"><h2>Settings</h2><span class="sp"></span><span class="find"><i class="ic" data-ic="Search16Regular"></i>Find a setting</span><span class="reset"><b>1 changed</b> · Reset all</span></div>
+
+  <h3>Startup</h3>
+  <div class="srow"><div class="l"><div class="lb">Reopen the last project on launch</div><div class="d">Off, the app opens on the start screen with that project at the top of the list.</div></div><div class="ctl"><span class="sw"></span></div></div>
+
+  <h3>Recent projects</h3>
+  <div class="srow mod"><div class="l"><div class="lb">Recent projects kept</div><div class="d">On the start screen and the project menu. Every project ever opened stays a keystroke away in the prompt.</div></div><div class="ctl"><span class="undo"><i class="ic" data-ic="ArrowReset20Regular"></i>Default 40</span><span class="fld num">60 <span class="spin">▲<br>▼</span></span></div></div>
+  <div class="srow"><div class="l"><div class="lb">Recent projects drop off</div><div class="d">A project not opened for this long leaves the lists. The prompt still finds it.</div></div><div class="ctl"><span class="fld">never<span class="chev">⌄</span></span></div></div>
+
+  <h3>Navigation</h3>
+  <div class="srow"><div class="l"><div class="lb">Scroll wheel zooms</div><div class="d">Off, the wheel scrolls and Ctrl+wheel or a pinch zooms, like every other viewer.</div></div><div class="ctl"><span class="sw"></span></div></div>
+
+  <h3>Drawing tools</h3>
+  <div class="srow"><div class="l"><div class="lb">Snap while drawing</div><div class="d">Snap new vertices to nearby geometry. Hold Alt to place a point exactly.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+  <div class="srow"><div class="l"><div class="lb">Snap to the drawing's lines</div><div class="d">Line ends and, closer in, ink. Off, only your own markups' vertices.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+
+  <h3>Units</h3>
+  <div class="srow"><div class="l"><div class="lb">Imperial lengths shown</div><div class="d">How finely a length is written. The stored value is not rounded.</div></div><div class="ctl"><span class="fld">to 1/16″<span class="chev">⌄</span></span></div></div>
+
+  <h3>Lines</h3>
+  <div class="srow"><div class="l"><div class="lb">Line weight</div><div class="d">Markup and layout lines, as a percentage of the standard weight.</div></div><div class="ctl"><span class="fld num">100 % <span class="spin">▲<br>▼</span></span></div></div>
+  <div class="srow"><div class="l"><div class="lb">Line weight follows zoom</div><div class="d">On, lines thicken as you zoom in, the way the drawing's own lines do.</div></div><div class="ctl"><span class="sw"></span></div></div>
+
+  <h3>Layout preview</h3>
+  <div class="srow"><div class="l"><div class="lb">Show the layout preview</div><div class="d">Draw the pieces the engine laid out, over the drawing, on every scope and sheet.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+  <div class="srow child mid"><div class="l"><div class="lb">Lay each area out on its own</div><div class="d">A whole panel starts at each area's edge instead of one shared grid.</div></div><div class="ctl"><span class="sw"></span></div></div>
+  <div class="srow child mid"><div class="l"><div class="lb">Show material past the edge</div><div class="d">The whole stock piece, including the overhang that is cut off and paid for.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+  <div class="srow child mid"><div class="l"><div class="lb">Show suspension rails</div><div class="d">The rails the product hangs from, across the run.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+  <div class="srow child mid"><div class="l"><div class="lb">Show perimeter trim</div><div class="d">Outline the edge of each region that takes trim.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+  <div class="srow child"><div class="l"><div class="lb">Show seams</div><div class="d">Where two pieces meet. Every seam is a joiner.</div></div><div class="ctl"><span class="sw on"></span></div></div>
+
+  <h3>Diagnostics</h3>
+  <div class="srow"><div class="l"><div class="lb">Show frame time</div><div class="d">A rolling frame time in the corner of the drawing.</div></div><div class="ctl"><span class="sw"></span></div></div>
+
+  <div class="about"><i class="ic s16" data-ic="Info16Regular"></i><span><b>REDBEAM 0.2.1</b> · accent from Windows · x64</span><span class="sp"></span><a>Check for updates</a><a>Open the log folder</a></div>
+</div></div>
+
+<div style="width:300px;padding-top:22px">
+  <p class="rule"><b>Rows, not cards.</b> A card per setting made 16 settings look like 16 features. A row per setting reads as a list you scan.</p>
+  <p class="rule"><b>No icons on rows.</b> The folder on every General card carried no information. Icons return only where they distinguish: none of these do.</p>
+  <p class="rule"><b>Descriptions in one line.</b> Two-line explanations become a tooltip on hover and the prompt's detail text. The row keeps its 44px.</p>
+  <p class="rule"><b>The family is drawn.</b> Five layout-preview switches hang off their parent with a connector and dim together when it is off.</p>
+  <p class="rule"><b>Changed is visible.</b> A 2px accent bar and an inline "Default 40" link, the VS Code convention, instead of a count in the corner.</p>
+  <p class="rule"><b>Same primitives as the sidebar.</b> ToggleSwitch, compact ComboBox, NumberBox with a spinner, 28px section heads.</p>
+</div>
+</div>
+
+<!-- ======================================================= C · ICONS -->
+</section><section id="b3"><h1>3 · Iconography <small>one glyph per noun, one per verb, filled when active</small></h1>
+<p class="note">The family is right (Fluent, drawn per size) and the sizes are right. What is wrong is the <b>vocabulary</b>: a chevron stands for every command in the prompt, a pentagon stands for an area, a cutout and a shape alike, a calculator stands for an estimate, a folder decorates every settings card, and the rail's four buttons read as generic. The fix is a small dictionary, held in one file, that the whole app draws from: every noun has a glyph, every verb has a glyph, a thing that is selected or active switches from the Regular weight to the Filled one (the Windows 11 rule), and a glyph never appears where it distinguishes nothing.</p>
+<div class="row">
+
+<div class="ib" style="width:640px">
+  <h4>Nouns<small>what a thing is</small></h4>
+  <div class="ig">
+    <div class="ii"><i class="ic" data-ic="Folder20Regular"></i><div class="nm">Project</div></div>
+    <div class="ii"><i class="ic" data-ic="DocumentPdf20Regular"></i><div class="nm">Document</div></div>
+    <div class="ii"><i class="ic" data-ic="DocumentOnePage20Regular"></i><div class="nm">Sheet</div><div class="old">Bookmark</div></div>
+    <div class="ii"><i class="ic" data-ic="ClipboardBulletListLtr20Regular"></i><div class="nm">Round</div><div class="old">Calculator</div></div>
+    <div class="ii"><span class="sw"></span><div class="nm">Scope</div><div class="old">Pentagon</div></div>
+    <div class="ii"><i class="ic" data-ic="DrawShape20Regular"></i><div class="nm">Area</div><div class="old">Pentagon</div></div>
+    <div class="ii"><i class="ic" data-ic="ShapeSubtract20Regular"></i><div class="nm">Cutout</div><div class="old">Pentagon</div></div>
+    <div class="ii"><i class="ic" data-ic="Line20Regular"></i><div class="nm">Polyline</div><div class="old">Ruler</div></div>
+    <div class="ii"><i class="ic" data-ic="Location20Regular"></i><div class="nm">Count</div><div class="old">Counter</div></div>
+    <div class="ii"><i class="ic" data-ic="Ruler20Regular"></i><div class="nm">Dimension</div></div>
+    <div class="ii"><i class="ic" data-ic="Box20Regular"></i><div class="nm">Part</div></div>
+    <div class="ii"><i class="ic" data-ic="TagMultiple20Regular"></i><div class="nm">Setting</div><div class="old">Folder</div></div>
+  </div>
+  <h4 style="margin-top:16px">Verbs<small>what a command does · replaces the chevron</small></h4>
+  <div class="ig">
+    <div class="ii"><i class="ic" data-ic="Target20Regular"></i><div class="nm">Take off</div></div>
+    <div class="ii"><i class="ic" data-ic="CheckmarkCircle20Regular"></i><div class="nm">Commit</div></div>
+    <div class="ii"><i class="ic" data-ic="ArrowExport20Regular"></i><div class="nm">Export</div></div>
+    <div class="ii"><i class="ic" data-ic="Open20Regular"></i><div class="nm">Open / go to</div></div>
+    <div class="ii"><i class="ic" data-ic="Rename20Regular"></i><div class="nm">Rename</div></div>
+    <div class="ii"><i class="ic" data-ic="Copy20Regular"></i><div class="nm">Duplicate</div></div>
+    <div class="ii"><i class="ic" data-ic="Delete20Regular"></i><div class="nm">Delete / remove</div></div>
+    <div class="ii"><i class="ic" data-ic="Add20Regular"></i><div class="nm">Add / new</div></div>
+    <div class="ii"><i class="ic" data-ic="Ruler20Regular"></i><div class="nm">Set scale</div></div>
+    <div class="ii"><i class="ic" data-ic="CompassNorthwest20Regular"></i><div class="nm">Direction</div></div>
+    <div class="ii"><i class="ic" data-ic="Options20Regular"></i><div class="nm">Set up / configure</div></div>
+    <div class="ii"><i class="ic" data-ic="FullScreenMaximize20Regular"></i><div class="nm">Fit</div></div>
+    <div class="ii"><i class="ic" data-ic="ZoomIn20Regular"></i><div class="nm">Zoom</div></div>
+    <div class="ii"><i class="ic" data-ic="Eye20Regular"></i><div class="nm">Show / hide</div></div>
+    <div class="ii"><i class="ic" data-ic="ArrowReset20Regular"></i><div class="nm">Reset / restore</div></div>
+    <div class="ii"><i class="ic" data-ic="DocumentSearch20Regular"></i><div class="nm">Search text</div></div>
+    <div class="ii"><i class="ic" data-ic="Color20Regular"></i><div class="nm">Colour</div></div>
+    <div class="ii"><i class="ic" data-ic="Settings20Regular"></i><div class="nm">Settings</div></div>
+  </div>
+</div>
+
+<div style="width:420px;display:flex;flex-direction:column;gap:16px">
+  <div class="ib">
+    <h4>Regular idle, Filled active<small>the Windows 11 rule</small></h4>
+    <p class="rule">The rail's four buttons, the dock's tools and the prompt's selected row keep the outline until they are the current one, then fill. One weight change carries the state; no second colour is needed.</p>
+    <div class="rail">
+      <div class="b sel"><i class="ic" data-ic="FolderOpen20Filled"></i></div>
+      <div class="b"><i class="ic" data-ic="TextBulletListTree20Regular"></i></div>
+      <div class="b"><i class="ic" data-ic="Grid20Regular"></i></div>
+      <div class="b"><i class="ic" data-ic="DocumentSearch20Regular"></i></div>
+      <div style="width:12px"></div>
+      <div class="b"><i class="ic" data-ic="HandLeft20Regular"></i></div>
+      <div class="b act"><i class="ic" data-ic="DrawShape20Filled"></i></div>
+      <div class="b"><i class="ic" data-ic="ShapeSubtract20Regular"></i></div>
+      <div class="b"><i class="ic" data-ic="Line20Regular"></i></div>
+      <div class="b"><i class="ic" data-ic="Location20Regular"></i></div>
+    </div>
+    <p class="rule" style="margin-top:8px;color:var(--ink3);font-size:11px">Files · Contents · Thumbnails · Search  ·  Pan · Area (active) · Cutout · Polyline · Count</p>
+  </div>
+  <div class="ib">
+    <h4>Before → after<small>three places it shows most</small></h4>
+    <div class="ba">
+      <div class="mini"><div class="r"><i class="ic s16" data-ic="ChevronRight16Regular"></i>Fit sheet</div><div class="r"><i class="ic s16" data-ic="ChevronRight16Regular"></i>Commit scope…</div><div class="r"><i class="ic s16" data-ic="ChevronRight16Regular"></i>Export estimate…</div></div>
+      <div class="arr">→</div>
+      <div class="mini"><div class="r"><i class="ic" data-ic="FullScreenMaximize20Regular"></i>Fit sheet</div><div class="r"><i class="ic" data-ic="CheckmarkCircle20Regular"></i>Commit CLG02</div><div class="r"><i class="ic" data-ic="ArrowExport20Regular"></i>Export 50%CD</div></div>
+    </div>
+    <div class="ba">
+      <div class="mini"><div class="r"><i class="ic" data-ic="Pentagon20Regular"></i>Area 1</div><div class="r"><i class="ic" data-ic="Pentagon20Regular"></i>Cutout 1</div><div class="r"><i class="ic" data-ic="Pentagon20Regular"></i>Shape 1</div></div>
+      <div class="arr">→</div>
+      <div class="mini"><div class="r"><i class="ic" data-ic="DrawShape20Regular"></i>Area 1</div><div class="r"><i class="ic" data-ic="ShapeSubtract20Regular"></i>Cutout 1</div><div class="r"><i class="ic" data-ic="Line20Regular"></i>Polyline 1</div></div>
+    </div>
+    <div class="ba">
+      <div class="mini"><div class="r"><i class="ic" data-ic="Folder20Regular"></i>Reopen the last project</div><div class="r"><i class="ic" data-ic="Folder20Regular"></i>Recent projects kept</div><div class="r"><i class="ic" data-ic="Folder20Regular"></i>Recent projects drop off</div></div>
+      <div class="arr">→</div>
+      <div class="mini"><div class="r">Reopen the last project</div><div class="r">Recent projects kept</div><div class="r">Recent projects drop off</div></div>
+    </div>
+  </div>
+  <div class="ib">
+    <h4>Sizes stay on the grid<small>unchanged</small></h4>
+    <div class="sizes">
+      <div><i class="ic s12" data-ic="ChevronRight16Regular"></i>12 chevrons</div>
+      <div><i class="ic s16" data-ic="Target16Regular"></i>16 rows · buttons</div>
+      <div><i class="ic" data-ic="Target20Regular"></i>20 rail · prompt</div>
+      <div><i class="ic s24" data-ic="Target24Regular"></i>24 empty states</div>
+      <div><i class="ic" data-ic="Target20Filled"></i>20 filled · active</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===================================================== D · WARNING -->
+</section><section id="b4"><h1>4 · The no-scale warning <small>only where it is true of something</small></h1>
+<p class="note">Today the bar appears on any open sheet without a scale, including the title sheet and the schedules, where there is nothing drawn for a scale to apply to. A warning about nothing trains people to ignore the bar. The rule: <b>the bar appears only on a sheet that has markups and no scale</b>, it names the sheet and the count, and it carries the one action that fixes it. Elsewhere the sheet's state is where it belongs already: the dock's scale control reads "Unset".</p>
+<div class="row">
+<div><div class="cap">A00.00 · title sheet · no markups · no scale  →  nothing</div>
+<div class="side">
+  <div class="tab"><i class="ic s16" data-ic="DocumentPdf16Regular"></i>2025-02-21_IFC B1 (ARCH).pdf<span class="pg">A00.00 · 1/22</span></div>
+  <div class="bar">Estimates</div>
+  <div class="crumbs">Estimates › 50%CD › <b>CLG02</b></div>
+  <div class="hd"><span class="dot"></span><div><div class="nm">CLG02</div><div class="sb">Baffle ⌄ · 5 markups · 2 sheets</div></div><span class="pb"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span><span class="mb">⋯</span></div>
+  <div class="qs"><div class="on">1,365.1<i>SF</i><small>Area</small></div><div class="on">182<i>LF</i><small>Perimeter</small></div><div style="color:var(--ink4)">—<small>Count</small></div></div>
+</div></div>
+<div><div class="cap">A24.00 · finish plan · 4 markups · no scale  →  one bar, with the fix</div>
+<div class="side">
+  <div class="tab"><i class="ic s16" data-ic="DocumentPdf16Regular"></i>2025-02-21_IFC B1 (ARCH).pdf<span class="pg">A24.00 · 9/22</span></div>
+  <div class="bar">Estimates</div>
+  <div class="crumbs">Estimates › 50%CD › <b>CLG02</b></div>
+  <div class="ibar"><span class="ic2">!</span><span>A24.00 has no scale, so its 4 markups count nothing yet</span><span class="sp"></span><span class="btn">Set scale</span></div>
+  <div class="hd"><span class="dot"></span><div><div class="nm">CLG02</div><div class="sb">Baffle ⌄ · 5 markups · 2 sheets</div></div><span class="pb"><i class="ic s16" data-ic="Target16Regular"></i>Take off</span><span class="mb">⋯</span></div>
+  <div class="qs"><div class="on">1,365.1<i>SF</i><small>Area</small></div><div class="on">182<i>LF</i><small>Perimeter</small></div><div style="color:var(--ink4)">—<small>Count</small></div></div>
+</div></div>
+<div style="width:380px;padding-top:22px">
+  <p class="rule"><b>Condition.</b> open sheet has ≥1 markup of any scope <b>and</b> no calibration, and no scale region covering them.</p>
+  <p class="rule"><b>Words.</b> The sheet number and the count, so the bar says what is at stake, not a generality about "this sheet".</p>
+  <p class="rule"><b>Action.</b> "Set scale" opens the prompt at the scale step (board 1·D). One bar, one fix.</p>
+  <p class="rule"><b>Elsewhere.</b> The scope page's markup rows already flag "no scale on sheet" per row, and the dock reads "Unset". Those stay; the bar stops repeating them.</p>
+</div>
+</div>
+
+</section>
+<script>
+(function(){ var q = new URLSearchParams(location.search).get("board"); if (q) { document.querySelectorAll("section").forEach(function(sec){ if (sec.id !== "b" + q) sec.remove() }); document.body.style.paddingTop = "8px" } })();
+(function(){
+  var F = window.FLUENT || {};
+  document.querySelectorAll('i.ic[data-ic]').forEach(function(el){
+    var names = el.getAttribute('data-ic').split('|');
+    var paths = null, size = 20;
+    for (var i = 0; i < names.length; i++) { if (F[names[i]]) { paths = F[names[i]]; size = parseInt((names[i].match(/(\d+)(Regular|Filled)$/)||[0,20])[1], 10); break } }
+    if (!paths) { el.innerHTML = '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-dasharray="2 2"/></svg>'; el.title = 'missing ' + names[0]; return }
+    el.innerHTML = '<svg viewBox="0 0 ' + size + ' ' + size + '">' + paths.map(function(d){ return '<path d="' + d + '"/>' }).join('') + '</svg>';
+  });
+})();
+</script>
+</body></html>

@@ -24,6 +24,9 @@ export const SEED_SCOPES = [
       productType: 'baffle_cassette',
       spacing: '6', spacingUnit: 'in',
       stockLength: '10', stockLengthUnit: 'ft',
+      // A cassette is a module: its width says how many baffles it holds
+      // (Aaron, 2026-09-18). 24in at 6in on centre is four.
+      cassetteWidth: '24', cassetteWidthUnit: 'in',
       maxConnectorSpacing: '4', maxConnectorSpacingUnit: 'ft',
       yieldGranularity: 'full',
       alignSeams: 'true',

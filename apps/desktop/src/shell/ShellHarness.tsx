@@ -49,7 +49,7 @@ import {
 import type { ScopePage } from './RightWorkspace.js'
 import { SheetIndex } from './SheetIndex.js'
 import { ScalePicker } from '../scale/ScalePicker.js'
-import { Dock, DocumentPill, ReadPill, ToolPill } from './Dock.js'
+import { Dock, DocumentPill, ToolPill } from './Dock.js'
 import { EstimatesPanel } from './RightWorkspace.js'
 import { StatusToast } from './StatusToast.js'
 import { PageStrip } from '../pages/PageStrip.js'
@@ -256,12 +256,12 @@ const HITS: SearchHit[] = [
   {
     pageId: 'p6', documentId: 'a', pageNumber: 5, relativePath: 'drawings/AE6 CEILING SET.pdf',
     snippet: '…ceiling type C-MT-01 metal panel, 4 x 8 module, see detail 3/AE6-02-01…',
-    snippetSpans: [{ start: 14, length: 7 }], spans: [], boxes: null,
+    snippetSpans: [{ start: 14, length: 7 }], spans: [], boxes: [{ x0: 0.31, y0: 0.42, x1: 0.36, y1: 0.43 }],
   },
   {
     pageId: 'p8', documentId: 'a', pageNumber: 7, relativePath: 'drawings/AE6 CEILING SET.pdf',
     snippet: '…perimeter trim at C-MT-01 to be continuous, mitred at corners…',
-    snippetSpans: [{ start: 19, length: 7 }], spans: [], boxes: null,
+    snippetSpans: [{ start: 19, length: 7 }], spans: [], boxes: [{ x0: 0.52, y0: 0.71, x1: 0.57, y1: 0.72 }],
   },
   {
     pageId: 'p212', documentId: 'b', pageNumber: 41, relativePath: 'specs/SPECIFICATIONS.pdf',
@@ -546,6 +546,12 @@ export function ShellHarness() {
               onGoToHit={(h) => { setActiveDoc(h.documentId); setPage(h.pageNumber) }}
               onClose={() => setRail(null)}
               indexing={moment === 'indexing' ? INDEXING : null}
+              onMarkHits={async (hits) => hits.flatMap((h, i) => (h.boxes ?? []).map((_, j) => `hl-${i}-${j}`))}
+              onUnmarkHits={async () => {}}
+              targets={scopes.map((sc) => ({ id: sc.id, label: sc.label, color: sc.color, product: String(sc.specifications?.productType ?? sc.scopeType), markups: 4 }))}
+              onNewTarget={() => {}}
+              currentDocumentId={activeDoc}
+              sheetFor={(pageId) => (pageId === 'p6' ? { number: 'AE6-01-01', title: 'Reflected ceiling plan — level 03' } : pageId === 'p8' ? { number: 'AE6-01-02', title: 'Ceiling details' } : null)}
             />
           )}
         </>)}
@@ -561,7 +567,7 @@ export function ShellHarness() {
         {statusText !== null && <StatusToast text={statusText} at={statusAt} />}
         <div className="stage" />
         <Dock
-          read={<ReadPill tool={tool} onTool={(t) => setTool(t as Tool)} />}
+          pinned={calibrating}
           left={
             <ToolPill
               tool={tool}
@@ -569,16 +575,13 @@ export function ShellHarness() {
               scopes={scopes}
               activeScope={scope}
               onScope={setScope}
-              onSpecifications={() => { setScopePage('setup'); setOpenScope(scope) }}
-              onQuantities={() => { setScopePage('parts'); setOpenScope(scope) }}
               takeoff={takeoff}
               onTakeoff={setTakeoff}
               estimates={estimates}
               openEstimateId={openEstimate}
               onEstimate={(id) => { setOpenEstimate(id); setOpenScope(null) }}
               onAddScope={() => { setOpenScope(null); setAddScopeRequest((n) => n + 1) }}
-              layoutOn={false}
-              onToggleLayout={() => {}}
+              documentOpen={!empty}
             />
           }
           right={
@@ -633,21 +636,22 @@ export function ShellHarness() {
         openScopeId={openScope}
         onOpenScope={setOpenScope}
         scopes={scopes}
-        markupCountFor={(id) => (id === 'c-mt-01' ? 4 : 0)}
-        files={moment === 'noscopes' ? [] : [
-          { documentId: 'a', relativePath: 'drawings/AE6 CEILING SET.pdf', markupCount: 4 },
-        ]}
-        onOpenDocument={setActiveDoc}
+        markupCountFor={(id) => (id === 'c-mt-01' ? 4 : id === 'c-bf-02' ? 2 : 0)}
+        standingFor={(id) => (id === 'c-mt-01'
+          ? { rows: [{ itemKey: 'area_sf', label: 'Area', unit: 'SF', quantity: 19968 }, { itemKey: 'perimeter_lf', label: 'Perimeter', unit: 'LF', quantity: 412.5 }], committedAt: '2026-08-29T10:12:00Z', changed: 0 }
+          : id === 'c-bf-02'
+            ? { rows: [{ itemKey: 'length_lf', label: 'Length', unit: 'LF', quantity: 412.5 }], committedAt: null, changed: 0 }
+            : { rows: [], committedAt: null, changed: 0 })}
         rows={[
-          { itemKey: 'area', label: 'Gross area', unit: 'SF', quantity: 19968 },
-          { itemKey: 'perimeter', label: 'Trim', unit: 'LF', quantity: 412.5 },
+          { itemKey: 'area_sf', label: 'Area', unit: 'SF', quantity: 19968 },
+          { itemKey: 'perimeter_lf', label: 'Perimeter', unit: 'LF', quantity: 412.5 },
         ]}
         pieces={PANEL_PIECES}
         markups={[
-          { id: '1', kind: 'area', page: 5, measure: '1,204.3 SF' },
-          { id: '2', kind: 'area', page: 6, measure: '2,411.8 SF' },
-          { id: '3', kind: 'cutout', page: 6, measure: '−87.2 SF' },
-          { id: '4', kind: 'polyline', page: 7, measure: '112.0 LF', layoutNote: 'sheet has no scale' },
+          { id: '1', kind: 'area', name: 'Area 1', page: 5, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '1,204.3 SF' },
+          { id: '2', kind: 'area', name: 'Area 2', page: 6, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '2,411.8 SF' },
+          { id: '3', kind: 'cutout', name: 'Cutout 1', parentName: 'Area 2', page: 6, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '−87.2 SF' },
+          { id: '4', kind: 'polyline', name: 'Polyline 1', page: 7, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '112.0 LF', layoutNote: 'sheet has no scale' },
         ]}
         sheetLabel={(p: number) => OUTLINE[p]?.title.split(' ')[0] ?? `Page ${p + 1}`}
         onGoToPage={setPage}
@@ -681,7 +685,6 @@ export function ShellHarness() {
         }}
         scopePage={scopePage}
         onScopePage={setScopePage}
-        totalFor={(id) => (id === 'c-mt-01' ? '19,968 SF' : id === 'c-bf-02' ? '412.5 LF' : null)}
         onSetDirection={() => setTool('direction')}
         direction={scope === 'c-mt-01' ? 'set on AE6-01-01' : null}
       />

@@ -77,19 +77,25 @@ describe('drawPanelLayout', () => {
     expect(half.ctx.lineWidth).toBeGreaterThan(full.ctx.lineWidth)
   })
 
-  it('labels only the exceptions, and only when zoomed in', () => {
+  it('prints no label unless asked, and then only on the exceptions when zoomed in', () => {
+    // Off by default: the stock kind printed across every part panel read as
+    // tape stuck over the ceiling (Aaron, 2026-09-11).
+    const silent = recordingContext()
+    drawPanelLayout(silent.ctx, [cell({ stockKind: 'half-length' })], view, opts)
+    expect(silent.calls.some((c) => c.name === 'fillText')).toBe(false)
+
     const zoomedIn = recordingContext()
-    drawPanelLayout(zoomedIn.ctx, [cell({ stockKind: 'half-length' })], view, opts)
+    drawPanelLayout(zoomedIn.ctx, [cell({ stockKind: 'half-length' })], view, { ...opts, labels: true })
     expect(zoomedIn.calls.some((c) => c.name === 'fillText')).toBe(true)
 
     // A full panel is the norm; labelling every one of 565 is noise.
     const allFull = recordingContext()
-    drawPanelLayout(allFull.ctx, [cell({ stockKind: 'full' })], view, opts)
+    drawPanelLayout(allFull.ctx, [cell({ stockKind: 'full' })], view, { ...opts, labels: true })
     expect(allFull.calls.some((c) => c.name === 'fillText')).toBe(false)
 
     const zoomedOut = recordingContext()
     drawPanelLayout(zoomedOut.ctx, [cell({ stockKind: 'half-length' })],
-      { ...view, zoom: 0.2 }, opts)
+      { ...view, zoom: 0.2 }, { ...opts, labels: true })
     expect(zoomedOut.calls.some((c) => c.name === 'fillText')).toBe(false)
   })
 

@@ -24,6 +24,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { calculatePieces } from './takeoff.js'
+import { resolveRunInputs, summarizeRuns } from './runs.js'
 
 /** 0.1 ft per point, so ten points is a foot and the arithmetic stays legible. */
 const cal = { feetPerPoint: 0.1, pageWidth: 612, pageHeight: 792 } as never
@@ -63,8 +64,25 @@ function amounts(specs: Record<string, string>, markups: unknown[], dir = ALONG_
     } as never,
   )
   expect(r.blockers, 'blocked, so nothing below would mean anything').toEqual([])
-  return Object.fromEntries(r.quantities.map((q) => [q.itemKey, q.quantity])) as
+  const ordered = Object.fromEntries(r.quantities.map((q) => [q.itemKey, q.quantity])) as
     Record<string, number | undefined>
+  /*
+   * A plank ORDER is planks, carrier rails and trim (Aaron, 2026-09-18), so
+   * runQuantities no longer lists a plank scope's caps, joiners or connectors.
+   * The engine still counts them — they are how the piece arithmetic is
+   * checked here — so for planks they are read off the run summary, absent
+   * when zero exactly as the ordered list would have had them.
+   */
+  if (specs['productType'] === 'planks') {
+    const inputs = resolveRunInputs('planks', specs)
+    expect(inputs).not.toBeNull()
+    const s = summarizeRuns(r.runs, inputs as NonNullable<typeof inputs>)
+    for (const [key, n] of [['end_caps', s.endCapCount], ['joiners', s.joinerCount], ['connectors', s.uniqueConnectorCount]] as const) {
+      expect(ordered[key], `${key} is not something a plank order lists`).toBeUndefined()
+      if (n > 0) ordered[key] = n
+    }
+  }
+  return ordered
 }
 
 /** 6in planks at 6in on centre, 12ft stock, no offcut reuse. */
@@ -167,14 +185,98 @@ describe('planks, against arithmetic', () => {
   })
 
   it('trims the perimeter', () => {
-    // Perimeter 2 x (20 + 10) = 60 LF, in 10ft lengths = 6.
+    // Per edge: 20/10 + 10/10 + 20/10 + 10/10 = 6.
     expect(amounts({
       ...PLANK, perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft',
     }, [rect(20, 10)]).perimeter_trim).toBe(6)
   })
+
+  it('cuts trim per edge, like the panels', () => {
+    // 25 x 10: 3 + 1 + 3 + 1 = 8, where the whole perimeter (70 LF) would say 7.
+    expect(amounts({
+      ...PLANK, perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft',
+    }, [rect(25, 10)]).perimeter_trim).toBe(8)
+  })
+})
+
+describe('panels, trim against arithmetic', () => {
+  /** 2ft x 4ft panels, and 10ft trim lengths. */
+  const PANEL = {
+    productType: 'panels', panelWidth: '2', panelWidthUnit: 'ft', panelLength: '4', panelLengthUnit: 'ft',
+  }
+
+  it('trims the perimeter when a trim length is set', () => {
+    // Perimeter 2 x (20 + 10) = 60 LF, in 10ft lengths = 6.
+    expect(amounts({
+      ...PANEL, perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft',
+    }, [rect(20, 10)]).perimeter_trim).toBe(6)
+  })
+
+  it('reports no trim line at all without a trim length', () => {
+    expect(amounts(PANEL, [rect(20, 10)]).perimeter_trim).toBeUndefined()
+  })
+
+  it('cuts trim per edge, not per perimeter', () => {
+    // 25ft x 10ft: perimeter 70 LF would be 7 sticks of 10ft. Per edge it is
+    // 3 + 1 + 3 + 1 = 8 — the two feet left from a 25ft wall do not turn the
+    // corner (Aaron, 2026-09-18).
+    expect(amounts({
+      ...PANEL, perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft',
+    }, [rect(25, 10)]).perimeter_trim).toBe(8)
+  })
+})
+
+describe('baffle cassettes, against arithmetic', () => {
+  /**
+   * Aaron's example, 2026-09-18: 2in baffles at 6in on centre, assembled into
+   * 24in-wide cassettes by 8ft baffle length — a 16 SF module, laid whole.
+   */
+  const CASSETTE = {
+    productType: 'baffle_cassette', spacing: '6', spacingUnit: 'in',
+    stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in',
+  }
+
+  it('counts whole modules, the baffles they hold, and two caps per baffle', () => {
+    // 20ft x 10ft, modules run along the 20: ceil(20/8) = 3 per row, and
+    // 10ft / 2ft = 5 rows = 15 cassettes. 24in / 6in = 4 baffles each = 60;
+    // caps = 120. The 4ft of module hanging past the 20ft edge is the
+    // "worse yield" of providing entire modules.
+    expect(amounts(CASSETTE, [rect(20, 10)])).toMatchObject({
+      cassette_count: 15, primary_stock: 60, end_caps: 120,
+    })
+  })
+
+  it('orders nothing a module already contains', () => {
+    const q = amounts(CASSETTE, [rect(20, 10)])
+    for (const inside of ['connectors', 'joiners', 'suspension_rails']) expect(q[inside], inside).toBeUndefined()
+  })
 })
 
 describe('baffles, against arithmetic', () => {
+  it('lays a suspension rail across the baffles at every connector line', () => {
+    // Perpendicular to the run, at the connector pitch: every 5ft along the
+    // 20ft side = 4 rails, each a 10ft run cut from 10ft stock = 4.
+    expect(amounts({
+      productType: 'baffle', spacing: '12', spacingUnit: 'in',
+      stockLength: '10', stockLengthUnit: 'ft',
+      maxConnectorSpacing: '5', maxConnectorSpacingUnit: 'ft',
+      railLength: '10', railLengthUnit: 'ft',
+    }, [rect(20, 10)]).suspension_rails).toBe(4)
+  })
+
+  it('cuts each rail run from stock with its own offcut, never area over length', () => {
+    // 25ft x 10ft, runs along the 25: 5 rail lines at 5ft, each a 10ft run.
+    // From 8ft rail stock each run is 2 pieces = 10. Fifty feet of rail over
+    // 8ft stock would have said 7 (Aaron, 2026-09-18: "never take the complete
+    // linear footage and divide it by the rail length").
+    expect(amounts({
+      productType: 'baffle', spacing: '12', spacingUnit: 'in',
+      stockLength: '10', stockLengthUnit: 'ft',
+      maxConnectorSpacing: '5', maxConnectorSpacingUnit: 'ft',
+      railLength: '8', railLengthUnit: 'ft',
+    }, [rect(25, 10)]).suspension_rails).toBe(10)
+  })
+
   /** 12in on centre, 10ft stock, a connector at least every 5ft. */
   const BAFFLE = {
     productType: 'baffle', spacing: '12', spacingUnit: 'in',

@@ -73,7 +73,22 @@ export interface Bom {
  * packages/domain/src/panels.test.ts. Move a type in here when, and only when,
  * a golden fixture covers it.
  */
-const VERIFIED_PRODUCTS: readonly ProductType[] = ['panels'] as const
+/*
+ * Linear parts is verified in the only sense available to it: it has no Qt
+ * counterpart to differ from, and length / part length per run is checked
+ * by its own tests. Marking it unverified would tell the estimator to doubt
+ * arithmetic.
+ */
+const VERIFIED_PRODUCTS: readonly ProductType[] = ['panels', 'linear_parts'] as const
+
+/**
+ * Whether a product's piece counts are proven against the Qt build — for
+ * the sidebar, which says so ONCE on the Parts header rather than on every
+ * line (board 4, 2026-09-18). The BOM's per-line confidence is unchanged.
+ */
+export function isVerifiedProduct(product: ProductType): boolean {
+  return VERIFIED_PRODUCTS.includes(product)
+}
 
 export interface ScopePieces {
   scope: Scope
@@ -164,7 +179,7 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
  * more of the primary one, and a single "EA" total that mixed them would mean
  * nothing.
  */
-const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock'] as const
+const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'linear_parts'] as const
 
 function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit'> {
   return { itemKey: q.itemKey, label: q.label, quantity: q.quantity, unit: q.unit }

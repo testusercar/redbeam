@@ -35,6 +35,7 @@ import {
   type PdfiumOutlineLike,
 } from './outline.js'
 import { extractPageText, type PageBox, type TextBackend } from './text.js'
+import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './annots.js'
 import {
   INDEX_KEY, PRIORITY_INDEX, tileExtent,
   type PageInfo, type WorkerRequest, type WorkerResponse,
@@ -253,6 +254,107 @@ function textBackend(): TextBackend {
 }
 
 /**
+ * PDFium's annotation surface, marshalled the same way the text backend is:
+ * one malloc per call for the out-params, read back off the heap, freed.
+ * Strings come back UTF-16LE with a terminator, sized by a first call with
+ * no buffer.
+ */
+function annotBackend(): AnnotBackend {
+  const P = pdfium
+  const malloc = (n: number): number => P.pdfium.wasmExports.malloc(n) as number
+  const free = (ptr: number): void => { P.pdfium.wasmExports.free(ptr) }
+  const points = (ptr: number, n: number): AnnotPoint[] => {
+    const f32: Float32Array = P.pdfium.HEAPF32
+    const i = ptr >> 2
+    const out: AnnotPoint[] = []
+    for (let k = 0; k < n; k++) out.push({ x: f32[i + k * 2]!, y: f32[i + k * 2 + 1]! })
+    return out
+  }
+  return {
+    count: (page) => P.FPDFPage_GetAnnotCount(page) as number,
+    open: (page, i) => P.FPDFPage_GetAnnot(page, i) as number,
+    close: (a) => { P.FPDFPage_CloseAnnot(a) },
+    subtype: (a) => P.FPDFAnnot_GetSubtype(a) as number,
+    rect: (a) => {
+      const ptr = malloc(16)
+      try {
+        if (!P.FPDFAnnot_GetRect(a, ptr)) return null
+        const f32: Float32Array = P.pdfium.HEAPF32
+        const i = ptr >> 2
+        // FS_RECTF { left, top, right, bottom }
+        return { left: f32[i]!, top: f32[i + 1]!, right: f32[i + 2]!, bottom: f32[i + 3]! }
+      } finally {
+        free(ptr)
+      }
+    },
+    vertices: (a) => {
+      const n = P.FPDFAnnot_GetVertices(a, 0, 0) as number
+      if (!(n > 0)) return []
+      const ptr = malloc(n * 8)
+      try {
+        P.FPDFAnnot_GetVertices(a, ptr, n)
+        return points(ptr, n)
+      } finally {
+        free(ptr)
+      }
+    },
+    line: (a) => {
+      if (typeof P.FPDFAnnot_GetLine !== 'function') return null
+      const ptr = malloc(16)
+      try {
+        if (!P.FPDFAnnot_GetLine(a, ptr, ptr + 8)) return null
+        const [s, e] = points(ptr, 2)
+        return [s!, e!]
+      } finally {
+        free(ptr)
+      }
+    },
+    inkPaths: (a) => {
+      const paths = P.FPDFAnnot_GetInkListCount(a) as number
+      const out: AnnotPoint[][] = []
+      for (let k = 0; k < paths; k++) {
+        const n = P.FPDFAnnot_GetInkListPath(a, k, 0, 0) as number
+        if (!(n > 0)) continue
+        const ptr = malloc(n * 8)
+        try {
+          P.FPDFAnnot_GetInkListPath(a, k, ptr, n)
+          out.push(points(ptr, n))
+        } finally {
+          free(ptr)
+        }
+      }
+      return out
+    },
+    stringValue: (a, key) => {
+      // Bytes including the UTF-16 terminator; 2 means an empty string.
+      const len = P.FPDFAnnot_GetStringValue(a, key, 0, 0) as number
+      if (!(len > 2)) return ''
+      const ptr = malloc(len)
+      try {
+        P.FPDFAnnot_GetStringValue(a, key, ptr, len)
+        const heap: Uint8Array = P.pdfium.HEAPU8
+        return new TextDecoder('utf-16le').decode(heap.subarray(ptr, ptr + len - 2))
+      } finally {
+        free(ptr)
+      }
+    },
+    color: (a) => {
+      const ptr = malloc(16)
+      try {
+        // FPDFANNOT_COLORTYPE_Color is 0: the stroke, not the interior.
+        if (!P.FPDFAnnot_GetColor(a, 0, ptr, ptr + 4, ptr + 8, ptr + 12)) return null
+        const u32: Uint32Array = P.pdfium.HEAPU32
+        const i = ptr >> 2
+        return { r: u32[i]!, g: u32[i + 1]!, b: u32[i + 2]!, a: u32[i + 3]! }
+      } finally {
+        free(ptr)
+      }
+    },
+    pageBox: (page) => readPageBox(page),
+  }
+}
+
+/**
  * The page's box in PDFium page space.
  *
  * Read, never assumed. On the real PKG A sheet this returns
@@ -392,6 +494,18 @@ async function run(job: Job) {
         error: err instanceof Error ? err.message : String(err),
       })
     }
+  } else if (job.kind === 'annots') {
+    // As text: a failure is reported on the annots message, so only the
+    // waiting request is rejected and the drain loop keeps going.
+    try {
+      const annotations = extractPageAnnotations(annotBackend(), entry.handle, job.page)
+      post({ type: 'annots', key: job.key, page: job.page, annotations, ms: now() - t0 })
+    } catch (err) {
+      post({
+        type: 'annots', key: job.key, page: job.page, annotations: [], ms: now() - t0,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   } else if (job.kind === 'geometry') {
     // Same failure discipline as text: report on the geometry message so only
     // the request that was waiting is rejected, rather than throwing and taking
@@ -496,6 +610,11 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'text':
         await booted
         sched.enqueue({ kind: 'text', key: m.key, page: m.page, priority: m.priority })
+        break
+
+      case 'annots':
+        await booted
+        sched.enqueue({ kind: 'annots', key: m.key, page: m.page, priority: m.priority })
         break
 
       case 'geometry':

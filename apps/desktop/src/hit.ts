@@ -5,7 +5,7 @@
  * zoom — the same reason snapping works in screen space.
  */
 import { distanceToSegment, nearestEdge, pointInPolygon, type Markup } from '@redbeam/domain'
-import type { Viewport } from '@redbeam/viewer'
+import type { Viewport, PageAnnotation } from '@redbeam/viewer'
 import { normalizedToScreen } from './draw.js'
 
 export type HitPart = 'vertex' | 'edge' | 'inside'
@@ -152,6 +152,68 @@ function drawOne(
   ctx.restore()
 }
 
+type Pt = { x: number; y: number }
+
+/**
+ * An axis-aligned rectangle: four vertices, each sharing x with one
+ * neighbour and y with the other.
+ *
+ * Every shape dragged out with the area, cutout or highlight tool is one of
+ * these, and that is the whole test: a four-vertex polygon that happens to
+ * be axis-aligned IS a rectangle, whichever tool drew it, so nothing has to
+ * be remembered about how it was drawn.
+ */
+export function isAxisAlignedRect(ring: readonly Pt[], eps = 1e-9): boolean {
+  if (ring.length !== 4) return false
+  for (let i = 0; i < 4; i++) {
+    const a = ring[i]!, b = ring[(i + 1) % 4]!
+    const sameX = Math.abs(a.x - b.x) <= eps, sameY = Math.abs(a.y - b.y) <= eps
+    if (sameX === sameY) return false   // neither shared (a diagonal) or both (a zero edge)
+  }
+  return true
+}
+
+/**
+ * Move vertex `index` of a rectangle to `p` and keep it a rectangle: the
+ * neighbour that shared its x takes the new x, the one that shared its y
+ * takes the new y. Kenneth, 2026-09-10: "if I hold shift it should resize
+ * it as a rectangle if it is a rectangle."
+ *
+ * `ring` is the rectangle as it was when the drag began, not the live one,
+ * so which neighbour shares which axis is read from a shape that is still
+ * a rectangle.
+ */
+export function resizeRectVertex(ring: readonly Pt[], index: number, p: Pt): Pt[] {
+  if (!isAxisAlignedRect(ring)) return ring.map((q) => ({ ...q }))
+  const n = ring.length
+  const prev = (index + n - 1) % n, next = (index + 1) % n
+  const out = ring.map((q) => ({ ...q }))
+  out[index] = { x: p.x, y: p.y }
+  const v = ring[index]!
+  for (const j of [prev, next]) {
+    const q = ring[j]!
+    if (Math.abs(q.x - v.x) <= 1e-9) out[j] = { x: p.x, y: q.y }
+    else out[j] = { x: q.x, y: p.y }
+  }
+  return out
+}
+
+/**
+ * Drag edge `index` (from vertex `index` to `index + 1`) of a rectangle to
+ * pass through `p`: a vertical edge takes p's x, a horizontal one p's y. The
+ * other two vertices stay.
+ */
+export function resizeRectEdge(ring: readonly Pt[], index: number, p: Pt): Pt[] {
+  if (!isAxisAlignedRect(ring)) return ring.map((q) => ({ ...q }))
+  const n = ring.length
+  const i = index, j = (index + 1) % n
+  const a = ring[i]!, b = ring[j]!
+  const out = ring.map((q) => ({ ...q }))
+  if (Math.abs(a.x - b.x) <= 1e-9) { out[i] = { x: p.x, y: a.y }; out[j] = { x: p.x, y: b.y } }
+  else { out[i] = { x: a.x, y: p.y }; out[j] = { x: b.x, y: p.y } }
+  return out
+}
+
 /** Insert a vertex at the midpoint of edge `index`. */
 export function insertVertexAt(
   ring: Array<{ x: number; y: number }>,
@@ -229,4 +291,39 @@ export function drawMarquee(
   ctx.fillRect(x, y, w, h)
   ctx.strokeRect(x, y, w, h)
   ctx.restore()
+}
+
+/**
+ * The selection halo on one of the PDF's own markups: its vertices, its ink
+ * strokes, or its box, in the same blue as ours, with a wash inside a closed
+ * shape so a selected square reads as selected and not merely outlined.
+ */
+export function drawAnnotationSelection(
+  ctx: CanvasRenderingContext2D,
+  annots: readonly PageAnnotation[],
+  view: Viewport,
+  pageW: number,
+  pageH: number,
+): void {
+  for (const a of annots) {
+    const closed = a.shape !== 'polyline' && a.shape !== 'ink'
+    const rings: Array<Array<{ x: number; y: number }>> =
+      a.shape === 'polygon' || a.shape === 'polyline' ? [a.vertices]
+        : a.shape === 'ink' ? a.ink
+        : [[{ x: a.rect.x0, y: a.rect.y0 }, { x: a.rect.x1, y: a.rect.y0 }, { x: a.rect.x1, y: a.rect.y1 }, { x: a.rect.x0, y: a.rect.y1 }]]
+    ctx.save()
+    for (const ring of rings) {
+      const s = toScreenRing(ring, view, pageW, pageH)
+      if (s.length < 2) continue
+      ctx.beginPath()
+      s.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+      if (closed) ctx.closePath()
+      ctx.setLineDash([])
+      ctx.strokeStyle = 'rgba(57,162,255,0.9)'
+      ctx.lineWidth = 3
+      ctx.stroke()
+      if (closed) { ctx.fillStyle = 'rgba(57,162,255,0.12)'; ctx.fill() }
+    }
+    ctx.restore()
+  }
 }

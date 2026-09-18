@@ -17,6 +17,12 @@ export interface OverlayOptions {
   labels?: boolean
   /** Minimum zoom at which labels appear. */
   labelMinZoom?: number
+  /**
+   * Multiplier on every stroke width, or a function of the zoom that gives
+   * one: the host's line-weight preference, and whether weights follow the
+   * zoom the way a PDF's own lines do.
+   */
+  strokeScale?: number | ((zoom: number) => number)
 }
 
 export interface OverlayStats {
@@ -35,6 +41,7 @@ export function drawOverlay(
   const { ox, oy, zoom, vw, vh } = view
   const labelMinZoom = opts.labelMinZoom ?? 0.5
   const showLabels = (opts.labels ?? true) && zoom > labelMinZoom
+  const scale = typeof opts.strokeScale === 'function' ? opts.strokeScale(zoom) : (opts.strokeScale ?? 1)
   const px = (nx: number) => nx * pageW * zoom - ox
   const py = (ny: number) => ny * pageH * zoom - oy
 
@@ -63,7 +70,7 @@ export function drawOverlay(
     ctx.fill()
     ctx.globalAlpha = p.strokeOpacity
     ctx.strokeStyle = p.stroke
-    ctx.lineWidth = p.strokeWidth
+    ctx.lineWidth = p.strokeWidth * scale
     ctx.setLineDash(p.dashed ? [6, 4] : [])
     ctx.stroke()
     drawn++
@@ -85,7 +92,7 @@ export function drawOverlay(
 
     ctx.globalAlpha = l.opacity
     ctx.strokeStyle = l.color
-    ctx.lineWidth = l.width
+    ctx.lineWidth = l.width * scale
     ctx.setLineDash(l.dashed ? [6, 4] : [])
     ctx.beginPath()
     ctx.moveTo(X1, Y1)

@@ -27,7 +27,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { projectBridge, type ProjectBridge } from './bridge.js'
-import type { DrawingPickOutcome, PickOutcome, ProjectInfo, RecentProject } from './types.js'
+import type { DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, RecentProject } from './types.js'
 
 export interface UseProjectOptions {
   /** Override for tests, or to point at a traced bridge. */
@@ -60,6 +60,16 @@ export interface UseProjectState {
   /** Open a PDF; the project is the folder it lives in. */
   openDrawing: () => Promise<DrawingPickOutcome>
   forget: (project: RecentProject) => Promise<void>
+  /** Name a project; an empty name goes back to the folder name. */
+  rename: (project: RecentProject, name: string) => Promise<void>
+  /** Set a project's database aside and forget it. The drawings stay. */
+  removeData: (project: RecentProject) => Promise<void>
+  /** Show a project's folder in Explorer. Desktop only. */
+  reveal: (path: string) => Promise<void>
+  /** Pick a drawing to view without making a project: the pick, or null when cancelled. */
+  viewDrawing: () => Promise<FilePickOutcome | null>
+  /** Where a dropped drawing would belong; null when the path is not a file. */
+  locateFile: (path: string) => Promise<FilePickOutcome | null>
   clearRecents: () => Promise<void>
   refreshRecents: () => Promise<void>
   close: () => void
@@ -176,6 +186,69 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
     [bridge],
   )
 
+  const rename = useCallback(
+    async (recent: RecentProject, name: string) => {
+      try {
+        const list = await bridge.renameRecent(recent.path, name)
+        if (aliveRef.current) setRecents(list)
+      } catch (err) {
+        if (aliveRef.current) setError(message(err))
+      }
+    },
+    [bridge],
+  )
+
+  const removeData = useCallback(
+    async (recent: RecentProject) => {
+      try {
+        const list = await bridge.removeProjectData(recent.path)
+        if (aliveRef.current) setRecents(list)
+      } catch (err) {
+        if (aliveRef.current) setError(message(err))
+      }
+    },
+    [bridge],
+  )
+
+  /**
+   * Pick a drawing to VIEW: the file's path, or null when cancelled. No
+   * project is resolved or made; that is the caller's decision, later, when
+   * a markup action asks for one.
+   */
+  const viewDrawing = useCallback(async (): Promise<FilePickOutcome | null> => {
+    try {
+      const outcome = await bridge.pickFile()
+      if (!outcome.supported && outcome.reason !== null && aliveRef.current) setError(outcome.reason)
+      return outcome.path === null ? null : outcome
+    } catch (err) {
+      if (aliveRef.current) setError(message(err))
+      return null
+    }
+  }, [bridge])
+
+  /** The same for a path that arrived without a dialog — a drawing dropped on the window. */
+  const locateFile = useCallback(async (path: string): Promise<FilePickOutcome | null> => {
+    try {
+      const outcome = await bridge.locateFile(path)
+      return outcome.path === null ? null : outcome
+    } catch (err) {
+      if (aliveRef.current) setError(message(err))
+      return null
+    }
+  }, [bridge])
+
+  /** Show a project's folder in Explorer. Desktop only; a failure is said, not thrown. */
+  const reveal = useCallback(
+    async (path: string) => {
+      try {
+        await bridge.revealProject(path)
+      } catch (err) {
+        if (aliveRef.current) setError(message(err))
+      }
+    },
+    [bridge],
+  )
+
   const clearRecents = useCallback(async () => {
     try {
       await bridge.clearRecents()
@@ -218,6 +291,11 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
     browse,
     openDrawing,
     forget,
+    rename,
+    removeData,
+    reveal,
+    viewDrawing,
+    locateFile,
     clearRecents,
     refreshRecents,
     close,
