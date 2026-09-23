@@ -117,6 +117,13 @@ describe('layoutSummary', () => {
     })).toBe('759 cells · 565 full + 194 half → 662 ordered')
   })
 
+  it('names quarter pieces when the engine cut any', () => {
+    expect(layoutSummary({
+      placedCellCount: 4, fullPieceCount: 0, halfPieceCount: 0, quarterPieceCount: 4, panelCount: 1,
+      fullPanelCount: 0, partialPanelCount: 4,
+    })).toBe('4 cells · 0 full + 0 half + 4 quarter → 1 ordered')
+  })
+
   it('says so when nothing was laid out', () => {
     expect(layoutSummary({
       placedCellCount: 0, fullPieceCount: 0, halfPieceCount: 0, panelCount: 0,

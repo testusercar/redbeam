@@ -93,11 +93,12 @@ describe('a second project window', () => {
   const app = readFileSync(fileURLToPath(new URL('../App.tsx', import.meta.url)), 'utf8')
 
   it('adopts the project from its own URL whatever its role', () => {
-    const at = app.indexOf('if (identity.projectId !== null && openPath === null)')
-    expect(at, 'the URL project is not adopted').toBeGreaterThan(-1)
-    // The old bug in one line: the adoption must not be gated on the role.
-    const body = app.slice(at, at + 160)
-    expect(body).not.toContain("role === 'context'")
+    // Both roles open the folder in the URL. A context window opens that
+    // folder as given; a project window still goes through project.open, so a
+    // nested folder can ask. Neither role skips the URL and falls through to
+    // the most recent project.
+    expect(app).toContain("if (identity.role === 'context') void project.open(identity.projectId, { own: true })")
+    expect(app).toContain('else void project.open(identity.projectId)')
   })
 
   it('does not then reopen the most recent project over the top of it', () => {

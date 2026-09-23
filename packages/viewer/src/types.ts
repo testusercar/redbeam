@@ -40,12 +40,13 @@ export type TileKey = string
  * the same set share tile slots and paging back and forth silently serves the
  * wrong raster.
  */
-export function tileKey(page: number, zoom: number, tx: number, ty: number): TileKey {
-  return `p${page}/${zoom.toFixed(3)}/${tx}/${ty}`
+export function tileKey(page: number, zoom: number, tx: number, ty: number, visibility = ''): TileKey {
+  const base = `p${page}/${zoom.toFixed(3)}/${tx}/${ty}`
+  return visibility === '' ? base : `${base}!${visibility}`
 }
 
 export function parseTileKey(key: TileKey): { page: number; zoom: number; tx: number; ty: number } | null {
-  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)$/.exec(key)
+  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)(?:![0-9,]*)?$/.exec(key)
   if (!m) return null
   return { page: Number(m[1]), zoom: Number(m[2]), tx: Number(m[3]), ty: Number(m[4]) }
 }
@@ -262,6 +263,8 @@ export type WorkerRequest =
       tile: number
       zoom: number
       priority: number
+      /** Annotation indexes to draw with the PDF hidden flag. Omitted when none. */
+      hidden?: number[]
     }
   | { type: 'thumb'; key: string; page: number; width: number; priority: number }
   /** Extract the page's text layer. See PRIORITY_TEXT for where it sits. */

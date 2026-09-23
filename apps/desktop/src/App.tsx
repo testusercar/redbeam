@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ProjectStartScreen, useProject, type RecentProject } from './project/index.js'
+import { NestingChoice } from './project/NestingChoice.js'
 import { getWindowRole, isTauri, openProjectWindow } from './tauri/window.js'
 import { useWindowControls } from './tauri/useWindowControls.js'
 import Workspace from './Workspace.js'
@@ -71,11 +72,9 @@ export default function App() {
       const { listen } = await import('@tauri-apps/api/event')
       const un = await listen<{ path?: string }>('redbeam://bridge/open-project', (e) => {
         const path = e.payload?.path
-        // Through `project.open`, the same road the picker takes: it resolves
-        // the folder to the outermost project root before anything opens a
-        // database. Setting the path straight in opened `<folder>/redbeam.db`
-        // for whatever folder was named — a second database inside a project,
-        // for a folder that was never a project.
+        // Through `project.open`, the same road the picker takes. A folder
+        // inside an existing project asks whether to open the parent or the
+        // folder itself before anything opens a database.
         if (typeof path === 'string' && path.length > 0) void project.open(path)
       })
       if (cancelled) un()
@@ -139,11 +138,16 @@ export default function App() {
    * over the top of it. Both kinds of window are handed a project the same
    * way; only the picker differs, and neither of them should see one here.
    */
+  const openedFromUrl = useRef(false)
   useEffect(() => {
-    if (identity.projectId !== null && openPath === null) {
-      setOpenPath(identity.projectId)
-    }
-  }, [identity.projectId, openPath])
+    if (openedFromUrl.current) return
+    if (identity.projectId === null || openPath !== null) return
+    openedFromUrl.current = true
+    // A context window is a second view of a project already chosen. A project
+    // window handed a folder still asks when that folder sits inside another.
+    if (identity.role === 'context') void project.open(identity.projectId, { own: true })
+    else void project.open(identity.projectId)
+  }, [identity.projectId, identity.role, openPath, project.open])
 
   /**
    * QUICK VIEW: a drawing open with no project behind it.
@@ -271,6 +275,15 @@ export default function App() {
       )
     : null
 
+  const nestingDialog = project.nesting === null ? null : (
+    <NestingChoice
+      parentName={project.nesting.parentName}
+      onParent={() => project.chooseNesting('parent')}
+      onOwn={() => project.chooseNesting('own')}
+      onCancel={project.dismissNesting}
+    />
+  )
+
   if (openPath || quick !== null) {
     const path = openPath ?? quick!.folder
     // Keyed on the path so switching projects tears the workspace down rather
@@ -278,6 +291,7 @@ export default function App() {
     return (
       <>
         {controls}
+        {nestingDialog}
         {/*
           Keyed on the path as well, so closing a broken project and opening
           another gets a fresh boundary rather than the old error.
@@ -308,6 +322,7 @@ export default function App() {
   return (
     <>
     {controls}
+    {nestingDialog}
     <ProjectStartScreen
       recents={shownRecents}
       onOpenPath={(path, options) => project.open(path, options)}

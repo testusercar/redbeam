@@ -190,8 +190,11 @@ function centroid(ring: readonly Point[]): Point | null {
  */
 export function layoutSummary(result: PanelPieceSummary): string {
   if (result.placedCellCount === 0) return 'nothing laid out'
-  return `${result.placedCellCount} cells · ${result.fullPieceCount} full + ` +
-         `${result.halfPieceCount} half → ${result.panelCount} ordered`
+  const quarters = result.quarterPieceCount ?? 0
+  const mix = quarters > 0
+    ? `${result.fullPieceCount} full + ${result.halfPieceCount} half + ${quarters} quarter`
+    : `${result.fullPieceCount} full + ${result.halfPieceCount} half`
+  return `${result.placedCellCount} cells · ${mix} → ${result.panelCount} ordered`
 }
 
 /**

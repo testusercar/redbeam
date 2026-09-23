@@ -317,6 +317,24 @@ describe('layoutGroupsFor', () => {
     expect(groups).toHaveLength(2)
   })
 
+  it('carries a placed pattern origin into the group, in PDF points', () => {
+    const groups = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))],
+      cal,
+      { scopeDirection: dir, pageSize: page, areaOrigins: new Map([['a', { x: 0.15, y: 0.2 }]]) },
+    )
+    expect(groups[0]!.origin).toEqual({ x: 150, y: 200 })
+  })
+
+  it('ignores a pattern origin that is not inside the area', () => {
+    const groups = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))],
+      cal,
+      { scopeDirection: dir, pageSize: page, areaOrigins: new Map([['a', { x: 0.9, y: 0.9 }]]) },
+    )
+    expect(groups[0]!.origin).toBeUndefined()
+  })
+
   it('returns nothing without a direction, rather than an ungridded group', () => {
     expect(layoutGroupsFor([mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))], cal,
       { scopeDirection: null, pageSize: page })).toEqual([])

@@ -142,6 +142,39 @@ describe('desktop bridge', () => {
     expect(calls[0]!.args).toEqual({ path: 'C:\\Jobs\\260415', create: false })
   })
 
+  it('passes own only when the subfolder was chosen', async () => {
+    const b = bridge({
+      project_open: {
+        path: 'C:\\Jobs\\260415\\Drawings',
+        name: 'Drawings',
+        db_path: 'C:\\Jobs\\260415\\Drawings\\redbeam.db',
+        created: false,
+        has_database: true,
+      },
+    })
+    await b.openProject('C:\\Jobs\\260415\\Drawings', { own: true })
+    expect(calls[0]!.args).toEqual({
+      path: 'C:\\Jobs\\260415\\Drawings',
+      create: false,
+      own: true,
+    })
+  })
+
+  it('reports a parent project without opening it', async () => {
+    const b = bridge({
+      project_nesting: {
+        asked: 'C:\\Jobs\\260415\\Drawings',
+        parent: 'C:\\Jobs\\260415',
+        parentName: '260415',
+      },
+    })
+    const nest = await b.projectNesting('C:\\Jobs\\260415\\Drawings')
+    expect(nest.parent).toBe('C:\\Jobs\\260415')
+    expect(nest.parentName).toBe('260415')
+    expect(calls[0]!.cmd).toBe('project_nesting')
+    expect(calls.map((c) => c.cmd)).not.toContain('project_open')
+  })
+
   it('refuses an empty path without an IPC round trip', async () => {
     const b = bridge({})
     await expect(b.openProject('   ')).rejects.toThrow(/no project folder/)
