@@ -21,11 +21,12 @@ describe('the configured flag', () => {
     expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+/)
   })
 
-  it('is false while no endpoint has been chosen', () => {
-    // This is the current state and it is deliberate — an endpoint that 404s
-    // reads as "up to date". When one is configured this test SHOULD fail, and
-    // the person configuring it should flip it rather than delete it.
-    expect(UPDATES_CONFIGURED).toBe(false)
+  it('is true once an endpoint is configured', () => {
+    // The host is updates.redbeam.invalid until the Cloudflare worker is
+    // deployed. .invalid does not resolve, so a check fails and the row says
+    // "could not check" — it does not claim the copy is up to date. When the
+    // real hostname replaces it, this assertion stays true.
+    expect(UPDATES_CONFIGURED).toBe(true)
   })
 })
 

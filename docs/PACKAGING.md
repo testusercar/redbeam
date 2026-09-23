@@ -121,35 +121,50 @@ npm run tauri:build:x64
 
 That emits a `.sig` beside the installer. Both go wherever the manifest points.
 
-### What is still needed
+### The update channel
 
-`plugins.updater.endpoints` is deliberately EMPTY. It wants a URL serving a
-small JSON manifest:
+`plugins.updater.endpoints` points at the Cloudflare Worker in
+`workers/updater`. The URL in the repo is a placeholder:
+
+```text
+https://updates.redbeam.invalid/{{target}}/{{arch}}/{{current_version}}
+```
+
+`.invalid` does not resolve (RFC 2606), so a check fails honestly — Settings
+says it could not check, and does not claim the copy is up to date. After
+`npx wrangler deploy`, replace `updates.redbeam.invalid` with the worker's
+hostname. Publish steps, the R2 layout, and what the Settings row does once
+the host answers are in [UPDATES.md](UPDATES.md).
+
+The manifest the worker serves:
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "notes": "What changed",
-  "pub_date": "2026-09-04T00:00:00Z",
+  "pub_date": "2026-09-23T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "<contents of the .sig file>",
-      "url": "https://example/REDBEAM_0.2.0_x64-setup.exe"
+      "url": "https://updates.example/files/REDBEAM_0.3.0_x64-setup.exe"
+    },
+    "windows-aarch64": {
+      "signature": "<contents of the .sig file>",
+      "url": "https://updates.example/files/REDBEAM_0.3.0_arm64-setup.exe"
     }
   }
 }
 ```
 
-Anything that serves two files over HTTPS will do — a SharePoint document
-library, an S3 bucket, a GitHub release. It must be HTTPS: the updater will not
-fetch over plain HTTP or a UNC path.
+It must be HTTPS: the updater will not fetch over plain HTTP or a UNC path.
+Install stays in place (`windows.installMode: passive`). The private key stays
+outside the repo.
 
-**Until an endpoint exists the app says so.** Settings reports "No update
-channel is set up… it will stay on this version" rather than the
-healthy-looking "you're up to date", and offers no button that cannot succeed.
-That distinction is load-bearing and tested: a dead channel reporting the
-healthy sentence is a failure nobody would ever discover, because it is exactly
-what a working one says.
+**An empty endpoint list still has to say so.** If `endpoints` is emptied
+again, Settings reports "No update channel is set up… it will stay on this
+version" rather than "you're up to date", and offers no button that cannot
+succeed. A failed check says "could not check". That distinction is
+load-bearing and tested.
 
 ## Problem reports
 
