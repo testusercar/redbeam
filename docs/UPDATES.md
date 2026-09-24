@@ -22,12 +22,11 @@ from R2.
 The endpoint configured today is:
 
 ```text
-https://updates.redbeam.invalid/{{target}}/{{arch}}/{{current_version}}
+https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
 ```
 
-`updates.redbeam.invalid` is not a real host. DNS for `.invalid` fails, so
-Check for updates says it could not check. After the worker is deployed,
-replace that hostname with the one `wrangler deploy` prints. Tauri substitutes
+`redbeam-updates.trackchairking.workers.dev` is the live Worker host (deployed 2026-09-23).
+Change this only if you redeploy under a different workers.dev or custom domain. Tauri substitutes
 `{{target}}`, `{{arch}}`, and `{{current_version}}` (for this app,
 `windows`, `x86_64` or `aarch64`, and the version in `tauri.conf.json`).
 
@@ -91,7 +90,7 @@ npx wrangler deploy
 ```
 
 Copy the hostname wrangler prints into `plugins.updater.endpoints` in
-`tauri.conf.json`, replacing `updates.redbeam.invalid`. Rebuild the app so
+`tauri.conf.json` if the host changes. Rebuild the app so
 that URL is the one installed copies call.
 
 ## Publish a release

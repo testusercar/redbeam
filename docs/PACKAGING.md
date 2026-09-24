@@ -127,12 +127,12 @@ That emits a `.sig` beside the installer. Both go wherever the manifest points.
 `workers/updater`. The URL in the repo is a placeholder:
 
 ```text
-https://updates.redbeam.invalid/{{target}}/{{arch}}/{{current_version}}
+https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
 ```
 
 `.invalid` does not resolve (RFC 2606), so a check fails honestly — Settings
 says it could not check, and does not claim the copy is up to date. After
-`npx wrangler deploy`, replace `updates.redbeam.invalid` with the worker's
+`npx wrangler deploy` (current live host is already `redbeam-updates.trackchairking.workers.dev` / the worker's
 hostname. Publish steps, the R2 layout, and what the Settings row does once
 the host answers are in [UPDATES.md](UPDATES.md).
 

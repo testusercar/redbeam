@@ -22,8 +22,8 @@ describe('the configured flag', () => {
   })
 
   it('is true once an endpoint is configured', () => {
-    // The host is updates.redbeam.invalid until the Cloudflare worker is
-    // deployed. .invalid does not resolve, so a check fails and the row says
+    // The host is redbeam-updates.trackchairking.workers.dev (live Worker).
+    // Empty R2 still means no update until a signed manifest is uploaded; the row may say
     // "could not check" — it does not claim the copy is up to date. When the
     // real hostname replaces it, this assertion stays true.
     expect(UPDATES_CONFIGURED).toBe(true)

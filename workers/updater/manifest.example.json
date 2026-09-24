@@ -5,11 +5,11 @@
   "platforms": {
     "windows-x86_64": {
       "signature": "REPLACE_WITH_THE_CONTENTS_OF_THE_.sig_FILE",
-      "url": "https://updates.redbeam.invalid/files/REDBEAM_0.3.0_x64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_x64-setup.exe"
     },
     "windows-aarch64": {
       "signature": "REPLACE_WITH_THE_CONTENTS_OF_THE_.sig_FILE",
-      "url": "https://updates.redbeam.invalid/files/REDBEAM_0.3.0_arm64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_arm64-setup.exe"
     }
   }
 }
