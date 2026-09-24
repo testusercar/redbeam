@@ -103,7 +103,18 @@ gets a reputation for being broken before it is opened.
 
 ## Updates
 
-The mechanism is built (plan TH.7) and has **nowhere to look yet**.
+The updater looks at the Worker in `workers/updater`. The endpoint in
+`tauri.conf.json` is the live host:
+
+```text
+https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
+```
+
+An empty bucket answers `503` on that URL, so Settings says it could not check.
+It does not say the copy is up to date. `GET /health` answers `200` with
+`"channel": "empty"` in that same case, so you can tell the Worker itself is up.
+Publish steps, the free-tier ceiling, and the Settings row are in
+[UPDATES.md](UPDATES.md).
 
 The signing key is generated and lives OUTSIDE the repo, at
 `%USERPROFILE%\.redbeam\updater.key`, with its public half pasted into
@@ -112,29 +123,17 @@ certificate and it is not recoverable: an installed copy only accepts an update
 signed by the private half of the key it shipped with, so losing it strands
 every existing install permanently — they can then only be moved by hand.
 
-To sign an update, set the key before building:
+To sign an update, set the key before building. Always name the target:
 
-```bash
+```powershell
 $env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.redbeam\updater.key"
 npm run tauri:build:x64
+npm run tauri:build:arm64
 ```
 
-That emits a `.sig` beside the installer. Both go wherever the manifest points.
-
-### The update channel
-
-`plugins.updater.endpoints` points at the Cloudflare Worker in
-`workers/updater`. The URL in the repo is a placeholder:
-
-```text
-https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
-```
-
-`.invalid` does not resolve (RFC 2606), so a check fails honestly — Settings
-says it could not check, and does not claim the copy is up to date. After
-`npx wrangler deploy` (current live host is already `redbeam-updates.trackchairking.workers.dev` / the worker's
-hostname. Publish steps, the R2 layout, and what the Settings row does once
-the host answers are in [UPDATES.md](UPDATES.md).
+Each build emits a `.sig` beside the NSIS installer. `workers/updater/publish.ps1`
+uploads those installers and `.sig` files, then writes and uploads
+`manifest.json` last. It does not read the private key.
 
 The manifest the worker serves:
 
@@ -146,11 +145,11 @@ The manifest the worker serves:
   "platforms": {
     "windows-x86_64": {
       "signature": "<contents of the .sig file>",
-      "url": "https://updates.example/files/REDBEAM_0.3.0_x64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_x64-setup.exe"
     },
     "windows-aarch64": {
       "signature": "<contents of the .sig file>",
-      "url": "https://updates.example/files/REDBEAM_0.3.0_arm64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_arm64-setup.exe"
     }
   }
 }

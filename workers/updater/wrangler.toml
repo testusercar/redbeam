@@ -6,6 +6,8 @@
 # The bucket name is the R2 bucket you create in the Cloudflare dashboard
 # (or `npx wrangler r2 bucket create redbeam-updates`). No account id and no
 # API token belong in this file — wrangler reads those from the login.
+# Stay on the Workers free plan and one R2 Standard bucket. Do not set
+# [limits] (that is the paid CPU increase) and do not add a second bucket.
 name = "redbeam-updates"
 main = "src/index.ts"
 compatibility_date = "2026-09-23"
