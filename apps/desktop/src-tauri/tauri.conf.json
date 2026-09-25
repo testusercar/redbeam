@@ -21,7 +21,7 @@
         "minHeight": 640,
         "resizable": true,
         "decorations": false,
-      "transparent": true,
+        "transparent": true,
         "shadow": true,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
         "zoomHotkeysEnabled": true,
@@ -63,7 +63,8 @@
         ],
         "displayLanguageSelector": false
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
