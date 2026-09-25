@@ -45,6 +45,7 @@ describe('every overlay returns focus', () => {
     ['./palette/CommandPalette.tsx', 'the command palette'],
     ['./search/SearchPanel.tsx', 'the find drawer'],
     ['./settings/SettingsPanel.tsx', 'the settings view'],
+    ['./update/NotesDialog.tsx', 'the release notes dialog'],
     // Not Workspace.tsx: the dialog layer it held is gone. What used to be
     // dialogs are panes and panel levels now, which are not left and so
     // have no focus to return.
