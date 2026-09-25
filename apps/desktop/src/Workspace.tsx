@@ -1896,6 +1896,9 @@ export default function Workspace({
       onError: (m) => setStatus(`error: ${m}`),
     })
     viewerRef.current = viewer
+    // A drawing reloaded after a write keeps its markups, so the overlay
+    // effect has no reason to run again; the new viewer starts from it here.
+    viewer.setOverlay(toOverlay(takeoffOverlay(markupsRef.current, takeoffOnlyRef.current), scopesRef.current))
     viewer.boot('/pdfium.wasm', docUrl)
     // A pending page (a search hit into this document) is loaded from onReady
     // instead, once the count is known.
