@@ -61,6 +61,9 @@ const KNOWN = new Map<string, string>([
     'Plan 07.2, comparing a takeoff against a human quote. Deferred by Aaron '
     + '2026-09-02 ("satisfied with ur own checks"); the fixture for it exists '
     + 'at fixtures/ground-truth/barclays-28019.json.'],
+  ['apps/desktop/src/interchange/testing.ts',
+    'Synthetic Bluebeam-shaped drawings for the interchange tests. Test-only, '
+    + 'like testContext.ts, and built from nothing so no client drawing is used.'],
   ['apps/desktop/src/tools/testContext.ts',
     'A test helper, and legitimately test-only. Listed rather than special-cased '
     + 'so the rule stays "no production caller", with no exception for names '

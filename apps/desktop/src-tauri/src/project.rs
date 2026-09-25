@@ -1466,6 +1466,171 @@ pub async fn project_read_document(
 /// single-digit megabytes; anything past this wants the asset protocol.
 pub const MAX_DOCUMENT_READ_BYTES: u64 = 256 * 1024 * 1024;
 
+/// How many earlier copies of one drawing `.redbeam/backups/` keeps.
+pub const DOCUMENT_BACKUPS_KEPT: usize = 5;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentWrite {
+    /// SHA-256 of what is on disk now, in the scan's `content_fingerprint` form.
+    pub fingerprint: String,
+    /// Project-relative path of the copy taken before the write.
+    pub backup: Option<String>,
+}
+
+/// Replace a drawing in the project folder with new bytes.
+///
+/// For markup interchange: REDBEAM's areas are written into the drawing
+/// itself so Bluebeam sees them. That is an edit to somebody's file, so:
+///
+/// - `expected` is the fingerprint of the bytes the edit was made from. If the
+///   file on disk no longer matches — somebody saved it in Bluebeam in the
+///   meantime — the write is refused rather than discarding their save.
+/// - The previous file is copied to `.redbeam/backups/` first, and the last
+///   [`DOCUMENT_BACKUPS_KEPT`] copies of each drawing are kept.
+/// - The new bytes go to a sibling temp file and are renamed over the
+///   original, so a crash mid-write leaves the old drawing, not half of one.
+/// - Only an existing PDF can be replaced, and only with a PDF.
+pub fn write_document(
+    root: &Path,
+    relative_path: &str,
+    bytes: &[u8],
+    expected: Option<&str>,
+) -> Result<DocumentWrite, String> {
+    let target = resolve_inside(root, relative_path)?;
+    let metadata = fs::metadata(&target).map_err(|e| format!("{relative_path}: {e}"))?;
+    if !metadata.is_file() {
+        return Err(format!("{relative_path} is not a file"));
+    }
+    let is_pdf = target
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err(format!("{relative_path} is not a PDF"));
+    }
+    if !bytes.starts_with(b"%PDF-") {
+        return Err("the new contents are not a PDF, so the drawing was left alone".to_string());
+    }
+    if metadata.permissions().readonly() {
+        return Err(format!("{relative_path} is read-only"));
+    }
+    if let Some(want) = expected {
+        let have = fingerprint_file(&target).unwrap_or_default();
+        if !have.eq_ignore_ascii_case(want) {
+            return Err(format!(
+                "{relative_path} changed on disk since REDBEAM read it. Reopen it and try again."
+            ));
+        }
+    }
+
+    let backup = back_up_document(root, &target)?;
+
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let temp = target.with_file_name(format!(".{name}.redbeam-tmp"));
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        // Replaces the destination on POSIX and on NTFS (MoveFileEx).
+        fs::rename(&temp, &target)
+    })();
+    if let Err(e) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("could not write {relative_path}: {e}"));
+    }
+
+    Ok(DocumentWrite {
+        fingerprint: sha256_hex(bytes),
+        backup,
+    })
+}
+
+fn back_up_document(root: &Path, target: &Path) -> Result<Option<String>, String> {
+    let dir = root.join(INTERNAL_DIR).join("backups");
+    fs::create_dir_all(&dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let stem = target
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "drawing".to_string());
+    let stamp = now_iso().replace([':', '.'], "-");
+    let file = format!("{stem} {stamp}.pdf");
+    fs::copy(target, dir.join(&file))
+        .map_err(|e| format!("could not back up {}: {e}", target.display()))?;
+
+    let prefix = format!("{stem} ");
+    let mut copies: Vec<PathBuf> = fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .map(|n| {
+                    let n = n.to_string_lossy();
+                    n.starts_with(&prefix) && n.to_ascii_lowercase().ends_with(".pdf")
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+    // The stamp sorts chronologically, so the oldest come first.
+    copies.sort();
+    while copies.len() > DOCUMENT_BACKUPS_KEPT {
+        let _ = fs::remove_file(copies.remove(0));
+    }
+    Ok(Some(format!("{INTERNAL_DIR}/backups/{file}")))
+}
+
+/// A `%XX`-escaped header value, decoded. Headers carry the paths because the
+/// body is the drawing itself.
+fn percent_decode(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).map_err(|e| e.to_string())?;
+            out.push(u8::from_str_radix(hex, 16).map_err(|_| format!("bad escape in {value}"))?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|e| e.to_string())
+}
+
+/// Write a drawing back into the project folder. See [`write_document`].
+///
+/// The body is the raw PDF, so a 100 MB set crosses the IPC hop as bytes
+/// rather than as a JSON array of numbers. The paths ride in headers,
+/// percent-encoded: `x-redbeam-project`, `x-redbeam-document`, and optionally
+/// `x-redbeam-expected`, the fingerprint the edit was made from.
+#[tauri::command]
+pub async fn project_write_document(request: tauri::ipc::Request<'_>) -> Result<DocumentWrite, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected the drawing as a raw body".to_string());
+    };
+    let header = |name: &str| -> Result<Option<String>, String> {
+        match request.headers().get(name) {
+            None => Ok(None),
+            Some(v) => {
+                let text = v.to_str().map_err(|e| format!("{name}: {e}"))?;
+                percent_decode(text).map(Some)
+            }
+        }
+    };
+    let project = header("x-redbeam-project")?.ok_or("no project folder was given")?;
+    let document = header("x-redbeam-document")?.ok_or("no document was given")?;
+    let expected = header("x-redbeam-expected")?;
+    let root = canonical_project_root(Path::new(&project));
+    write_document(&root, &document, bytes, expected.as_deref())
+}
+
 /// Join a project-relative path onto its root, refusing anything that escapes.
 ///
 /// Checked before touching the filesystem AND again after canonicalizing, so a
@@ -2005,6 +2170,73 @@ mod tests {
         assert!(resolve_inside(&root, "C:/Windows/system.ini").is_err());
         assert!(resolve_inside(&root, "/etc/passwd").is_err());
         fs::remove_dir_all(&root).ok();
+    }
+
+    // ------------------------------------------------------ document write --
+
+    #[test]
+    fn writes_a_drawing_in_place_and_keeps_a_backup() {
+        let dir = temp_dir("write-doc");
+        write_file(&dir, "PKG A/A-101.pdf", b"%PDF-1.7 old");
+        let root = canonical_project_root(&dir);
+        let before = fingerprint_file(&root.join("PKG A/A-101.pdf")).unwrap();
+        let out = write_document(&root, "PKG A/A-101.pdf", b"%PDF-1.7 new", Some(&before)).unwrap();
+        assert_eq!(fs::read(root.join("PKG A/A-101.pdf")).unwrap(), b"%PDF-1.7 new");
+        assert_eq!(out.fingerprint, sha256_hex(b"%PDF-1.7 new"));
+        let backup = out.backup.unwrap();
+        assert!(backup.starts_with(".redbeam/backups/A-101 "));
+        assert_eq!(fs::read(root.join(&backup)).unwrap(), b"%PDF-1.7 old");
+        // No temp file left beside the drawing.
+        let left: Vec<_> = fs::read_dir(root.join("PKG A")).unwrap().flatten().collect();
+        assert_eq!(left.len(), 1);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn refuses_to_write_over_a_drawing_saved_elsewhere_since_it_was_read() {
+        let dir = temp_dir("write-stale");
+        write_file(&dir, "A-101.pdf", b"%PDF-1.7 saved in Bluebeam");
+        let root = canonical_project_root(&dir);
+        let stale = sha256_hex(b"%PDF-1.7 what REDBEAM read");
+        let err = write_document(&root, "A-101.pdf", b"%PDF-1.7 ours", Some(&stale)).unwrap_err();
+        assert!(err.contains("changed on disk"), "{err}");
+        assert_eq!(fs::read(root.join("A-101.pdf")).unwrap(), b"%PDF-1.7 saved in Bluebeam");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_pdf_over_a_pdf_and_anything_outside_the_project() {
+        let dir = temp_dir("write-refuse");
+        write_file(&dir, "A-101.pdf", b"%PDF-1.7 old");
+        write_file(&dir, "notes.txt", b"hello");
+        let root = canonical_project_root(&dir);
+        assert!(write_document(&root, "A-101.pdf", b"not a pdf", None).is_err());
+        assert!(write_document(&root, "notes.txt", b"%PDF-1.7", None).is_err());
+        assert!(write_document(&root, "missing.pdf", b"%PDF-1.7", None).is_err());
+        assert!(write_document(&root, "../A-101.pdf", b"%PDF-1.7", None).is_err());
+        assert_eq!(fs::read(root.join("A-101.pdf")).unwrap(), b"%PDF-1.7 old");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn keeps_only_the_latest_backups_of_a_drawing() {
+        let dir = temp_dir("write-prune");
+        write_file(&dir, "A-101.pdf", b"%PDF-1.7 0");
+        let root = canonical_project_root(&dir);
+        for i in 1..=(DOCUMENT_BACKUPS_KEPT + 2) {
+            write_document(&root, "A-101.pdf", format!("%PDF-1.7 {i}").as_bytes(), None).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let kept = fs::read_dir(root.join(".redbeam/backups")).unwrap().count();
+        assert_eq!(kept, DOCUMENT_BACKUPS_KEPT);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn decodes_percent_escaped_header_values() {
+        assert_eq!(percent_decode("PKG%20A%2FA-101.pdf").unwrap(), "PKG A/A-101.pdf");
+        assert_eq!(percent_decode("caf%C3%A9").unwrap(), "café");
+        assert_eq!(percent_decode("plain").unwrap(), "plain");
     }
 
     #[test]

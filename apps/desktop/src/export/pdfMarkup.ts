@@ -102,6 +102,22 @@ export function toUserSpace(
   }
 }
 
+/** The inverse of `toUserSpace`: PDF user space back to normalized display coordinates. */
+export function fromUserSpace(
+  p: WritablePoint, box: PageBox, rotation: number,
+): WritablePoint {
+  const rot = (((Math.round(rotation / 90) * 90) % 360) + 360) % 360
+  const { x, y, width: w, height: h } = box
+  const u = w > 0 ? (p.x - x) / w : 0
+  const v = h > 0 ? (p.y - y) / h : 0
+  switch (rot) {
+    case 90: return { x: v, y: u }
+    case 180: return { x: 1 - u, y: v }
+    case 270: return { x: 1 - v, y: 1 - u }
+    default: return { x: u, y: 1 - v }
+  }
+}
+
 /** `#rrggbb` to PDF's 0..1 triple. Anything unparseable reads as black. */
 export function toPdfColor(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
@@ -160,7 +176,7 @@ function appearanceOps(
 /** Radius of a count marker, in points. */
 const COUNT_RADIUS = 6
 
-type AnnotShape = 'polygon' | 'polyline' | 'circle'
+export type AnnotShape = 'polygon' | 'polyline' | 'circle'
 
 /**
  * Which PDF annotation a markup kind becomes.
@@ -224,7 +240,7 @@ function numberFormat(ctx: PDFContext, unit: string, conversion: number): PDFDic
  * a calibration is; `D` and `A` then format the distance and area that a
  * reader derives from them, so their conversion is 1.
  */
-function measureDict(ctx: PDFContext, feetPerPoint: number): PDFDict {
+export function measureDict(ctx: PDFContext, feetPerPoint: number): PDFDict {
   // Bluebeam shows this string verbatim as the page scale, so it is written
   // the way a drawing states one: at 72 points to the inch, one inch of paper
   // is 72 * feetPerPoint feet of building.
@@ -342,6 +358,39 @@ function regionAt(
 }
 
 /**
+ * Rect and normal appearance for a shape at user-space points.
+ *
+ * The stroke straddles the path, so a Rect drawn tight to the vertices clips
+ * the outer half of its own border. A count marker's extent is its ring,
+ * which the single vertex says nothing about.
+ */
+export function buildAppearance(
+  ctx: PDFContext,
+  pts: readonly WritablePoint[],
+  color: readonly [number, number, number],
+  shape: AnnotShape,
+  style: { lineWidth: number, fillOpacity: number },
+): { rect: [number, number, number, number], apRef: PDFRef } {
+  const pad = style.lineWidth + (shape === 'circle' ? COUNT_RADIUS : 0)
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const rect: [number, number, number, number] = [
+    Math.min(...xs) - pad, Math.min(...ys) - pad,
+    Math.max(...xs) + pad, Math.max(...ys) + pad,
+  ]
+  const apStream = ctx.flateStream(appearanceOps(pts, color, style.lineWidth, shape), {
+    Type: 'XObject',
+    Subtype: 'Form',
+    FormType: 1,
+    BBox: rect,
+    Resources: ctx.obj({
+      ExtGState: ctx.obj({ GS: ctx.obj({ Type: 'ExtGState', ca: style.fillOpacity, CA: 1 }) }),
+    }),
+  })
+  return { rect, apRef: ctx.register(apStream) }
+}
+
+/**
  * Write markups into a copy of the source PDF.
  *
  * The source bytes are never mutated — the caller keeps the original file, and
@@ -395,28 +444,8 @@ export async function writeMarkupsToPdf(
     }
 
     const lineWidth = 1.5
-    // The stroke straddles the path, so a Rect drawn tight to the vertices
-    // clips the outer half of its own border. A count marker's extent is its
-    // ring, which the single vertex says nothing about.
-    const pad = lineWidth + (shape === 'circle' ? COUNT_RADIUS : 0)
-    const xs = pts.map((p) => p.x)
-    const ys = pts.map((p) => p.y)
-    const rect: [number, number, number, number] = [
-      Math.min(...xs) - pad, Math.min(...ys) - pad,
-      Math.max(...xs) + pad, Math.max(...ys) + pad,
-    ]
-
     const color = toPdfColor(markup.color)
-    const apStream = ctx.flateStream(appearanceOps(pts, color, lineWidth, shape), {
-      Type: 'XObject',
-      Subtype: 'Form',
-      FormType: 1,
-      BBox: rect,
-      Resources: ctx.obj({
-        ExtGState: ctx.obj({ GS: ctx.obj({ Type: 'ExtGState', ca: alpha, CA: 1 }) }),
-      }),
-    })
-    const apRef = ctx.register(apStream)
+    const { rect, apRef } = buildAppearance(ctx, pts, color, shape, { lineWidth, fillOpacity: alpha })
 
     const intent = INTENT[shape]
     const annot = ctx.obj({

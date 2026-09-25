@@ -51,6 +51,8 @@ export interface AnnotBackend {
   stringValue(annot: number, key: string): string
   /** FPDFAnnot_GetColor, the stroke colour, or null when unset. */
   color(annot: number): { r: number; g: number; b: number; a: number } | null
+  /** FPDFAnnot_GetFlags. Optional: a backend without it reports 0. */
+  flags?(annot: number): number
   /** The page's own box. */
   pageBox(page: number): PageBox
 }
@@ -78,6 +80,14 @@ export interface PageAnnotation {
   contents: string
   /** /T: the author. */
   author: string
+  /**
+   * /NM: the annotation's name. Bluebeam and Acrobat keep it when a markup is
+   * moved or stretched, which is what lets a shape be followed across saves.
+   * Empty when the annotation has none.
+   */
+  name: string
+  /** /F as read from the file, before any hidden flag this session sets. */
+  flags: number
   /** Stroke colour as #rrggbb, or null when the annotation states none. */
   color: string | null
 }
@@ -165,6 +175,8 @@ export function extractPageAnnotations(backend: AnnotBackend, page: number, _ind
         subject: backend.stringValue(a, 'Subj'),
         contents: backend.stringValue(a, 'Contents'),
         author: backend.stringValue(a, 'T'),
+        name: backend.stringValue(a, 'NM'),
+        flags: backend.flags?.(a) ?? 0,
         color: c === null ? null : `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`,
       })
     } finally {
@@ -173,3 +185,107 @@ export function extractPageAnnotations(backend: AnnotBackend, page: number, _ind
   }
   return out
 }
+
+/**
+ * PDFium's annotation surface, marshalled the way the text backend is: one
+ * malloc per call for the out-params, read back off the heap, freed. Strings
+ * come back UTF-16LE with a terminator, sized by a first call with no buffer.
+ *
+ * Here rather than in the worker so a test can drive real PDFium with it.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export function createPdfiumAnnotBackend(P: any, pageBox: (page: number) => PageBox): AnnotBackend {
+  const malloc = (n: number): number => P.pdfium.wasmExports.malloc(n) as number
+  const free = (ptr: number): void => { P.pdfium.wasmExports.free(ptr) }
+  const points = (ptr: number, n: number): AnnotPoint[] => {
+    const f32: Float32Array = P.pdfium.HEAPF32
+    const i = ptr >> 2
+    const out: AnnotPoint[] = []
+    for (let k = 0; k < n; k++) out.push({ x: f32[i + k * 2]!, y: f32[i + k * 2 + 1]! })
+    return out
+  }
+  return {
+    count: (page) => P.FPDFPage_GetAnnotCount(page) as number,
+    open: (page, i) => P.FPDFPage_GetAnnot(page, i) as number,
+    close: (a) => { P.FPDFPage_CloseAnnot(a) },
+    subtype: (a) => P.FPDFAnnot_GetSubtype(a) as number,
+    rect: (a) => {
+      const ptr = malloc(16)
+      try {
+        if (!P.FPDFAnnot_GetRect(a, ptr)) return null
+        const f32: Float32Array = P.pdfium.HEAPF32
+        const i = ptr >> 2
+        // FS_RECTF { left, top, right, bottom }
+        return { left: f32[i]!, top: f32[i + 1]!, right: f32[i + 2]!, bottom: f32[i + 3]! }
+      } finally {
+        free(ptr)
+      }
+    },
+    vertices: (a) => {
+      const n = P.FPDFAnnot_GetVertices(a, 0, 0) as number
+      if (!(n > 0)) return []
+      const ptr = malloc(n * 8)
+      try {
+        P.FPDFAnnot_GetVertices(a, ptr, n)
+        return points(ptr, n)
+      } finally {
+        free(ptr)
+      }
+    },
+    line: (a) => {
+      if (typeof P.FPDFAnnot_GetLine !== 'function') return null
+      const ptr = malloc(16)
+      try {
+        if (!P.FPDFAnnot_GetLine(a, ptr, ptr + 8)) return null
+        const [s, e] = points(ptr, 2)
+        return [s!, e!]
+      } finally {
+        free(ptr)
+      }
+    },
+    inkPaths: (a) => {
+      const paths = P.FPDFAnnot_GetInkListCount(a) as number
+      const out: AnnotPoint[][] = []
+      for (let k = 0; k < paths; k++) {
+        const n = P.FPDFAnnot_GetInkListPath(a, k, 0, 0) as number
+        if (!(n > 0)) continue
+        const ptr = malloc(n * 8)
+        try {
+          P.FPDFAnnot_GetInkListPath(a, k, ptr, n)
+          out.push(points(ptr, n))
+        } finally {
+          free(ptr)
+        }
+      }
+      return out
+    },
+    stringValue: (a, key) => {
+      // Bytes including the UTF-16 terminator; 2 means an empty string.
+      const len = P.FPDFAnnot_GetStringValue(a, key, 0, 0) as number
+      if (!(len > 2)) return ''
+      const ptr = malloc(len)
+      try {
+        P.FPDFAnnot_GetStringValue(a, key, ptr, len)
+        const heap: Uint8Array = P.pdfium.HEAPU8
+        return new TextDecoder('utf-16le').decode(heap.subarray(ptr, ptr + len - 2))
+      } finally {
+        free(ptr)
+      }
+    },
+    color: (a) => {
+      const ptr = malloc(16)
+      try {
+        // FPDFANNOT_COLORTYPE_Color is 0: the stroke, not the interior.
+        if (!P.FPDFAnnot_GetColor(a, 0, ptr, ptr + 4, ptr + 8, ptr + 12)) return null
+        const u32: Uint32Array = P.pdfium.HEAPU32
+        const i = ptr >> 2
+        return { r: u32[i]!, g: u32[i + 1]!, b: u32[i + 2]!, a: u32[i + 3]! }
+      } finally {
+        free(ptr)
+      }
+    },
+    flags: (a) => (typeof P.FPDFAnnot_GetFlags === 'function' ? (P.FPDFAnnot_GetFlags(a) as number) >>> 0 : 0),
+    pageBox,
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */

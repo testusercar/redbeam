@@ -94,6 +94,16 @@ describe('extractPageAnnotations', () => {
     expect(b.openHandles).toEqual([])
   })
 
+  it('reads the /NM name that follows a markup across saves, and its flags', () => {
+    const b = fake([{ subtype: 7, rect: CENTRED, strings: { NM: 'redbeam:mk-1' } }, { subtype: 5, rect: CENTRED }])
+    b.flags = (a) => (a === 1 ? 4 | 128 : 4)
+    const [named, plain] = extractPageAnnotations(b, 1, 0)
+    expect(named!.name).toBe('redbeam:mk-1')
+    expect(named!.flags).toBe(132)
+    expect(plain!.name).toBe('')
+    expect(plain!.flags).toBe(4)
+  })
+
   it('names every subtype PDFium defines', () => {
     const b = fake([{ subtype: 28, rect: CENTRED }, { subtype: 99, rect: CENTRED }])
     const [redact, unknown] = extractPageAnnotations(b, 1, 0)
