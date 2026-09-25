@@ -15,6 +15,8 @@ import {
   SlidersHorizontal, Info, Trash2,
 } from './icons.js'
 import { formatLastOpened } from '../project/recents.js'
+import { ReadyToUpdate } from '../update/ReadyToUpdate.js'
+import { isTauri } from '../tauri/window.js'
 import type { Icon } from './icons.js'
 import {
   buildFileTree, filterFileTree, treeFiles, treeFolderPaths, treeRows, type TreeFolder,
@@ -792,15 +794,18 @@ export function Sidebar({
 
       {children}
 
-      <button
-        className="sidesettings"
-        title="Settings"
-        aria-label="Settings"
-        onClick={onSettings}
-      >
-        <Glyph icon={Settings2} role="card" />
-        <span>Settings</span>
-      </button>
+      <div className="sidefoot">
+        <ReadyToUpdate desktop={isTauri()} />
+        <button
+          className="sidesettings"
+          title="Settings"
+          aria-label="Settings"
+          onClick={onSettings}
+        >
+          <Glyph icon={Settings2} role="card" />
+          <span>Settings</span>
+        </button>
+      </div>
     </aside>
   )
 }

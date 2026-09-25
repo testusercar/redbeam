@@ -22,6 +22,7 @@ import { ErrorBoundary } from './ErrorBoundary.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
 import { UpdateOffer } from './update/UpdateOffer.js'
+import { InstalledWhatsNew } from './update/InstalledWhatsNew.js'
 
 export default function App() {
   const identity = useMemo(() => getWindowRole(), [])
@@ -316,7 +317,7 @@ export default function App() {
               : {})}
           />
         </ErrorBoundary>
-        <UpdateOffer desktop={isTauri()} />
+        <InstalledWhatsNew />
       </>
     )
   }
@@ -355,6 +356,7 @@ export default function App() {
       }
     />
     <UpdateOffer desktop={isTauri()} />
+    <InstalledWhatsNew />
     </>
   )
 }

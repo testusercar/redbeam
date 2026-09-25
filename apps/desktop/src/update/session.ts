@@ -12,6 +12,7 @@ import {
   shouldPollUpdate, UPDATE_CHECK_INTERVAL_MS, UPDATES_CONFIGURED,
   type UpdatePollReason, type UpdateState,
 } from './updates.js'
+import { browserNotesStore, rememberInstalledNotes } from './releaseNotes.js'
 
 type Listener = (state: UpdateState) => void
 
@@ -109,6 +110,7 @@ export async function performUpdateAction(action: 'check' | 'install' | 'restart
           emit({ kind: 'downloading', percent: total > 0 ? (got / total) * 100 : null })
         }
       })
+      rememberInstalledNotes(update.version, update.body ?? null, browserNotesStore())
       emit({ kind: 'ready', version: update.version })
     } catch (err) {
       emit({ kind: 'failed', message: messageOf(err) })

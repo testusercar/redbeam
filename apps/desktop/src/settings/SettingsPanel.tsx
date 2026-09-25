@@ -33,7 +33,8 @@ import { DiagnosticsRow } from '../update/DiagnosticsRow.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import { ChevronDown, ChevronUp, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
+import { ChevronDown, ChevronLeft, ChevronUp, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
+import { HelpBody } from './HelpPage.js'
 import './settings.css'
 
 interface Props {
@@ -66,6 +67,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [rejectedDismissed, setRejectedDismissed] = useState(false)
+  const [help, setHelp] = useState(false)
 
   useEffect(() => store.subscribe(setValues), [store])
 
@@ -88,12 +90,13 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
-      if (query !== '') setQuery('')
+      if (help) setHelp(false)
+      else if (query !== '') setQuery('')
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, query])
+  }, [onClose, query, help])
 
   const set = (id: string, raw: unknown) => setError(store.set(id, raw))
   const changed = store.modifiedCount()
@@ -107,12 +110,18 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
     .filter((r) => r.roots.length > 0)
 
   return (
-    <div className="prefs" role="dialog" aria-label="Settings" aria-modal="true" ref={trap}>
+    <div className="prefs" role="dialog" aria-label={help ? 'Help' : 'Settings'} aria-modal="true" ref={trap}>
       <div className="prefs-layer">
         <div className="prefs-page">
           <div className="prefs-head">
-            <h1 className="prefs-title">Settings</h1>
+            {help ? (
+              <button type="button" className="prefs-close" aria-label="Back to settings" title="Back to settings" onClick={() => setHelp(false)}>
+                <Glyph icon={ChevronLeft} role="inline" />
+              </button>
+            ) : null}
+            <h1 className="prefs-title">{help ? 'Help' : 'Settings'}</h1>
             <span className="grow" />
+            {help ? null : (
             <label className="prefs-find">
               <Glyph icon={Search} role="row" />
               <input
@@ -122,8 +131,9 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
+            )}
             {/* Only when there is something to reset: a disabled Reset on a page at its defaults explains itself by not working. */}
-            {changed > 0 && (
+            {!help && changed > 0 && (
               <button
                 className="prefs-resetall"
                 title="Restore every setting. Projects, takeoffs and recent projects are not touched."
@@ -131,6 +141,9 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
               >
                 <b>{changed} changed</b> · Reset all
               </button>
+            )}
+            {help ? null : (
+              <button type="button" className="prefs-headlink" onClick={() => setHelp(true)}>Help</button>
             )}
             <button className="prefs-close" aria-label="Back to the drawing" title="Back to the drawing (Esc)" onClick={onClose}>
               <Glyph icon={X} role="inline" />
@@ -158,11 +171,13 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
             </div>
           )}
 
-          {q !== '' && visible.length === 0 && (
+          {help ? <HelpBody /> : null}
+
+          {!help && q !== '' && visible.length === 0 && (
             <p className="prefs-empty">No setting matches “{query.trim()}”.</p>
           )}
 
-          {visible.map((r) => (
+          {!help && visible.map((r) => (
             <section key={r.title} className="prefs-run" aria-labelledby={`prefs-run-${r.title}`}>
               <h3 className="prefs-runtitle" id={`prefs-run-${r.title}`}>{r.title}</h3>
               {/* A SettingsCard group: one raised card per run, the rows divided inside it. */}
@@ -174,7 +189,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
             </section>
           ))}
 
-          {q === '' && <AboutRun />}
+          {!help && q === '' && <AboutRun />}
         </div>
       </div>
     </div>

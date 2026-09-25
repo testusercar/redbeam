@@ -401,10 +401,91 @@
 .sidesettings:hover { background: var(--ads-inset); color: var(--ads-ink); }
 .sidesettings > span { font-size: var(--rb-text-body); }
 
+/* Settings, and the update above it, stay at the foot of the column. */
+.sidefoot {
+  margin-top: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sideupdate {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  margin: var(--ads-sp-1);
+  margin-bottom: 0;
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-hover);
+}
+.sideupdate-install {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-3);
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--ads-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sideupdate-install:hover { background: var(--ads-inset); }
+.sideupdate-install:disabled { cursor: default; }
+.sideupdate-install:disabled:hover { background: transparent; }
+.sideupdate-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sideupdate-title { font-size: var(--rb-text-body); font-weight: 600; }
+.sideupdate-note {
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+  color: var(--ads-ink-3);
+}
+.sideupdate-notes {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding-inline: var(--ads-sp-3);
+  border: 0;
+  border-left: 1px solid var(--ads-line);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  font-size: var(--ads-text-sm);
+  cursor: pointer;
+}
+.sideupdate-notes:hover { background: var(--ads-inset); color: var(--ads-ink); }
+
 /* Icons only when collapsed. */
 .shellapp[data-pane="closed"] .sidetabs { flex-direction: column; }
 .shellapp[data-pane="closed"] .sidetablabel,
-.shellapp[data-pane="closed"] .sidesettings > span { display: none; }
+.shellapp[data-pane="closed"] .sidesettings > span,
+.shellapp[data-pane="closed"] .sideupdate-copy,
+.shellapp[data-pane="closed"] .sideupdate-noteslabel { display: none; }
+.shellapp[data-pane="closed"] .sideupdate {
+  flex-direction: column;
+  margin-inline: 0;
+  border-inline: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.shellapp[data-pane="closed"] .sideupdate-install,
+.shellapp[data-pane="closed"] .sideupdate-notes {
+  justify-content: center;
+  width: 100%;
+  height: var(--rb-rail-btn);
+  padding: 0;
+  border: 0;
+}
 .shellapp[data-pane="closed"] .sidetab { padding-inline: 0; justify-content: center; }
 .shellapp[data-pane="closed"] .side > .panehead { display: none; }
 
@@ -2603,7 +2684,7 @@
  * `.shelfitem`, `.scoperow`) get the same treatment in styles.css, the sheet
  * that owns them — `styles.test.ts` refuses a bare selector defined in both.
  */
-.sheetrow:focus-visible, .filerow:focus-visible, .sheetgrouphead:focus-visible, .menuitem:focus-visible, .sidetab:focus-visible, .sidesettings:focus-visible, .tab:focus-visible, .titleicon:focus-visible, .wcbtn:focus-visible, .projectpick:focus-visible, .tabmore:focus-visible {
+.sheetrow:focus-visible, .filerow:focus-visible, .sheetgrouphead:focus-visible, .menuitem:focus-visible, .sidetab:focus-visible, .sidesettings:focus-visible, .sideupdate-install:focus-visible, .sideupdate-notes:focus-visible, .tab:focus-visible, .titleicon:focus-visible, .wcbtn:focus-visible, .projectpick:focus-visible, .tabmore:focus-visible {
   outline-offset: -2px;
 }
 

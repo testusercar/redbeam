@@ -225,3 +225,120 @@
 .prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
 .prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }
 .prefs-reportmsg { color: var(--rb-ink-2); }
+
+/* Release notes. Above Settings (250) so a launch modal stays in front. */
+.releasenotes {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  display: grid;
+  place-items: center;
+  background: var(--ads-scrim);
+}
+.releasenotes-card {
+  width: min(32rem, calc(100% - var(--ads-sp-8)));
+  max-height: calc(100% - var(--ads-sp-8));
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-5);
+  border: 1px solid var(--rb-line);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-panel);
+  color: var(--rb-ink);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+.releasenotes-card h2 {
+  margin: 0;
+  font-size: var(--ads-text-lg);
+  line-height: var(--ads-leading-lg);
+  font-weight: 600;
+}
+.releasenotes-version {
+  margin: 0;
+  color: var(--rb-ink-3);
+  font-size: var(--ads-text-sm);
+  line-height: var(--ads-leading-sm);
+}
+.releasenotes-body {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-base);
+  line-height: var(--ads-leading-base);
+}
+.releasenotes-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ads-sp-2);
+  margin-top: var(--ads-sp-2);
+}
+
+.prefs-headlink {
+  border: 0;
+  background: transparent;
+  padding: 0 var(--ads-sp-1);
+  color: var(--rb-ink-2);
+  font: 13px var(--ads-sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.prefs-headlink:hover { color: var(--rb-accent); }
+
+.prefs-help p {
+  margin: 0 0 var(--ads-sp-3);
+  max-width: 66ch;
+  color: var(--rb-ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+.prefs-feedback {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-4);
+}
+.prefs-note {
+  width: 100%;
+  min-height: calc(var(--ads-sp-8) + var(--ads-sp-8));
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--rb-line);
+  border-bottom-color: var(--rb-line-2);
+  border-radius: 4px;
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font: 13px var(--ads-sans);
+  resize: vertical;
+}
+.prefs-note:focus { outline: none; border-bottom: 2px solid var(--rb-accent); }
+.prefs-shot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ads-sp-8);
+  padding: var(--ads-sp-3);
+  border: 1px dashed var(--rb-line-2);
+  border-radius: 4px;
+  background: var(--rb-canvas);
+}
+.prefs-shot img { max-width: 100%; height: auto; }
+.prefs-feedback .act {
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 var(--ads-sp-3);
+  border: 1px solid var(--rb-line-2);
+  border-radius: 4px;
+  background: var(--rb-raised);
+  color: var(--rb-ink);
+  font: 13px var(--ads-sans);
+  cursor: pointer;
+}
+.prefs-feedback .act:hover { background: var(--rb-hover); }
+.prefs-feedbackstatus {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--rb-ink-2);
+}
