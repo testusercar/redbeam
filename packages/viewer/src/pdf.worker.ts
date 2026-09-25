@@ -35,7 +35,7 @@ import {
   type PdfiumOutlineLike,
 } from './outline.js'
 import { extractPageText, type PageBox, type TextBackend } from './text.js'
-import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './annots.js'
+import { createPdfiumAnnotBackend, extractPageAnnotations, type AnnotBackend } from './annots.js'
 import {
   INDEX_KEY, PRIORITY_INDEX, tileExtent,
   type PageInfo, type WorkerRequest, type WorkerResponse,
@@ -161,6 +161,13 @@ function readAllPageSizes(count: number): PageInfo[] {
 const flaggedPages = new Set<number>()
 
 /**
+ * The /F each annotation had in the file before this session touched it, by
+ * page then index. Showing an annotation again restores this rather than
+ * clearing bit 2, so a markup the FILE hides stays hidden.
+ */
+const originalFlags = new Map<number, Map<number, number>>()
+
+/**
  * Show or hide the page's own annotations without writing the PDF.
  *
  * FPDF_ANNOT_FLAG_HIDDEN is 2. Other flags are left alone. Returns false when
@@ -179,12 +186,15 @@ function applyHiddenFlags(handle: number, page: number, hidden: readonly number[
   if (hidden.length === 0 && !flaggedPages.has(page)) return true
   const hide = new Set(hidden)
   const count = getCount(handle) as number
+  let original = originalFlags.get(page)
+  if (original === undefined) { original = new Map(); originalFlags.set(page, original) }
   for (let i = 0; i < count; i++) {
     const annot = getAnnot(handle, i) as number
     if (!annot) continue
     try {
       const flags = (getFlags(annot) as number) >>> 0
-      const next = hide.has(i) ? (flags | 2) : (flags & ~2)
+      if (!original.has(i)) original.set(i, flags)
+      const next = hide.has(i) ? (flags | 2) : original.get(i)!
       if (next !== flags) setFlags(annot, next)
     } finally {
       if (typeof pdfium.FPDFPage_CloseAnnot === 'function') pdfium.FPDFPage_CloseAnnot(annot)
@@ -297,105 +307,8 @@ function textBackend(): TextBackend {
   }
 }
 
-/**
- * PDFium's annotation surface, marshalled the same way the text backend is:
- * one malloc per call for the out-params, read back off the heap, freed.
- * Strings come back UTF-16LE with a terminator, sized by a first call with
- * no buffer.
- */
 function annotBackend(): AnnotBackend {
-  const P = pdfium
-  const malloc = (n: number): number => P.pdfium.wasmExports.malloc(n) as number
-  const free = (ptr: number): void => { P.pdfium.wasmExports.free(ptr) }
-  const points = (ptr: number, n: number): AnnotPoint[] => {
-    const f32: Float32Array = P.pdfium.HEAPF32
-    const i = ptr >> 2
-    const out: AnnotPoint[] = []
-    for (let k = 0; k < n; k++) out.push({ x: f32[i + k * 2]!, y: f32[i + k * 2 + 1]! })
-    return out
-  }
-  return {
-    count: (page) => P.FPDFPage_GetAnnotCount(page) as number,
-    open: (page, i) => P.FPDFPage_GetAnnot(page, i) as number,
-    close: (a) => { P.FPDFPage_CloseAnnot(a) },
-    subtype: (a) => P.FPDFAnnot_GetSubtype(a) as number,
-    rect: (a) => {
-      const ptr = malloc(16)
-      try {
-        if (!P.FPDFAnnot_GetRect(a, ptr)) return null
-        const f32: Float32Array = P.pdfium.HEAPF32
-        const i = ptr >> 2
-        // FS_RECTF { left, top, right, bottom }
-        return { left: f32[i]!, top: f32[i + 1]!, right: f32[i + 2]!, bottom: f32[i + 3]! }
-      } finally {
-        free(ptr)
-      }
-    },
-    vertices: (a) => {
-      const n = P.FPDFAnnot_GetVertices(a, 0, 0) as number
-      if (!(n > 0)) return []
-      const ptr = malloc(n * 8)
-      try {
-        P.FPDFAnnot_GetVertices(a, ptr, n)
-        return points(ptr, n)
-      } finally {
-        free(ptr)
-      }
-    },
-    line: (a) => {
-      if (typeof P.FPDFAnnot_GetLine !== 'function') return null
-      const ptr = malloc(16)
-      try {
-        if (!P.FPDFAnnot_GetLine(a, ptr, ptr + 8)) return null
-        const [s, e] = points(ptr, 2)
-        return [s!, e!]
-      } finally {
-        free(ptr)
-      }
-    },
-    inkPaths: (a) => {
-      const paths = P.FPDFAnnot_GetInkListCount(a) as number
-      const out: AnnotPoint[][] = []
-      for (let k = 0; k < paths; k++) {
-        const n = P.FPDFAnnot_GetInkListPath(a, k, 0, 0) as number
-        if (!(n > 0)) continue
-        const ptr = malloc(n * 8)
-        try {
-          P.FPDFAnnot_GetInkListPath(a, k, ptr, n)
-          out.push(points(ptr, n))
-        } finally {
-          free(ptr)
-        }
-      }
-      return out
-    },
-    stringValue: (a, key) => {
-      // Bytes including the UTF-16 terminator; 2 means an empty string.
-      const len = P.FPDFAnnot_GetStringValue(a, key, 0, 0) as number
-      if (!(len > 2)) return ''
-      const ptr = malloc(len)
-      try {
-        P.FPDFAnnot_GetStringValue(a, key, ptr, len)
-        const heap: Uint8Array = P.pdfium.HEAPU8
-        return new TextDecoder('utf-16le').decode(heap.subarray(ptr, ptr + len - 2))
-      } finally {
-        free(ptr)
-      }
-    },
-    color: (a) => {
-      const ptr = malloc(16)
-      try {
-        // FPDFANNOT_COLORTYPE_Color is 0: the stroke, not the interior.
-        if (!P.FPDFAnnot_GetColor(a, 0, ptr, ptr + 4, ptr + 8, ptr + 12)) return null
-        const u32: Uint32Array = P.pdfium.HEAPU32
-        const i = ptr >> 2
-        return { r: u32[i]!, g: u32[i + 1]!, b: u32[i + 2]!, a: u32[i + 3]! }
-      } finally {
-        free(ptr)
-      }
-    },
-    pageBox: (page) => readPageBox(page),
-  }
+  return createPdfiumAnnotBackend(pdfium, (page) => readPageBox(page))
 }
 
 /**
@@ -542,7 +455,9 @@ async function run(job: Job) {
     // As text: a failure is reported on the annots message, so only the
     // waiting request is rejected and the drain loop keeps going.
     try {
+      const original = originalFlags.get(job.page)
       const annotations = extractPageAnnotations(annotBackend(), entry.handle, job.page)
+        .map((a) => (original?.has(a.index) ? { ...a, flags: original.get(a.index)! } : a))
       post({ type: 'annots', key: job.key, page: job.page, annotations, ms: now() - t0 })
     } catch (err) {
       post({
