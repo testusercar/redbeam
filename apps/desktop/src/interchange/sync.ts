@@ -196,7 +196,6 @@ export function buildPdfSync(plan: ReconcilePlan, ctx: {
   let summary = parts.length === 0 ? null : `${parts.join(', ')}.`
   if (lost > 0) summary = `${summary ?? ''} ${plural(lost, 'area')} came in without a scope: the note that named it was removed.`.trim()
   if (unknownScope > 0) summary = `${summary ?? ''} ${plural(unknownScope, 'area')} named a scope this project does not have.`.trim()
-  if (summary !== null) summary = summary.charAt(0).toUpperCase() + summary.slice(1)
 
   return {
     command: cmds.length === 0 ? null : cmds.length === 1 ? cmds[0]! : batch('follow the PDF', cmds),
@@ -238,8 +237,7 @@ export function bakeSummary(fileName: string, outcomes: readonly OpOutcome[], ba
     const did: string[] = []
     if (written > 0) did.push(`wrote ${plural(written, 'area')}`)
     if (removed > 0) did.push(`removed ${plural(removed, 'markup')}`)
-    const sentence = did.join(' and ')
-    parts.push(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} in ${fileName}.`)
+    parts.push(`${did.join(' and ')} in ${fileName}.`)
     if (backup !== null) parts.push('The previous file is in .redbeam/backups.')
   }
   if (refused.length > 0) {

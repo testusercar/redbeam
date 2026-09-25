@@ -65,6 +65,8 @@ export interface PdfAnnot {
 export interface Inspection {
   refused: Refused | null
   pageCount: number
+  /** Each page's displayed size in points: the CropBox, turned by /Rotate. */
+  pageSizes: Array<{ width: number, height: number }>
   annots: PdfAnnot[]
 }
 
@@ -84,8 +86,11 @@ export type InterchangeOp =
   }
   /** Move the vertices of an existing polygon or polyline, anyone's. */
   | { op: 'reshape', pageIndex: number, name: string, ring: readonly Point[] }
-  /** Delete an annotation, with its popup and its replies. */
-  | { op: 'remove', pageIndex: number, name: string }
+  /**
+   * Delete an annotation, with its popup and its replies. Found by name, or
+   * by its /Annots index when it has none; `subtype` guards that index.
+   */
+  | { op: 'remove', pageIndex: number, name: string, index?: number, subtype?: string }
 
 export type OpResult = 'created' | 'updated' | 'unchanged' | 'removed' | 'refused' | 'missing'
 
@@ -294,8 +299,13 @@ function readAll(doc: PDFDocument): PdfAnnot[] {
 /** Every markup annotation in the file, or why the file will not be written. */
 export async function inspectPdf(bytes: Uint8Array): Promise<Inspection> {
   const opened = await openPdf(bytes)
-  if ('refused' in opened) return { refused: opened.refused, pageCount: 0, annots: [] }
-  return { refused: null, pageCount: opened.doc.getPageCount(), annots: readAll(opened.doc) }
+  if ('refused' in opened) return { refused: opened.refused, pageCount: 0, pageSizes: [], annots: [] }
+  const pageSizes = opened.doc.getPages().map((page) => {
+    const box = boxOf(page)
+    const turned = Math.round(page.getRotation().angle / 90) % 2 !== 0
+    return turned ? { width: box.height, height: box.width } : { width: box.width, height: box.height }
+  })
+  return { refused: null, pageCount: opened.doc.getPageCount(), pageSizes, annots: readAll(opened.doc) }
 }
 
 // ---------------------------------------------------------------- write --
@@ -369,11 +379,13 @@ interface Located {
   grouped: Set<PDFDict>
 }
 
-function locate(doc: PDFDocument, pageIndex: number, name: string): Located | null {
+function locate(doc: PDFDocument, pageIndex: number, name: string, index?: number, subtype?: string): Located | null {
   const page = doc.getPages()[pageIndex]
   if (page === undefined) return null
   const entries = annotEntries(page)
-  const entry = name === '' ? undefined : entries.find((e) => textOf(e.dict, 'NM') === name)
+  const entry = name !== ''
+    ? entries.find((e) => textOf(e.dict, 'NM') === name)
+    : entries.find((e) => e.index === index && textOf(e.dict, 'NM') === '' && (subtype === undefined || nameOf(e.dict, 'Subtype') === subtype))
   return { page, entries, entry, grouped: groupedOnPage(entries) }
 }
 
@@ -486,7 +498,7 @@ function reshape(doc: PDFDocument, op: Extract<InterchangeOp, { op: 'reshape' }>
 
 function remove(doc: PDFDocument, op: Extract<InterchangeOp, { op: 'remove' }>): OpOutcome {
   const base = { op: op.op, pageIndex: op.pageIndex, name: op.name } as const
-  const where = locate(doc, op.pageIndex, op.name)
+  const where = locate(doc, op.pageIndex, op.name, op.index, op.subtype)
   const target = where?.entry
   if (where === null || target === undefined) return { ...base, result: 'missing', reason: 'it is no longer in the file' }
   const why = refusalFor(target.dict, where.grouped)

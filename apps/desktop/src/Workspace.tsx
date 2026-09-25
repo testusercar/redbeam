@@ -15,6 +15,7 @@ import {
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
   areaOriginsFrom, patternStartPoint,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
+  resolveScaleForRings,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -34,6 +35,7 @@ import {
   listAllScaleRegions, saveScaleRegion, deleteScaleRegion,
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
+  updateMarkupContent,
 } from '@redbeam/store'
 import { openDatabase, openMemory, debounceSave, type DbBackend } from './db.js'
 import { broadcastChange, onChange } from '@redbeam/store'
@@ -106,11 +108,19 @@ import {
   hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
   visibleAnnotations, type HiddenBook,
 } from './tools/foreignMarkups.js'
+import { createInterchangeClient, type InterchangeClient } from './interchange/client.js'
+import { reconcile, readRecord, type InterchangeRecord } from './interchange/reconcile.js'
+import { planBake } from './interchange/bakePlan.js'
+import { hiddenForView, pickableAnnotations, takeoffOverlay } from './interchange/viewFilter.js'
+import {
+  bakeSummary, buildPdfSync, contentsAfterBake, layoutReader, loadDocMarkups,
+} from './interchange/sync.js'
+import type { Inspection } from './interchange/pdfInterchange.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Pencil, DocumentPdf } from './shell/icons.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -126,6 +136,9 @@ const VH = 780
 const SCOPE_TYPE_LABEL: Record<ScopeType, string> = { area: 'areas', linear: 'lengths', count: 'counts' }
 
 const FALLBACK_DOC = { id: 'doc-sample', relativePath: 'sample.pdf', displayName: 'Sample drawing' }
+
+/** "Show only REDBEAM takeoff", remembered for the session. */
+const TAKEOFF_ONLY_KEY = 'redbeam.takeoff-only'
 /**
  * Page and document identity come from @redbeam/store, never from here.
  *
@@ -798,6 +811,31 @@ export default function Workspace({
   const [selectedAnnots, setSelectedAnnots] = useState<number[]>([])
   const selectedAnnotsRef = useRef<number[]>([])
   const selectAnnots = useCallback((next: number[]) => { selectedAnnotsRef.current = next; setSelectedAnnots(next) }, [])
+  /*
+   * Markup interchange (see interchange/). Every annotation on the sheet,
+   * including the baked copies of live REDBEAM areas, which the overlay draws
+   * instead; the names of those copies by page; and what the view hides in
+   * total. All of it is a view: PDFium's hidden flag, in memory.
+   */
+  const allAnnotsRef = useRef<PageAnnotation[]>([])
+  const viewHiddenRef = useRef<Set<number>>(new Set())
+  const linkedNamesRef = useRef<Map<number, Set<string>>>(new Map())
+  const [takeoffOnly, setTakeoffOnly] = useState(() => {
+    try { return sessionStorage.getItem(TAKEOFF_ONLY_KEY) === '1' } catch { return false }
+  })
+  const takeoffOnlyRef = useRef(takeoffOnly)
+  /** Bumped after a write, so the drawing is read again from disk. */
+  const [docRevision, setDocRevision] = useState(0)
+  /** What the interchange worker last read of the open drawing. */
+  const inspectionRef = useRef<{ url: string; fingerprint: string; inspection: Inspection } | null>(null)
+  const interchangeRef = useRef<InterchangeClient | null>(null)
+  const interchange = useCallback((): InterchangeClient => {
+    interchangeRef.current ??= createInterchangeClient(
+      () => new Worker(new URL('./interchange/worker.ts', import.meta.url), { type: 'module' }),
+    )
+    return interchangeRef.current
+  }, [])
+  useEffect(() => () => { interchangeRef.current?.dispose(); interchangeRef.current = null }, [])
   const clipboardRef = useRef<Markup[]>([])
   const hoverRef = useRef<Hit | null>(null)
   const editRef = useRef<
@@ -961,6 +999,25 @@ export default function Workspace({
     })
   }, [])
 
+  /**
+   * Push the view's hidden set to the viewer: what the person hid, the baked
+   * copies the overlay stands in for, and everything under "Show only
+   * REDBEAM takeoff". Also narrows what the Select tool can pick.
+   */
+  const refreshViewHidden = useCallback((viewer: Viewer | null = viewerRef.current, page = pageIndexRef.current) => {
+    const linked = linkedNamesRef.current.get(page) ?? new Set<string>()
+    annotsRef.current = pickableAnnotations(allAnnotsRef.current.filter((a) => a.shape !== 'other'), linked)
+    const hidden = hiddenForView({
+      annots: allAnnotsRef.current,
+      userHidden: [...hiddenAnnotsRef.current],
+      linkedNames: linked,
+      takeoffOnly: takeoffOnlyRef.current,
+    })
+    viewHiddenRef.current = new Set(hidden)
+    if (viewer !== null && viewer.setHiddenAnnotations(page, hidden)) viewer.requestVisible(viewRef.current)
+    requestPaint()
+  }, [requestPaint])
+
   const paint = useCallback(() => {
     const v = viewerRef.current
     if (!v) return
@@ -987,7 +1044,7 @@ export default function Workspace({
        * the annotation layer.
        */
       for (const m of markupsRef.current) {
-        if (m.kind !== 'dimension') continue
+        if (m.kind !== 'dimension' || takeoffOnlyRef.current) continue
         // A dimension written before content was carried has none; skip it
         // rather than let one row take the whole overlay down.
         if ((m as unknown as { content?: unknown }).content === undefined) continue
@@ -1554,7 +1611,7 @@ export default function Workspace({
       setDocUrl(url)
     })
     return () => { cancelled = true; resolver.release() }
-  }, [documents, activeDocId, projectPath])
+  }, [documents, activeDocId, projectPath, docRevision])
 
   /*
    * Index the whole project's text, starting the moment the folder is known.
@@ -1774,12 +1831,17 @@ export default function Workspace({
         } catch { stored = [] }
         hiddenAnnotsRef.current = new Set(stored)
         setHiddenAnnotCount(stored.length)
+        allAnnotsRef.current = []
         if (viewer.setHiddenAnnotations(info.index, stored)) viewer.requestVisible(viewRef.current)
-        // The sheet's own markups, for the Select tool: asked of THIS viewer,
-        // for the page it has just shown, so a document switch cannot serve
-        // the previous document's list.
+        // The sheet's own markups, for the Select tool and the view's hidden
+        // set: asked of THIS viewer, for the page it has just shown, so a
+        // document switch cannot serve the previous document's list.
         void viewer.requestAnnotations(info.index)
-          .then((list) => { if (viewerRef.current === viewer) annotsRef.current = list.filter((a) => a.shape !== 'other') })
+          .then((list) => {
+            if (viewerRef.current !== viewer) return
+            allAnnotsRef.current = list
+            refreshViewHidden(viewer, info.index)
+          })
           .catch(() => { /* a sheet with no readable annotations has none to select */ })
         /*
          * Keep the page-size TABLE current, not just the active page.
@@ -1852,10 +1914,29 @@ export default function Workspace({
   useEffect(() => {
     const v = viewerRef.current
     if (!v) return
-    const set: OverlaySet = toOverlay(markups, scopes)
+    const set: OverlaySet = toOverlay(takeoffOverlay(markups, takeoffOnly), scopes)
     v.setOverlay(set)
     requestPaint()
-  }, [markups, scopes, requestPaint])
+  }, [markups, scopes, requestPaint, takeoffOnly])
+
+  /*
+   * Which of the sheet's annotations are baked copies of live markups here.
+   * Those are hidden and the overlay draws the markup, so an area is never
+   * drawn twice; a markup deleted here stops hiding its copy at once.
+   */
+  useEffect(() => {
+    const docId = docIdRef.current
+    const byPage = new Map<number, Set<string>>()
+    for (const m of docMarkups) {
+      const rec = readRecord((m as { content?: Record<string, unknown> }).content?.interchange)
+      if (rec === null || m.documentId !== docId) continue
+      const names = byPage.get(rec.pageIndex) ?? new Set<string>()
+      names.add(rec.name)
+      byPage.set(rec.pageIndex, names)
+    }
+    linkedNamesRef.current = byPage
+    refreshViewHidden()
+  }, [docMarkups, refreshViewHidden])
 
   // Recompute quantities whenever markups or calibration change.
   useEffect(() => {
@@ -3598,8 +3679,9 @@ export default function Workspace({
     if (v !== null) {
       try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
     }
-    const convertible = all.filter((a) => a.shape !== 'other')
-    const visible = visibleAnnotations(convertible, hiddenAnnotsRef.current)
+    const linked = linkedNamesRef.current.get(pageIndexRef.current) ?? new Set<string>()
+    const convertible = pickableAnnotations(all.filter((a) => a.shape !== 'other'), linked)
+    const visible = visibleAnnotations(convertible, viewHiddenRef.current)
     const slack = 0.002
     const under = visible.filter((a) =>
       n.x >= a.rect.x0 - slack && n.x <= a.rect.x1 + slack && n.y >= a.rect.y0 - slack && n.y <= a.rect.y1 + slack)
@@ -3620,10 +3702,8 @@ export default function Workspace({
         sessionStorage.setItem(hiddenStorageKey(docId), JSON.stringify(book))
       } catch { /* the view still changes */ }
     }
-    const viewer = viewerRef.current
-    if (viewer !== null && viewer.setHiddenAnnotations(page, next)) viewer.requestVisible(viewRef.current)
-    requestPaint()
-  }, [requestPaint])
+    refreshViewHidden()
+  }, [refreshViewHidden])
 
   const hidePdfMarkup = useCallback((index: number) => {
     persistHidden(hideAnnotation([...hiddenAnnotsRef.current], index))
@@ -3709,7 +3789,8 @@ export default function Workspace({
     if (v === null) return
     let all: PageAnnotation[] = []
     try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
-    await convertAnnotations(all.filter((a) => a.shape !== 'other'), scopeId)
+    const linked = linkedNamesRef.current.get(pageIndexRef.current) ?? new Set<string>()
+    await convertAnnotations(pickableAnnotations(all.filter((a) => a.shape !== 'other'), linked), scopeId)
   }, [convertAnnotations])
 
   /**
@@ -3959,6 +4040,218 @@ export default function Workspace({
     setStatus('this area uses the automatic pattern start')
     requestPaint()
   }, [saveScope, requestPaint])
+
+  // ------------------------------------------------------ markup interchange --
+
+  /** Store what a sync or a write decided: markup content, then scope specs. */
+  const writeInterchange = useCallback(async (
+    db: SqlDriver,
+    contents: ReadonlyMap<string, Record<string, unknown>>,
+    changedScopes: readonly Scope[],
+  ) => {
+    for (const [id, content] of contents) await updateMarkupContent(db, id, content)
+    for (const sc of changedScopes) {
+      await upsertScope(db, {
+        id: sc.id, label: sc.label, scopeType: sc.scopeType,
+        color: sc.color, specifications: sc.specifications, archivedAt: null,
+      })
+    }
+    if (changedScopes.length > 0) {
+      await refreshScopes()
+      void broadcastChange('scopes', identity.projectId ?? 'default')
+    }
+  }, [refreshScopes, identity.projectId])
+
+  /**
+   * Bring the project in line with the drawing's own REDBEAM areas, each time
+   * a drawing is loaded. The PDF outline wins; see interchange/reconcile.ts.
+   */
+  const syncFromPdf = useCallback(async (url: string) => {
+    const db = dbRef.current
+    const docId = docIdRef.current
+    const doc = documents.find((d) => d.id === docId)
+    if (!db || !docId || doc === undefined) return
+    let read: { fingerprint: string; inspection: Inspection }
+    try { read = await interchange().inspect(url) } catch { return }
+    if (docIdRef.current !== docId) return
+    inspectionRef.current = { url, ...read }
+    if (read.inspection.refused !== null) return
+    const loaded = await loadDocMarkups(db, docId)
+    const scopeOf = new Map(loaded.rows.map((r) => [r.id, r.scopeId]))
+    const plan = reconcile({
+      annots: read.inspection.annots,
+      markups: loaded.live,
+      deleted: new Set(loaded.deleted.map((d) => d.id)),
+      layoutOf: layoutReader((id) => scopeOf.get(id) ?? null, scopesRef.current),
+    })
+    const out = buildPdfSync(plan, {
+      docId, rows: loaded.rows, scopes: scopesRef.current, now: new Date().toISOString(), newId: uid,
+    })
+    for (const targetPage of out.pages) {
+      const size = read.inspection.pageSizes[targetPage]
+      await ensureDocumentAndPage(db, doc, {
+        id: pageIdFor(docId, targetPage), documentId: docId, pageNumber: targetPage,
+        width: size?.width ?? 0, height: size?.height ?? 0,
+      })
+    }
+    await writeInterchange(db, out.contents, out.scopes)
+    if (out.command !== null) await runCommand(out.command)
+    else if (out.contents.size > 0) { await syncMarkups(); saveRef.current() }
+    if (out.summary !== null) setStatus(out.summary)
+  }, [documents, interchange, writeInterchange, runCommand, syncMarkups])
+
+  const syncFromPdfRef = useRef(syncFromPdf)
+  syncFromPdfRef.current = syncFromPdf
+  const syncedUrlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!docUrl || pageCount === 0 || backend === null) return
+    if (syncedUrlRef.current === docUrl) return
+    syncedUrlRef.current = docUrl
+    void syncFromPdfRef.current(docUrl)
+  }, [docUrl, pageCount, backend])
+
+  /** Replace the open drawing on disk, then load it again at the same sheet. */
+  const replaceOpenDrawing = useCallback(async (
+    relativePath: string, bytes: Uint8Array, fingerprint: string,
+  ): Promise<{ backup: string | null } | string> => {
+    try {
+      const out = await projectBridge.writeDocument(projectPath, relativePath, bytes, fingerprint)
+      pendingPageRef.current = pageIndexRef.current
+      setDocRevision((r) => r + 1)
+      return { backup: out.backup }
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
+    }
+  }, [projectPath])
+
+  /**
+   * Write the takeoff's areas into the open drawing, as PDF markups Bluebeam
+   * and Acrobat read. Resolves to a problem to show, or null.
+   */
+  const writeTakeoffToDrawing = useCallback(async (): Promise<string | null> => {
+    const db = dbRef.current
+    const docId = docIdRef.current
+    const doc = documents.find((d) => d.id === docId)
+    const url = docUrl
+    if (!db || doc === undefined || url === null) return 'No drawing is open.'
+    if (!projectBridge.desktop) return 'The browser build cannot write a drawing.'
+    const name = doc.displayName || doc.relativePath
+    setStatus(`writing the takeoff into ${name}…`)
+    try {
+      const { inspection } = await interchange().inspect(url)
+      if (inspection.refused !== null) return inspection.refused.message
+      const loaded = await loadDocMarkups(db, docId)
+      const scopeOf = new Map(loaded.rows.map((r) => [r.id, r.scopeId]))
+      const plan = planBake({
+        markups: loaded.live,
+        deleted: loaded.deleted,
+        annots: inspection.annots,
+        scopes: new Map(scopesRef.current.map((s) => [s.id, { id: s.id, label: s.label, color: s.color, scopeType: s.scopeType }])),
+        layoutOf: layoutReader((id) => scopeOf.get(id) ?? null, scopesRef.current),
+        feetPerPoint: (targetPage, ring) => {
+          const pageId = pageIdFor(docId, targetPage)
+          return resolveScaleForRings([ring], projectRegions.get(pageId) ?? [], docCalibrations.get(pageId) ?? null).feetPerPoint
+        },
+        pageBox: (pi) => pageSizes[pi] ?? inspection.pageSizes[pi] ?? null,
+        pageCount: inspection.pageCount,
+        now: new Date().toISOString(),
+      })
+      if (plan.ops.length === 0) return 'This drawing has no REDBEAM areas to write.'
+      const { fingerprint, result } = await interchange().apply(url, plan.ops)
+      if (!result.ok) return result.refused.message
+      let backup: string | null = null
+      if (result.changed) {
+        const wrote = await replaceOpenDrawing(doc.relativePath, result.bytes, fingerprint)
+        if (typeof wrote === 'string') return wrote
+        backup = wrote.backup
+      }
+      await writeInterchange(db, contentsAfterBake(plan, result.outcomes, loaded.rows), [])
+      await syncMarkups()
+      saveRef.current()
+      setStatus(bakeSummary(name, result.outcomes, backup, result.changed))
+      return null
+    } catch (err) {
+      return `The takeoff could not be written: ${err instanceof Error ? err.message : String(err)}`
+    }
+  }, [documents, docUrl, interchange, projectRegions, docCalibrations, pageSizes, replaceOpenDrawing, writeInterchange, syncMarkups])
+
+  /**
+   * Edit somebody else's polygon or polyline here. It becomes a markup of the
+   * active scope that stays linked to the original by its /NM; the next write
+   * moves the original's vertices and leaves the rest of it alone — author,
+   * status, replies, columns, measurement.
+   */
+  const editPdfMarkup = useCallback(async (a: PageAnnotation) => {
+    if (a.subtypeName !== 'Polygon' && a.subtypeName !== 'PolyLine') {
+      setStatus('only polygons and polylines can be edited here. Convert it instead.')
+      return
+    }
+    if (a.name === '') {
+      setStatus('that markup has no name in the PDF, so REDBEAM cannot follow it. Convert it instead.')
+      return
+    }
+    const page = pageIndexRef.current
+    const read = inspectionRef.current?.inspection.annots.find((x) => x.pageIndex === page && x.name === a.name)
+    const refusal = read?.grouped ? 'it is grouped in Bluebeam' : read?.locked ? 'it is locked' : read?.cloud ? 'it is a cloud' : null
+    if (refusal !== null) {
+      setStatus(`that markup cannot be edited here: ${refusal}. Convert it instead.`)
+      return
+    }
+    const ring = read !== undefined && read.ring.length > 0 ? read.ring : a.vertices
+    const docId = docIdRef.current
+    const record: InterchangeRecord = { name: a.name, pageIndex: page, origin: 'foreign', ring, at: new Date().toISOString() }
+    await runCommand(cmdCreate({
+      id: uid(), documentId: docId, pageId: pageIdFor(docId, pageIndexRef.current), scopeId: activeScopeRef.current,
+      kind: a.subtypeName === 'Polygon' ? 'area' : 'polyline',
+      rings: [ring], origin: 'user', reviewState: 'accepted',
+      content: {
+        source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
+        contents: a.contents, author: a.author, color: a.color, interchange: record,
+      },
+    }))
+    selectAnnots([])
+    setStatus('editing that PDF markup here. Write the takeoff into the drawing to save it back to the PDF.')
+  }, [runCommand, selectAnnots])
+
+  /** Delete PDF markups from the file, with their replies. Resolves to a problem, or null. */
+  const deletePdfMarkups = useCallback(async (list: readonly PageAnnotation[]): Promise<string | null> => {
+    const docId = docIdRef.current
+    const doc = documents.find((d) => d.id === docId)
+    const url = docUrl
+    if (doc === undefined || url === null) return 'No drawing is open.'
+    if (!projectBridge.desktop) return 'The browser build cannot write a drawing.'
+    if (list.length === 0) return 'Select the PDF markups to delete first.'
+    const page = pageIndexRef.current
+    try {
+      const { fingerprint, result } = await interchange().apply(url, list.map((a) => (
+        a.name !== ''
+          ? { op: 'remove' as const, pageIndex: page, name: a.name }
+          : { op: 'remove' as const, pageIndex: page, name: '', index: a.index, subtype: a.subtypeName }
+      )))
+      if (!result.ok) return result.refused.message
+      let backup: string | null = null
+      if (result.changed) {
+        const wrote = await replaceOpenDrawing(doc.relativePath, result.bytes, fingerprint)
+        if (typeof wrote === 'string') return wrote
+        backup = wrote.backup
+      }
+      selectAnnots([])
+      setStatus(bakeSummary(doc.displayName || doc.relativePath, result.outcomes, backup, result.changed))
+      return null
+    } catch (err) {
+      return `The PDF markup could not be deleted: ${err instanceof Error ? err.message : String(err)}`
+    }
+  }, [documents, docUrl, interchange, replaceOpenDrawing, selectAnnots])
+
+  /** "Show only REDBEAM takeoff": a view. Nothing is removed from the PDF. */
+  const toggleTakeoffOnly = useCallback(() => {
+    const next = !takeoffOnlyRef.current
+    takeoffOnlyRef.current = next
+    setTakeoffOnly(next)
+    try { sessionStorage.setItem(TAKEOFF_ONLY_KEY, next ? '1' : '0') } catch { /* the view still changes */ }
+    refreshViewHidden()
+    setStatus(next ? 'showing only REDBEAM takeoff. The PDF is unchanged.' : 'showing every markup again')
+  }, [refreshViewHidden])
 
   /**
    * Duplicate an estimate: its scopes and their specifications, not its takeoff.
@@ -6243,6 +6536,37 @@ export default function Workspace({
         run: () => hidePdfMarkups('all'),
       },
       {
+        id: 'takeoff-only', kind: 'command',
+        title: takeoffOnly ? 'Show every markup' : 'Show only REDBEAM takeoff',
+        detail: 'A view of every sheet. Nothing is removed from the PDF.',
+        keywords: ['bluebeam', 'annotation', 'hide', 'markup', 'filter', 'takeoff'],
+        ...stuck(noSheet),
+        run: () => toggleTakeoffOnly(),
+      },
+      {
+        id: 'edit-pdf-markup', kind: 'command', title: 'Edit the selected PDF markup here',
+        detail: 'A polygon or polyline from Bluebeam or Acrobat. Writing the takeoff saves it back.',
+        keywords: ['bluebeam', 'annotation', 'markup', 'edit', 'move'],
+        ...stuck(noSheet ?? (selectedAnnots.length !== 1 ? 'select one PDF markup with the Select tool' : undefined)),
+        run: () => {
+          const a = annotsRef.current.find((x) => x.index === selectedAnnots[0])
+          if (a !== undefined) void editPdfMarkup(a)
+        },
+      },
+      {
+        id: 'delete-pdf-markups', kind: 'command',
+        title: selectedAnnots.length > 1 ? `Delete the ${selectedAnnots.length} selected PDF markups from the file` : 'Delete the selected PDF markup from the file',
+        detail: 'With their replies. A copy of the previous file is kept.',
+        keywords: ['bluebeam', 'annotation', 'markup', 'delete', 'remove'],
+        ...stuck(noSheet
+          ?? (projectBridge.desktop ? undefined : 'the browser build cannot write a drawing')
+          ?? (selectedAnnots.length === 0 ? 'select PDF markups with the Select tool' : undefined)),
+        run: async () => {
+          const picked = annotsRef.current.filter((a) => selectedAnnots.includes(a.index))
+          return (await deletePdfMarkups(picked)) ?? undefined
+        },
+      },
+      {
         id: 'undo', kind: 'command', title: undoState.undoLabel === null ? 'Undo' : `Undo ${undoState.undoLabel}`,
         shortcut: 'Ctrl+Z', ...stuck(undoState.canUndo ? undefined : 'nothing to undo'), stay: true, run: () => void doUndo(),
       },
@@ -6389,6 +6713,13 @@ export default function Workspace({
           if (await copyBillTsv(buildBom(pieces))) { setStatus('bill copied as TSV'); return undefined }
           return 'The clipboard refused the bill.'
         },
+      },
+      {
+        id: 'write-takeoff', kind: 'command', title: 'Write takeoff into this drawing',
+        detail: 'Areas become PDF markups Bluebeam can open. A copy of the previous file is kept.',
+        keywords: ['bluebeam', 'bake', 'pdf', 'markup', 'annotation', 'save', 'sync'],
+        ...stuck(noSheet ?? (projectBridge.desktop ? undefined : 'the browser build cannot write a drawing')),
+        run: async () => (await writeTakeoffToDrawing()) ?? undefined,
       },
       {
         id: 'save-marked', kind: 'command', title: 'Save marked-up PDF…', detail: 'This drawing with its markups burned in',
@@ -6822,6 +7153,7 @@ export default function Workspace({
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, commitState, projectMarkups,
+    takeoffOnly, toggleTakeoffOnly, editPdfMarkup, deletePdfMarkups, writeTakeoffToDrawing,
   ])
 
   return (
@@ -7090,7 +7422,7 @@ export default function Workspace({
               // One of the PDF's markups there joins the selection first, so
               // the menu's "convert the selected" acts on what was clicked.
               const n = screenToNormalized(hx, hy, viewRef.current, page.width, page.height)
-              const a = annotationAt(n, annotsRef.current, hiddenAnnotsRef.current)
+              const a = annotationAt(n, annotsRef.current, viewHiddenRef.current)
               if (a !== null && !selectedAnnotsRef.current.includes(a.index)) {
                 selectAnnots([a.index])
                 requestPaint()
@@ -7188,23 +7520,45 @@ export default function Workspace({
                 <span className="grow">Trace the region here as an area</span>
               </button>
               <div className="menusep" />
-              {annotMenu.annotations.length > 0 && (
-                <button
-                  className="menuitem" role="menuitem"
-                  onClick={() => {
-                    const target = annotMenu.annotations.reduce((best, a) => {
-                      const area = (a.rect.x1 - a.rect.x0) * (a.rect.y1 - a.rect.y0)
-                      const bestArea = (best.rect.x1 - best.rect.x0) * (best.rect.y1 - best.rect.y0)
-                      return area < bestArea ? a : best
-                    })
-                    hidePdfMarkup(target.index)
-                    setAnnotMenu(null)
-                  }}
-                >
-                  <Glyph icon={EyeOff} role="row" />
-                  <span className="grow">Hide this PDF markup</span>
-                </button>
-              )}
+              {annotMenu.annotations.length > 0 && (() => {
+                const target = annotMenu.annotations.reduce((best, a) => {
+                  const area = (a.rect.x1 - a.rect.x0) * (a.rect.y1 - a.rect.y0)
+                  const bestArea = (best.rect.x1 - best.rect.x0) * (best.rect.y1 - best.rect.y0)
+                  return area < bestArea ? a : best
+                })
+                const editable = target.subtypeName === 'Polygon' || target.subtypeName === 'PolyLine'
+                return (
+                  <>
+                    {editable && (
+                      <button
+                        className="menuitem" role="menuitem"
+                        onClick={() => { void editPdfMarkup(target); setAnnotMenu(null) }}
+                      >
+                        <Glyph icon={Pencil} role="row" />
+                        <span className="grow">Edit this PDF markup here</span>
+                      </button>
+                    )}
+                    <button
+                      className="menuitem" role="menuitem"
+                      disabled={!projectBridge.desktop}
+                      onClick={() => {
+                        void deletePdfMarkups([target]).then((problem) => { if (problem !== null) setStatus(problem) })
+                        setAnnotMenu(null)
+                      }}
+                    >
+                      <Glyph icon={Trash2} role="row" />
+                      <span className="grow">Delete this PDF markup from the file</span>
+                    </button>
+                    <button
+                      className="menuitem" role="menuitem"
+                      onClick={() => { hidePdfMarkup(target.index); setAnnotMenu(null) }}
+                    >
+                      <Glyph icon={EyeOff} role="row" />
+                      <span className="grow">Hide this PDF markup</span>
+                    </button>
+                  </>
+                )
+              })()}
               <button
                 className="menuitem" role="menuitem"
                 onClick={() => { hidePdfMarkups('all'); setAnnotMenu(null) }}
@@ -7221,6 +7575,26 @@ export default function Workspace({
                   <span className="grow">Show hidden PDF markups</span>
                 </button>
               )}
+              <button
+                className="menuitem" role="menuitemcheckbox" aria-checked={takeoffOnly}
+                onClick={() => { toggleTakeoffOnly(); setAnnotMenu(null) }}
+              >
+                <Glyph icon={EyeOff} role="row" />
+                <span className="grow">Show only REDBEAM takeoff</span>
+                {takeoffOnly && <Glyph icon={Check} role="small" />}
+              </button>
+              <div className="menusep" />
+              <button
+                className="menuitem" role="menuitem"
+                disabled={!projectBridge.desktop}
+                onClick={() => {
+                  void writeTakeoffToDrawing().then((problem) => { if (problem !== null) setStatus(problem) })
+                  setAnnotMenu(null)
+                }}
+              >
+                <Glyph icon={DocumentPdf} role="row" />
+                <span className="grow">Write takeoff into this drawing</span>
+              </button>
             </div>
           </>
         )}

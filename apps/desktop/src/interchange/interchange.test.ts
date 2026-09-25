@@ -339,3 +339,23 @@ describe('the note', () => {
     expect(decodeNote('1,234 SF')).toBeNull()
   })
 })
+
+describe('a markup with no name', () => {
+  it('is deleted by its index, and only when the subtype still matches', async () => {
+    const doc = await PDFDocument.load(await blankSheet())
+    const ctx = doc.context
+    const plain = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Square', Rect: [0, 0, 10, 10] }))
+    doc.getPages()[0]!.node.set(PDFName.of('Annots'), ctx.obj([plain]))
+    const bytes = await doc.save()
+    const wrong = await applyInterchange(bytes, [{ op: 'remove', pageIndex: 0, name: '', index: 0, subtype: 'Polygon' }])
+    expect(wrong.ok && wrong.outcomes[0]!.result).toBe('missing')
+    const right = await applyInterchange(bytes, [{ op: 'remove', pageIndex: 0, name: '', index: 0, subtype: 'Square' }])
+    expect(right.ok && right.outcomes[0]!.result).toBe('removed')
+    if (right.ok) expect((await inspectPdf(right.bytes)).annots).toEqual([])
+  })
+
+  it('reports each page at its displayed size', async () => {
+    const { pageSizes } = await inspectPdf(await blankSheet())
+    expect(pageSizes).toEqual([{ width: 1224, height: 792 }])
+  })
+})

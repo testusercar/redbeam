@@ -73,7 +73,7 @@ describe('the status line after a write', () => {
       { op: 'bake', pageIndex: 0, name: 'a', result: 'created' },
       { op: 'bake', pageIndex: 0, name: 'b', result: 'refused', reason: 'it is grouped in Bluebeam' },
     ], '.redbeam/backups/x.pdf', true)).toBe(
-      'Wrote 1 area in A-101.pdf. The previous file is in .redbeam/backups. 1 markup left as it was: it is grouped in Bluebeam.',
+      'wrote 1 area in A-101.pdf. The previous file is in .redbeam/backups. 1 markup left as it was: it is grouped in Bluebeam.',
     )
     expect(bakeSummary('A-101.pdf', [{ op: 'bake', pageIndex: 0, name: 'a', result: 'unchanged' }], null, false))
       .toBe('A-101.pdf already has this takeoff.')
