@@ -356,7 +356,7 @@ export function ShellHarness() {
 
   const active = SCOPES.find((s) => s.id === scope) ?? null
   const empty = moment === 'empty'
-  const pageCount = moment === 'scanning' || moment === 'opening' ? 0 : 12
+  const pageCount = moment === 'scanning' || moment === 'opening' || empty ? 0 : 12
   const pendingText = moment === 'scanning'
     ? 'Reading the project folder…'
     : moment === 'opening' ? 'Opening the drawing…' : null

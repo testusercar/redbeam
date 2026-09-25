@@ -770,8 +770,17 @@
   color: var(--ads-ink);
 }
 .dockbtn[aria-pressed="true"] > svg { color: var(--rb-accent); }
-.dockbtn:disabled { color: var(--ads-ink-3); cursor: default; }
-.dockbtn:disabled:hover { background: transparent; }
+/*
+ * Disabled is one treatment on every dock control: dim ink, no fill, no hover.
+ * Caption ink (--rb-ink-3) is reserved for a control that is waiting and can
+ * still be pressed — an unset scale, a scope not yet chosen — so a dead
+ * button does not wear the same colour as the next step.
+ */
+.dockbtn:disabled,
+.dockscale:disabled,
+.dockvalue:disabled { color: var(--rb-ink-dim); cursor: default; }
+.dockbtn:disabled:hover,
+.dockscale:disabled:hover { background: transparent; color: var(--rb-ink-dim); }
 
 .dockicon { padding-inline: 0; width: var(--ads-sp-7); justify-content: center; }
 
@@ -1089,7 +1098,8 @@
   cursor: pointer;
 }
 .docktakeoff:hover:not(:disabled) { background: var(--rb-accent-2); }
-.docktakeoff:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); cursor: default; }
+.docktakeoff:disabled { background: transparent; color: var(--rb-ink-dim); cursor: default; }
+.docktakeoff:disabled:hover { background: transparent; }
 
 /* ------------------------------------------------- right sidebar: estimates -- */
 
@@ -1985,7 +1995,7 @@
 .docktool { padding-inline: 0; width: var(--rb-dock-btn); justify-content: center; }
 .dockscaleshort { display: none; }
 .dockvalue.off { color: var(--rb-ink-dim); }
-/* No scope in hand: the pill names the state in the caption ink, and the dot goes grey. */
+/* No scope in hand: caption ink, and still a button. Disabled controls use --rb-ink-dim and no fill. */
 .dockscope.muted { color: var(--rb-ink-3); }
 .dockscope.muted .scopedot { background: var(--rb-ink-4); }
 /* Done: the same slot as Take off, outlined. Nothing else on the surface is filled. */
