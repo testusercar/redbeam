@@ -1,11 +1,14 @@
 /**
- * How REDBEAM is used, and a place to say what went wrong.
+ * How REDBEAM is used, and a small dialog for saying what went wrong.
  *
  * Written from the screens that exist: the start window, the sheet index,
  * the dock, the estimates sidebar, the updater, and Settings. Feedback is
- * collected here and not delivered — see `submitFeedback`.
+ * collected in a dialog the size of the release-notes one, and not delivered
+ * — see `submitFeedback`.
  */
-import { useState, type ClipboardEvent, type FormEvent } from 'react'
+import { useEffect, useState, type ClipboardEvent, type FormEvent } from 'react'
+import { useReturnFocus } from '../returnFocus.js'
+import { useFocusTrap } from '../shell/focusTrap.js'
 
 /**
  * Posting waits on a Worker-side Notion token for database
@@ -18,44 +21,7 @@ function submitFeedback(_note: string, _screenshot: string): void {
   // Unwired on purpose. The Worker has no Notion token yet.
 }
 
-export function HelpBody() {
-  const [note, setNote] = useState('')
-  const [shot, setShot] = useState<string | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
-
-  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
-    const item = [...e.clipboardData.items].find((i) => i.type.startsWith('image/'))
-    if (item === undefined) return
-    const file = item.getAsFile()
-    if (file === null) return
-    e.preventDefault()
-    const reader = new FileReader()
-    reader.onload = () => {
-      setShot(typeof reader.result === 'string' ? reader.result : null)
-      setStatus(null)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    const words = note.trim()
-    if (words === '') {
-      setStatus(null)
-      setProblem('Write a few words about what happened.')
-      return
-    }
-    if (shot === null) {
-      setStatus(null)
-      setProblem('Paste a screenshot.')
-      return
-    }
-    setProblem(null)
-    submitFeedback(words, shot)
-    setStatus('Not sent. This copy cannot deliver feedback yet.')
-  }
-
+export function HelpBody({ onFeedback }: { onFeedback: () => void }) {
   return (
     <div className="prefs-help">
       <section className="prefs-run" aria-labelledby="help-open">
@@ -148,14 +114,91 @@ export function HelpBody() {
 
       <section className="prefs-run" aria-labelledby="help-feedback">
         <h3 className="prefs-runtitle" id="help-feedback">Feedback</h3>
-        <p>A few words about what happened, and a screenshot. Paste the image into the box.</p>
-        <form className="prefs-group prefs-feedback" onSubmit={onSubmit}>
+        <p>A few words about what happened, and a screenshot.</p>
+        <p>
+          <button type="button" className="st-btn" onClick={onFeedback}>Send feedback</button>
+        </p>
+      </section>
+    </div>
+  )
+}
+
+/** A short note and a pasted screenshot. Same card as the release notes. */
+export function FeedbackDialog({ onClose }: { onClose: () => void }) {
+  const [note, setNote] = useState('')
+  const [shot, setShot] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
+  useReturnFocus(true)
+  const trap = useFocusTrap<HTMLDivElement>(true)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
+  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    const item = [...e.clipboardData.items].find((i) => i.type.startsWith('image/'))
+    if (item === undefined) return
+    const file = item.getAsFile()
+    if (file === null) return
+    e.preventDefault()
+    const reader = new FileReader()
+    reader.onload = () => {
+      setShot(typeof reader.result === 'string' ? reader.result : null)
+      setStatus(null)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    const words = note.trim()
+    if (words === '') {
+      setStatus(null)
+      setProblem('Write a few words about what happened.')
+      return
+    }
+    if (shot === null) {
+      setStatus(null)
+      setProblem('Paste a screenshot.')
+      return
+    }
+    setProblem(null)
+    submitFeedback(words, shot)
+    setStatus('Not sent. This copy cannot deliver feedback yet.')
+  }
+
+  return (
+    <div
+      className="feedback"
+      role="presentation"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        className="feedback-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feedback-title"
+        ref={trap}
+      >
+        <h2 id="feedback-title">Feedback</h2>
+        <form className="feedback-form" onSubmit={onSubmit}>
           <label className="prefs-label" htmlFor="help-note">What happened</label>
           <textarea
             id="help-note"
             className="prefs-note"
+            rows={3}
             value={note}
             placeholder="The scale on A-101 stayed blank after I calibrated."
+            autoFocus
             onChange={(e) => { setNote(e.target.value); setStatus(null) }}
           />
           <span className="prefs-label" id="help-shot-label">Screenshot</span>
@@ -171,15 +214,18 @@ export function HelpBody() {
               : <img src={shot} alt="Pasted screenshot" />}
           </div>
           {shot !== null && (
-            <button type="button" className="prefs-headlink" onClick={() => { setShot(null); setStatus(null) }}>
+            <button type="button" className="st-btn subtle" onClick={() => { setShot(null); setStatus(null) }}>
               Remove screenshot
             </button>
           )}
-          <button type="submit" className="act">Send feedback</button>
           {problem !== null && <p className="prefs-feedbackstatus" role="alert">{problem}</p>}
           {status !== null && <p className="prefs-feedbackstatus" role="status">{status}</p>}
+          <div className="feedback-actions">
+            <button type="submit" className="st-btn">Send feedback</button>
+            <button type="button" className="st-btn subtle" onClick={onClose}>Close</button>
+          </div>
         </form>
-      </section>
+      </div>
     </div>
   )
 }

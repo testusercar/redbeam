@@ -34,7 +34,7 @@ import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
 import { ChevronDown, ChevronLeft, ChevronUp, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
-import { HelpBody } from './HelpPage.js'
+import { FeedbackDialog, HelpBody } from './HelpPage.js'
 import './settings.css'
 
 interface Props {
@@ -62,7 +62,8 @@ function runs(): Array<{ title: string; roots: SettingDescriptor[] }> {
 
 export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
   useReturnFocus(true)
-  const trap = useFocusTrap<HTMLDivElement>(true)
+  const [feedback, setFeedback] = useState(false)
+  const trap = useFocusTrap<HTMLDivElement>(!feedback)
   const [values, setValues] = useState(() => store.all())
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -89,6 +90,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (feedback) return
       e.preventDefault()
       if (help) setHelp(false)
       else if (query !== '') setQuery('')
@@ -96,7 +98,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, query, help])
+  }, [onClose, query, help, feedback])
 
   const set = (id: string, raw: unknown) => setError(store.set(id, raw))
   const changed = store.modifiedCount()
@@ -142,6 +144,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
                 <b>{changed} changed</b> · Reset all
               </button>
             )}
+            <button type="button" className="prefs-headlink" onClick={() => setFeedback(true)}>Feedback</button>
             {help ? null : (
               <button type="button" className="prefs-headlink" onClick={() => setHelp(true)}>Help</button>
             )}
@@ -171,7 +174,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
             </div>
           )}
 
-          {help ? <HelpBody /> : null}
+          {help ? <HelpBody onFeedback={() => setFeedback(true)} /> : null}
 
           {!help && q !== '' && visible.length === 0 && (
             <p className="prefs-empty">No setting matches “{query.trim()}”.</p>
@@ -192,6 +195,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
           {!help && q === '' && <AboutRun />}
         </div>
       </div>
+      {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
     </div>
   )
 }

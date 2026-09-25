@@ -226,8 +226,9 @@
 .prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }
 .prefs-reportmsg { color: var(--rb-ink-2); }
 
-/* Release notes. Above Settings (250) so a launch modal stays in front. */
-.releasenotes {
+/* Release notes and feedback. Above Settings (250) so a launch modal stays in front. */
+.releasenotes,
+.feedback {
   position: fixed;
   inset: 0;
   z-index: 260;
@@ -235,7 +236,8 @@
   place-items: center;
   background: var(--ads-scrim);
 }
-.releasenotes-card {
+.releasenotes-card,
+.feedback-card {
   width: min(32rem, calc(100% - var(--ads-sp-8)));
   max-height: calc(100% - var(--ads-sp-8));
   display: flex;
@@ -248,7 +250,8 @@
   color: var(--rb-ink);
   box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
 }
-.releasenotes-card h2 {
+.releasenotes-card h2,
+.feedback-card h2 {
   margin: 0;
   font-size: var(--ads-text-lg);
   line-height: var(--ads-leading-lg);
@@ -268,12 +271,25 @@
   font-size: var(--ads-text-base);
   line-height: var(--ads-leading-base);
 }
-.releasenotes-actions {
+.releasenotes-actions,
+.feedback-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--ads-sp-2);
   margin-top: var(--ads-sp-2);
 }
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ads-sp-2);
+  min-height: 0;
+  overflow: auto;
+}
+.feedback-form .prefs-label { display: block; }
+.feedback-form .prefs-note,
+.feedback-form .prefs-shot,
+.feedback-form .feedback-actions { align-self: stretch; }
 
 .prefs-headlink {
   border: 0;
@@ -292,13 +308,6 @@
   color: var(--rb-ink-2);
   font-size: 13px;
   line-height: 18px;
-}
-.prefs-feedback {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--ads-sp-2);
-  padding: var(--ads-sp-4);
 }
 .prefs-note {
   width: 100%;
@@ -323,19 +332,12 @@
   border-radius: 4px;
   background: var(--rb-canvas);
 }
-.prefs-shot img { max-width: 100%; height: auto; }
-.prefs-feedback .act {
-  align-self: flex-start;
-  height: 32px;
-  padding: 0 var(--ads-sp-3);
-  border: 1px solid var(--rb-line-2);
-  border-radius: 4px;
-  background: var(--rb-raised);
-  color: var(--rb-ink);
-  font: 13px var(--ads-sans);
-  cursor: pointer;
+.prefs-shot img {
+  display: block;
+  max-width: 100%;
+  max-height: 8rem;
+  object-fit: contain;
 }
-.prefs-feedback .act:hover { background: var(--rb-hover); }
 .prefs-feedbackstatus {
   margin: 0;
   font-size: 12px;
