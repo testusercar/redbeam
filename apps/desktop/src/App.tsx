@@ -21,6 +21,7 @@ import { ShellHarness } from './shell/ShellHarness.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
+import { UpdateOffer } from './update/UpdateOffer.js'
 
 export default function App() {
   const identity = useMemo(() => getWindowRole(), [])
@@ -315,6 +316,7 @@ export default function App() {
               : {})}
           />
         </ErrorBoundary>
+        <UpdateOffer desktop={isTauri()} />
       </>
     )
   }
@@ -352,6 +354,7 @@ export default function App() {
             'path. Full-text search and multi-window are desktop-only.'
       }
     />
+    <UpdateOffer desktop={isTauri()} />
     </>
   )
 }

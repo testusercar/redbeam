@@ -1,16 +1,19 @@
 # Upload a signed REDBEAM NSIS build to the free-tier R2 bucket.
 # Installers and .sig files go up first. manifest.json goes up last.
 # This script does not read, copy, or accept the updater private key.
-# Signing already happened at build time via TAURI_SIGNING_PRIVATE_KEY_PATH.
+# Signing already happened at build time (TAURI_SIGNING_PRIVATE_KEY on
+# GitHub Actions, or TAURI_SIGNING_PRIVATE_KEY_PATH for a local build).
 #
-# From the repo root, on the XPS (PowerShell):
-#   .\workers\updater\publish.ps1 -Version 0.3.1 -Notes "What changed."
+# The release path is .github/workflows/release.yml. It calls this script
+# with -Yes. Nothing here logs into Cloudflare from a particular PC.
 #
-# First smoke on one architecture only:
-#   .\workers\updater\publish.ps1 -Version 0.3.1 -Notes "What changed." -AllowSingleArch
+#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -Yes
+#
+# One architecture, smoke only — the release workflow does not pass this:
+#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -Yes
 #
 # Plan the uploads and write manifest.json without calling wrangler:
-#   .\workers\updater\publish.ps1 -Version 0.3.1 -Notes "What changed." -DryRun
+#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -DryRun
 
 [CmdletBinding()]
 param(
@@ -22,7 +25,11 @@ param(
 
   [switch]$AllowSingleArch,
 
-  [switch]$DryRun
+  [switch]$DryRun,
+
+  # Skip the "type yes" prompt. Also skipped when CI or GITHUB_ACTIONS is
+  # true or 1. Does not skip the 512 MB stop or the two-architecture rule.
+  [switch]$Yes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,14 +95,15 @@ $found = @($candidates | Where-Object { $_.Found })
 $missing = @($candidates | Where-Object { -not $_.Found })
 
 if ($found.Count -eq 0) {
-  throw "No signed installer found for $Version. Build with TAURI_SIGNING_PRIVATE_KEY_PATH set, then rerun. Looked for:`n$($missing.Exe -join "`n")"
+  throw "No signed installer found for $Version. Build with the updater signing key set, then rerun. Looked for:`n$($missing.Exe -join "`n")"
 }
 if ($missing.Count -gt 0 -and -not $AllowSingleArch) {
   $lines = $missing | ForEach-Object { $_.Missing }
   throw @"
 Both architectures are required (see docs/UPDATES.md). Missing:
 $($lines -join "`n")
-Pass -AllowSingleArch only for the one-machine XPS smoke.
+Pass -AllowSingleArch only for a one-architecture smoke.
+The release workflow publishes every architecture it built.
 "@
 }
 
@@ -170,27 +178,49 @@ fs.writeFileSync(spec.outPath, JSON.stringify(manifest, null, 2) + '\n')
 if ($LASTEXITCODE -ne 0) { throw 'Could not write manifest.json from the .sig files.' }
 
 Write-Host "Wrote $manifestPath"
-Write-Host "Upload order (manifest last):"
+Write-Host "Upload order (manifest last, every put uses --remote):"
 foreach ($item in $found) {
-  Write-Host ("  {0}/{1}" -f $Bucket, $item.ExeName)
-  Write-Host ("  {0}/{1}" -f $Bucket, $item.SigName)
+  Write-Host ("  npx wrangler r2 object put {0}/{1} --remote" -f $Bucket, $item.ExeName)
+  Write-Host ("  npx wrangler r2 object put {0}/{1} --remote" -f $Bucket, $item.SigName)
 }
-Write-Host "  $Bucket/manifest.json"
+Write-Host "  npx wrangler r2 object put $Bucket/manifest.json --remote"
 
 if ($DryRun) {
   Write-Host 'Dry run: no wrangler upload, no prompt.'
-  exit 0
+  return
 }
 
-Write-Host "Confirm the Cloudflare dashboard for bucket $Bucket is under 8 GB Standard before continuing."
-$answer = Read-Host 'Type yes to upload'
-if ($answer -ne 'yes') { throw 'Stopped before any upload.' }
+function Test-NonInteractivePublish {
+  if ($Yes) { return $true }
+  foreach ($name in @('CI', 'GITHUB_ACTIONS')) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($null -eq $value) { continue }
+    if ($value -eq 'true' -or $value -eq '1') { return $true }
+  }
+  return $false
+}
+
+if (Test-NonInteractivePublish) {
+  Write-Host 'Non-interactive publish (-Yes, or CI=true). The 512 MB stop still applies.'
+  Write-Host "This does not read the Cloudflare dashboard. If bucket $Bucket is already near 8 GB, delete old REDBEAM_* objects first. DeleteObject is free."
+} else {
+  Write-Host "Confirm the Cloudflare dashboard for bucket $Bucket is under 8 GB Standard before continuing."
+  $answer = Read-Host 'Type yes to upload'
+  if ($answer -ne 'yes') { throw 'Stopped before any upload.' }
+}
 
 function Put-R2Object {
   param([string]$Key, [string]$File, [string]$ContentType)
-  Write-Host "put $Bucket/$Key"
-  & npx wrangler r2 object put "$Bucket/$Key" --file $File --content-type $ContentType
-  if ($LASTEXITCODE -ne 0) { throw "wrangler put failed for $Key. manifest.json was not uploaded." }
+  # --remote is required. Without it, wrangler writes to local Miniflare and
+  # the live worker's /health stays on whatever was published last.
+  Write-Host "put $Bucket/$Key --remote"
+  Push-Location $PSScriptRoot
+  try {
+    & npx --yes wrangler r2 object put "$Bucket/$Key" --file $File --content-type $ContentType --remote
+    if ($LASTEXITCODE -ne 0) { throw "wrangler put failed for $Key. manifest.json was not uploaded." }
+  } finally {
+    Pop-Location
+  }
 }
 
 foreach ($item in $found) {

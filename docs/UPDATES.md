@@ -1,24 +1,95 @@
 # In-place updates
 
-REDBEAM installs over itself. Settings → This copy checks a manifest, downloads
-the signed installer, and restarts into it. Nobody is emailed a new link.
+REDBEAM installs over itself. An installed copy checks the update channel when
+it launches, again every four hours while it stays open, and when the window
+is focused after at least thirty minutes. If a newer signed build is
+published, the same Settings row appears on its own: **Download and install**,
+then **Restart now**. The installer runs passive (`windows.installMode` in
+`tauri.conf.json`). Nothing installs itself, and nobody is emailed a new link.
 
-The mechanism has been in the app since the updater plugin was added
-(`windows.installMode: passive` in `apps/desktop/src-tauri/tauri.conf.json`).
-What was missing was a place for that check to look. This is that place: a
-Cloudflare Worker in `workers/updater` that reads a manifest and the installers
-from R2.
+Publishing that build does not use a particular PC. GitHub Actions on
+`windows-latest` builds, signs, and uploads. The XPS is not part of the path.
+
+## How to ship
+
+1. Bump `version` to the same dotted number in:
+   - `apps/desktop/src-tauri/tauri.conf.json`
+   - `apps/desktop/src-tauri/Cargo.toml` (`[package]`)
+   - `apps/desktop/package.json`
+   - `package.json`
+2. Commit and push that bump.
+3. Tag the commit and push the tag. The tag is `v` plus the version, for example `v0.3.2`. Annotated or lightweight both work; an annotated tag's message becomes the release notes.
+
+```powershell
+git tag -a v0.3.2 -m "What changed."
+git push origin v0.3.2
+```
+
+GitHub Actions then:
+
+- builds a signed x64 NSIS installer and a signed arm64 NSIS installer
+- uploads each installer and its `.sig`, then `manifest.json` last, with `wrangler r2 object put --remote`
+- attaches those files to a GitHub Release for the tag
+
+Installed copies see the update on the next check. The Worker reports
+`{"ok":true,"channel":"published"}` from `/health` once the manifest is up.
+
+`workflow_dispatch` (Actions → Release → Run workflow) is the same pipeline.
+It asks for the version and the notes. **Dry run defaults to on**: it builds
+and signs and writes the manifest, and it does not upload to R2 or open a
+GitHub Release. Turn dry run off to publish the commit you dispatched without
+pushing a tag. If the tag already points at a different commit, the workflow
+stops before uploading.
+
+`-AllowSingleArch` is not used here. A release publishes both architectures.
+That switch is only for a one-architecture smoke of `publish.ps1`.
+
+## Secrets
+
+The workflow reads GitHub Actions secrets. Cloud agents are not the builders.
+They already have the Cloudflare values below; those values are **not** copied
+into GitHub for you. Confirm the Actions secrets exist on the repository
+(Settings → Secrets and variables → Actions).
+
+| Secret | Where it has to be | What it is |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | GitHub Actions. Also already on cloud agents. | API token that can write the `redbeam-updates` R2 bucket and deploy the Worker. |
+| `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions. Also already on cloud agents. | The Cloudflare account that owns the bucket. Wrangler will not prompt for it. |
+| `TAURI_SIGNING_PRIVATE_KEY` | GitHub Actions only. **Not** on cloud agents. | The entire updater private key file, including its comment lines. Not a path. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | GitHub Actions, only if that key was created with a password. | Leave it unset when the password is empty. The workflow passes the secret through, and an unset secret is an empty string, which is what Tauri wants for an unencrypted key. |
+
+Nothing in the repo is that private key. Do not commit it. Do not put it in a
+cloud-agent secret to make this workflow run; the runner reads GitHub Actions
+secrets only.
+
+### One-time copy of the signing key
+
+The private key stays in `%USERPROFILE%\.redbeam\updater.key` on the XPS for
+anyone signing a build by hand. The release workflow cannot see that file.
+Once, paste the file's contents into the GitHub Actions secret
+`TAURI_SIGNING_PRIVATE_KEY`. After that, tagging a release does not touch the
+XPS.
+
+The public half in `tauri.conf.json` is minisign key id **F0ECFC2EF7375954**.
+That is the key that signed the published 0.3.1 installer. The older id
+`E3C6A68C64ABA8A6` does not verify that file. Paste the private key that
+matches **F0ECFC2EF7375954** — the one that was set as
+`TAURI_SIGNING_PRIVATE_KEY_PATH` when 0.3.1 was signed. Losing it strands every
+install that trusts it: they can then only be moved by handing someone a new
+installer.
 
 ## What is in the repo
 
 | Path | Role |
 | --- | --- |
+| `.github/workflows/release.yml` | Tag or dispatch → Windows NSIS build, sign, R2 publish, GitHub Release. |
 | `workers/updater/src/index.ts` | The worker. Manifest check, and a proxy for installer files. |
 | `workers/updater/src/manifest.ts` | Version compare and manifest parsing. Tested. No Cloudflare types. |
 | `workers/updater/wrangler.toml` | Worker name `redbeam-updates`, R2 binding `UPDATES`. No account id, no token. |
 | `workers/updater/manifest.example.json` | The shape to upload as `manifest.json`. Not uploaded by itself. |
-| `workers/updater/publish.ps1` | On Windows: upload the signed installers and `.sig` files, then `manifest.json` last. |
-| `apps/desktop/src-tauri/tauri.conf.json` | `plugins.updater.endpoints` and the public key. |
+| `workers/updater/publish.ps1` | Upload the signed installers and `.sig` files, then `manifest.json` last. Every put uses `--remote`. |
+| `workers/updater/assert-version.mjs` | Refuses a tag that does not match the versions committed in the tree. |
+| `apps/desktop/src-tauri/tauri.conf.json` | `plugins.updater.endpoints`, the public key, `installMode: passive`. |
 
 The endpoint configured today is:
 
@@ -26,9 +97,9 @@ The endpoint configured today is:
 https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
 ```
 
-`redbeam-updates.trackchairking.workers.dev` is the live Worker host (deployed 2026-09-23).
-Change this only if you redeploy under a different workers.dev or custom domain. Tauri substitutes
-`{{target}}`, `{{arch}}`, and `{{current_version}}` (for this app,
+`redbeam-updates.trackchairking.workers.dev` is the live Worker host. Change
+this only if you redeploy under a different workers.dev or custom domain. Tauri
+substitutes `{{target}}`, `{{arch}}`, and `{{current_version}}` (for this app,
 `windows`, `x86_64` or `aarch64`, and the version in `tauri.conf.json`).
 
 ## R2 layout
@@ -53,25 +124,27 @@ fetches it on its own.
 
 ```json
 {
-  "version": "0.3.1",
+  "version": "0.3.2",
   "notes": "What changed.",
-  "pub_date": "2026-09-23T00:00:00Z",
+  "pub_date": "2026-09-25T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "<entire contents of the x64 .sig file>",
-      "url": "https://<worker-host>/files/REDBEAM_0.3.1_x64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.2_x64-setup.exe"
     },
     "windows-aarch64": {
       "signature": "<entire contents of the arm64 .sig file>",
-      "url": "https://<worker-host>/files/REDBEAM_0.3.1_arm64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.2_arm64-setup.exe"
     }
   }
 }
 ```
 
-Both platforms belong in every manifest. A machine asks for its own key
-(`windows-x86_64` or `windows-aarch64`). A manifest that only has the other
-architecture is not an update for the one that is asking.
+Both platforms belong in every release manifest. A machine asks for its own
+key (`windows-x86_64` or `windows-aarch64`). A manifest that only has the
+other architecture is not an update for the one that is asking.
+`-AllowSingleArch` exists so a one-machine smoke can publish anyway. The
+release workflow does not pass it.
 
 Routes:
 
@@ -97,24 +170,27 @@ Infrequent Access is not included):
 
 Stop well before the storage cap. If the bucket dashboard is around **8 GB**,
 delete old `REDBEAM_*` objects before another publish. `DeleteObject` is a free
-operation. `publish.ps1` refuses a single publish larger than 512 MB, which a
-real NSIS installer is not, and it asks you to confirm the bucket is under 8 GB
-before it uploads anything.
+operation. `publish.ps1` refuses a single publish larger than 512 MB, warns at
+200 MB, and never sets a storage class. `-Yes` and `CI=true` skip the
+"type yes" prompt. They do not skip the 512 MB stop, and they do not look at
+the dashboard for you.
 
 Do not add a second bucket, do not set an R2 storage class, and do not set
 `[limits]` in `wrangler.toml` (that raises Worker CPU on the paid plan). A
-publish is a handful of Class A puts. The app's update check is one Class B
-read of `manifest.json`, then one read of the installer if the person installs it.
+publish is a handful of Class A puts. Each app check is one Class B read of
+`manifest.json`, then one read of the installer if the person installs it.
+Do not publish extra installers to try the pipeline. Use dry run.
 
-## Deploy
+`wrangler r2 object put` without `--remote` writes to local Miniflare. The
+live `/health` does not change. `publish.ps1` always passes `--remote`.
 
-The bucket `redbeam-updates` and the Worker are already deployed. Wrangler on
-the XPS must be logged into the account that owns them
-(`trackchairking@gmail.com`). The token stays in wrangler's own login, not in
-the repo. `wrangler.toml` has no account id.
+## Deploy the Worker
 
-Create the bucket only if `whoami` is that account and the bucket is actually
-missing:
+The bucket `redbeam-updates` and the Worker are already deployed. Wrangler
+authenticates with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. It does
+not need a login on a particular machine. `wrangler.toml` has no account id.
+
+Create the bucket only if it is actually missing:
 
 ```bash
 cd workers/updater
@@ -123,106 +199,73 @@ npx wrangler r2 bucket create redbeam-updates
 npx wrangler deploy
 ```
 
-After a worker change (the `/health` route is one), deploy again from that
-same directory. This cloud VM does not have the Cloudflare login.
+After a worker change, deploy again from that directory, with those two
+variables set. Then:
 
-```powershell
-cd workers\updater
-npx wrangler whoami
-npx wrangler deploy
-curl.exe https://redbeam-updates.trackchairking.workers.dev/health
+```bash
+curl -fsS https://redbeam-updates.trackchairking.workers.dev/health
 ```
 
-Until `manifest.json` is uploaded, that body is
-`{"ok":true,"channel":"empty"}`. A version check stays `503` with
+A published channel returns `{"ok":true,"channel":"published"}`. An empty
+bucket returns `"channel":"empty"`, and a version check stays `503` with
 `no manifest published`. Copy the hostname wrangler prints into
-`plugins.updater.endpoints` in `tauri.conf.json` only if the host changes.
-Rebuild the app so that URL is the one installed copies call.
+`plugins.updater.endpoints` only if the host changes. Rebuild so installed
+copies call the new URL.
 
-## Publish a release
+## publish.ps1 by hand
 
-The signing key already lives outside the repo, at
-`%USERPROFILE%\.redbeam\updater.key`. Do not commit it. The public half is
-already in `tauri.conf.json`. `publish.ps1` never reads that file.
+The release workflow is the way a version ships. The script is what that
+workflow runs, and it still runs on its own when you already have signed
+installers on disk. It never reads the private key.
 
-### Seed, then a newer build (Windows XPS)
-
-The copy you install has to be older than the manifest, or the check returns
-`204` and there is nothing to exercise. Build the seed at the version in
-`tauri.conf.json` (today `0.3.0`), install it, then bump and publish the next
-version. From `apps/desktop`, always name the target
-([PACKAGING.md](PACKAGING.md)). The XPS smoke can be the one architecture that
-machine is; a manifest you hand to anyone else should contain both.
+From the repo root:
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.redbeam\updater.key"
-npm run tauri:build:arm64
+.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -Yes
 ```
 
-Install the seed (the arch you just built; use `tauri:build:x64` instead when
-the machine is x64):
-
-```text
-apps\desktop\src-tauri\target\aarch64-pc-windows-msvc\release\bundle\nsis\REDBEAM_0.3.0_arm64-setup.exe
-```
-
-SmartScreen is expected on an unsigned installer: More info → Run anyway.
-Leave that copy installed. Do not upload `0.3.0` as the manifest you want this
-copy to notice.
-
-Bump `version` in `apps/desktop/src-tauri/tauri.conf.json` and
-`apps/desktop/src-tauri/Cargo.toml` (the installer name and the in-app version
-come from `tauri.conf.json`). Rebuild the same way so the new tree produces
-`REDBEAM_0.3.1_<arch>-setup.exe` and a `.sig` beside it. Build the other
-architecture too when you have it.
-
-From the repo root, upload installers and signatures, then the manifest last:
+One architecture, smoke only:
 
 ```powershell
-.\workers\updater\publish.ps1 -Version 0.3.1 -Notes "What changed."
+.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -Yes
 ```
 
-One architecture, for this XPS only:
-
-```powershell
-.\workers\updater\publish.ps1 -Version 0.3.1 -Notes "What changed." -AllowSingleArch
-```
+`-DryRun` writes `workers/updater/.publish/manifest.json` (gitignored) and
+prints the put order. It does not call wrangler and it does not prompt.
+`-Yes` skips the prompt. So does `CI=true` or `GITHUB_ACTIONS=true`.
 
 The script looks in `apps/desktop/src-tauri/target/<triple>/release/bundle/nsis/`
 for `REDBEAM_<version>_x64-setup.exe` and `REDBEAM_<version>_arm64-setup.exe`,
-each with a `.sig`. It writes `workers/updater/.publish/manifest.json` (gitignored)
-with the signature string from each `.sig` and these URLs, then runs, in order:
+each with a `.sig`. It then runs, in order:
 
 ```text
-npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.1_x64-setup.exe --file <exe> --content-type application/octet-stream
-npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.1_x64-setup.exe.sig --file <sig> --content-type "text/plain; charset=utf-8"
-npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.1_arm64-setup.exe --file <exe> --content-type application/octet-stream
-npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.1_arm64-setup.exe.sig --file <sig> --content-type "text/plain; charset=utf-8"
-npx wrangler r2 object put redbeam-updates/manifest.json --file workers\updater\.publish\manifest.json --content-type application/json
+npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.2_x64-setup.exe --file <exe> --content-type application/octet-stream --remote
+npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.2_x64-setup.exe.sig --file <sig> --content-type "text/plain; charset=utf-8" --remote
+npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.2_arm64-setup.exe --file <exe> --content-type application/octet-stream --remote
+npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.2_arm64-setup.exe.sig --file <sig> --content-type "text/plain; charset=utf-8" --remote
+npx wrangler r2 object put redbeam-updates/manifest.json --file workers\updater\.publish\manifest.json --content-type application/json --remote
 ```
 
-`-DryRun` writes the manifest and prints that order without calling wrangler
-and without the 8 GB prompt. A failed put stops the script before
-`manifest.json`, so a check never advertises a version whose installer is not
-there yet.
-
-Open the installed `0.3.0` copy → Settings → This copy → Check for updates.
-It should offer `0.3.1`. Download and install, restart, and the row should
-then say that version is the latest (`204` on the next check).
+A failed put stops the script before `manifest.json`, so a check never
+advertises a version whose installer is not there yet.
 
 ```powershell
 curl.exe https://redbeam-updates.trackchairking.workers.dev/health
-curl.exe -D - https://redbeam-updates.trackchairking.workers.dev/windows/aarch64/0.3.0
+curl.exe -D - https://redbeam-updates.trackchairking.workers.dev/windows/x86_64/0.3.0
 ```
 
 The path the app calls is `windows/x86_64` or `windows/aarch64`. The installer
 filename still says `x64` or `arm64`. An older version gets `200` and the
 manifest. The published version gets `204`.
 
-## What Settings does
+## What the app does
 
-The row is `UpdateRow` under This copy. It reads `UPDATES_CONFIGURED` from the
-same `tauri.conf.json` the updater plugin reads.
+The row is `UpdateRow` under This copy, and the same row is `UpdateOffer` at
+the top of the window while an update is waiting. Both read one check. The
+offer is not a dialog. Settings covers it, and Settings has the row too.
+
+It reads `UPDATES_CONFIGURED` from the same `tauri.conf.json` the updater
+plugin reads.
 
 | State | What the row says | Button |
 | --- | --- | --- |
@@ -233,11 +276,13 @@ same `tauri.conf.json` the updater plugin reads.
 | Manifest for a newer version | Version x.y.z is available. | Download and install |
 | Download | Downloading… and a percent when the length is known | none |
 | Install finished | Installed, and starts when you restart REDBEAM. | Restart now |
-| Network error, `503`, or the placeholder host | Could not check for updates: … | Check for updates |
+| Network error, `503`, or a bad response | Could not check for updates: … | Check for updates |
 
-Download and install uses the updater plugin's in-place install. It does not
-open a browser and it does not hand the estimator a link. Restart is
-`plugin-process` `relaunch`.
+Launch, the four-hour timer, and a focus check all call the same check. They
+do not download. Download and install uses the updater plugin's in-place
+install. It does not open a browser. Restart is `plugin-process` `relaunch`.
 
 A check that fails is not "you are up to date". That sentence is reserved for
-a manifest that says this version is current.
+a manifest that says this version is current. A failed automatic check does
+not raise the offer; the row in Settings says it could not check, and a later
+timer tries again.

@@ -3,9 +3,10 @@
 # Deploy from this directory:
 #   npx wrangler deploy
 #
-# The bucket name is the R2 bucket you create in the Cloudflare dashboard
+# The bucket name is the R2 bucket in the Cloudflare dashboard
 # (or `npx wrangler r2 bucket create redbeam-updates`). No account id and no
-# API token belong in this file — wrangler reads those from the login.
+# API token belong in this file. Wrangler reads CLOUDFLARE_API_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID from the environment. See docs/UPDATES.md.
 # Stay on the Workers free plan and one R2 Standard bucket. Do not set
 # [limits] (that is the paid CPU increase) and do not add a second bucket.
 name = "redbeam-updates"

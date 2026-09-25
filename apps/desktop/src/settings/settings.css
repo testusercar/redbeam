@@ -204,6 +204,23 @@
 }
 .prefs-card .act:hover { background: var(--rb-hover); }
 .prefs-card .act:disabled { color: var(--rb-ink-dim); cursor: default; }
+
+/* The launch check's offer. Same card as Settings, not a dialog.
+   Settings (z-index 250) covers it. Menus (100) stay above it. */
+.update-offer {
+  position: fixed;
+  top: calc(var(--rb-topbar-h) + var(--ads-sp-3));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  width: min(560px, calc(100% - 160px));
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-flyout);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+  pointer-events: auto;
+}
+.update-offer .prefs-card { background: transparent; }
 .prefs-reports { display: flex; flex-direction: column; gap: var(--ads-sp-1); margin-top: var(--ads-sp-1); font-size: 12px; line-height: 16px; }
 .prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
 .prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }

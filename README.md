@@ -102,9 +102,10 @@ single sidebar whose tabs expand.
 - **Accuracy against a human takeoff has not been measured.** The oracle exists;
   the comparison run (plan 07.2) has not been done, so every accuracy claim here
   is still self-consistency.
-- **Installers are unsigned.** The update endpoint is the live Worker at
-  `redbeam-updates.trackchairking.workers.dev`. Until a manifest is in R2, a
-  check fails and the updater says so rather than claiming the copy is current.
+- **Installers are unsigned** (SmartScreen). The update channel is the live
+  Worker at `redbeam-updates.trackchairking.workers.dev`. A release tag builds
+  and publishes from GitHub Actions; see `docs/UPDATES.md`. A check that
+  cannot reach a manifest says so rather than claiming the copy is current.
 
 ## Licence
 
