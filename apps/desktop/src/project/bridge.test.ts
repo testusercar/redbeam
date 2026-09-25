@@ -122,6 +122,27 @@ describe('desktop bridge', () => {
     })
   }
 
+  it('sends a drawing to write as a raw body, with its paths escaped in headers', async () => {
+    const sent: Array<{ cmd: string; body: Uint8Array; headers: Record<string, string> }> = []
+    const b = createProjectBridge({
+      desktop: true,
+      storage: null,
+      invokeRaw: async (cmd, body, headers) => {
+        sent.push({ cmd, body, headers })
+        return { fingerprint: 'f00d', backup: '.redbeam/backups/A-101 2026.pdf' } as never
+      },
+    })
+    const bytes = new Uint8Array([37, 80, 68, 70])
+    const out = await b.writeDocument('C:\\Jobs\\260415', 'PKG A/Plan é.pdf', bytes, 'abc')
+    expect(out).toEqual({ fingerprint: 'f00d', backup: '.redbeam/backups/A-101 2026.pdf' })
+    expect(sent[0]!.cmd).toBe('project_write_document')
+    expect(sent[0]!.body).toBe(bytes)
+    expect(decodeURIComponent(sent[0]!.headers['x-redbeam-document']!)).toBe('PKG A/Plan é.pdf')
+    expect(decodeURIComponent(sent[0]!.headers['x-redbeam-project']!)).toBe('C:\\Jobs\\260415')
+    expect(sent[0]!.headers['x-redbeam-expected']).toBe('abc')
+    for (const v of Object.values(sent[0]!.headers)) expect(v).toMatch(/^[\x21-\x7e]*$/)
+  })
+
   it('camelizes what project_open returns', async () => {
     const b = bridge({
       project_open: {

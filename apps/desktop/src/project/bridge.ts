@@ -26,6 +26,9 @@ import type {
 /** The shape of `invoke` this module needs. Injectable so tests need no runtime. */
 export type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
 
+/** `invoke` with a raw body: the bytes cross the IPC hop as bytes, not as JSON. */
+export type InvokeRawFn = <T>(cmd: string, body: Uint8Array, headers: Record<string, string>) => Promise<T>
+
 /** The slice of `Storage` the browser fallback uses. */
 export interface KeyValueStore {
   getItem(key: string): string | null
@@ -34,6 +37,7 @@ export interface KeyValueStore {
 
 export interface ProjectBridgeOptions {
   invoke?: InvokeFn
+  invokeRaw?: InvokeRawFn
   /** Override the environment check. */
   desktop?: boolean
   /** Where browser-mode recents live. Defaults to `localStorage`. */
@@ -54,6 +58,9 @@ const BROWSER_NO_SCAN =
 
 const BROWSER_NO_READ =
   'a browser tab cannot read a project file; run the desktop app'
+
+const BROWSER_NO_WRITE =
+  'a browser tab cannot write a drawing; run the desktop app'
 
 export interface ProjectBridge {
   /** True when the Rust core is reachable. */
@@ -99,6 +106,19 @@ export interface ProjectBridge {
    * of the few places where failing is better than degrading.
    */
   readDocument(projectPath: string, relativePath: string): Promise<Uint8Array>
+  /**
+   * Replace a drawing with new bytes: markup interchange writes REDBEAM's
+   * areas into the drawing itself. `expectedFingerprint` is the SHA-256 of
+   * the bytes the edit was made from; the core refuses the write if the file
+   * has changed since, and keeps a copy of the old file in `.redbeam/backups/`.
+   * Rejects in browser mode.
+   */
+  writeDocument(
+    projectPath: string,
+    relativePath: string,
+    bytes: Uint8Array,
+    expectedFingerprint?: string,
+  ): Promise<{ fingerprint: string; backup: string | null }>
 }
 
 // ------------------------------------------------------------- utilities --
@@ -249,6 +269,9 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
   const invoke: InvokeFn =
     opts.invoke ??
     (<T>(cmd: string, args?: Record<string, unknown>) => tauriInvoke<T>(cmd, args ?? {}))
+  const invokeRaw: InvokeRawFn =
+    opts.invokeRaw ??
+    (<T>(cmd: string, body: Uint8Array, headers: Record<string, string>) => tauriInvoke<T>(cmd, body, { headers }))
   const storage = opts.storage === undefined ? defaultStorage() : opts.storage
   const now = opts.now ?? (() => new Date())
 
@@ -431,6 +454,17 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       if (bytes instanceof Uint8Array) return bytes
       if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes)
       return new Uint8Array(bytes)
+    },
+
+    async writeDocument(projectPath, relativePath, bytes, expectedFingerprint) {
+      if (!desktop) throw new Error(BROWSER_NO_WRITE)
+      const raw = await invokeRaw<unknown>('project_write_document', bytes, {
+        'x-redbeam-project': encodeURIComponent(projectPath),
+        'x-redbeam-document': encodeURIComponent(relativePath),
+        ...(expectedFingerprint === undefined ? {} : { 'x-redbeam-expected': encodeURIComponent(expectedFingerprint) }),
+      })
+      const r = asRecord(raw)
+      return { fingerprint: str(r.fingerprint), backup: nullableStr(r.backup) }
     },
   }
 }

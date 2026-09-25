@@ -26,8 +26,8 @@ export interface BakeInput {
   annots: readonly PdfAnnot[]
   scopes: ReadonlyMap<string, BakeScope>
   layoutOf: (markupId: string) => Layout
-  /** Page index to feet per point. */
-  feetPerPoint: (pageIndex: number) => number | null
+  /** Feet per point for an outline on a page: its scale region's, else the page's. */
+  feetPerPoint: (pageIndex: number, ring: readonly Point[]) => number | null
   /** Page index to its box in points. */
   pageBox: (pageIndex: number) => { width: number, height: number } | null
   pageCount: number
@@ -83,7 +83,7 @@ export function planBake(input: BakeInput): BakePlan {
       ring: ring.map((p) => ({ x: p.x, y: p.y })),
     }
     const label = scope?.label ?? 'Unassigned'
-    const fpp = input.feetPerPoint(m.pageIndex)
+    const fpp = input.feetPerPoint(m.pageIndex, ring)
     const name = rec?.name ?? annotationName(m.id)
     const pageIndex = rec?.pageIndex ?? m.pageIndex
     ops.push({
