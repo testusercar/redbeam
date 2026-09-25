@@ -172,11 +172,190 @@ export interface ToolPillProps {
   /** Open the estimates panel, for a project with no round yet. */
   onOpenEstimates?: () => void
   /**
-   * Whether a drawing is open. With none, the read tools and Take off are
-   * disabled in place rather than hidden (board 3, 2026-09-18): the surface
-   * keeps its shape in every state so the hand learns one layout.
+   * Whether a drawing is open.
+   *
+   * With none, the read tools, Take off and the overflow are not mounted.
+   * They have nothing to act on, and a row of disabled controls reads as a
+   * broken bar. The scope pill stays: choosing where markups will land does
+   * not need a sheet. The sheet surface makes the same call from its page
+   * count.
    */
   documentOpen?: boolean
+}
+
+/**
+ * Where markups land: the round, then a scope of it.
+ *
+ * The closed pill and Take off use the same words. With nothing chosen it
+ * says "No round open", "Add a scope…", or "Choose a scope…", and Take off
+ * asks for that same step. The pill stays mounted with no drawing, because
+ * this choice does not need a sheet.
+ */
+function ScopeControl({
+  scopes, activeScope, onScope,
+  estimates = [], openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
+}: ToolPillProps) {
+  const [scopeOpen, setScopeOpen] = useState(false)
+  /*
+   * The round list is folded inside the popover. Switching a round used to
+   * be a row among the scopes and CLOSED the menu, so reaching a scope in
+   * another round took two openings and read as if the menu had misfired.
+   * Now the round is a header that unfolds its alternatives in place; picking
+   * one swaps the scope list beneath it and the menu stays open.
+   */
+  const [roundsOpen, setRoundsOpen] = useState(false)
+  const scopeRef = useDismiss(scopeOpen, () => setScopeOpen(false))
+  const scopeClamp = useClampedPopover<HTMLDivElement>(scopeOpen)
+  const active = scopes.find((s) => s.id === activeScope) ?? null
+  const round = estimates.find((e) => e.id === openEstimateId) ?? null
+  const switchable = onEstimate !== undefined && estimates.length > 0
+  const pillText = active?.label
+    ?? (round === null ? 'No round open' : scopes.length === 0 ? 'Add a scope…' : 'Choose a scope…')
+  const wantsAdd = active === null && round !== null && scopes.length === 0
+  const pillTitle = active !== null
+    ? `${round === null ? '' : `${round.name} › `}${active.label}`
+    : round === null
+      ? 'Open the estimates panel'
+      : scopes.length === 0
+        ? 'Add a scope'
+        : `${round.name} — choose a scope`
+
+  return (
+    <div ref={scopeRef} className="dockscopewrap" style={{ position: 'relative' }}>
+      <button
+        className={active === null ? 'dockscope muted' : 'dockscope'}
+        aria-haspopup="listbox"
+        aria-expanded={scopeOpen}
+        title={pillTitle}
+        onClick={() => setScopeOpen((v) => !v)}
+      >
+        {wantsAdd
+          ? <Glyph icon={Plus} role="small" />
+          : (
+            <span
+              className="scopedot"
+              style={active === null ? undefined : { background: active.color }}
+              aria-hidden="true"
+            />
+          )}
+        {/*
+          One line. It carried a second line reading "Active" under the scope
+          name — inside a 32px control, on the only scope the pill can show.
+          The dot already says which scope; nothing needed to say that the
+          selected one was selected.
+        */}
+        <span className="dockscopename">{pillText}</span>
+        <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
+      </button>
+      {scopeOpen && (
+        <div
+          className="dockmenu left scopemenu"
+          role="listbox"
+          aria-label="Round and scope"
+          ref={scopeClamp.ref}
+          style={scopeClamp.style}
+        >
+          {/*
+            THE ROUND, then ITS SCOPES. Markups land in a scope OF a round, so
+            the popover answers both questions in that order: which bid am I
+            in, and which product am I drawing. The round is a header that
+            can be unfolded to switch; the scopes are the list; adding a
+            scope is the foot. Nothing here closes the menu except choosing
+            a scope, which is the one thing the menu is for.
+          */}
+          <div className="scopemenuest">
+            <span className="menuhead">Round</span>
+            <button
+              className="scopemenuswitch"
+              aria-expanded={switchable ? roundsOpen : undefined}
+              disabled={!switchable}
+              title={switchable ? 'Switch round' : undefined}
+              onClick={() => { if (switchable) setRoundsOpen((v) => !v) }}
+            >
+              <Glyph icon={Round} role="row" />
+              <span className="scopemenuname">{round?.name ?? 'No round open'}</span>
+              {switchable && estimates.length > 1 && <Glyph icon={ChevronDown} role="small" />}
+            </button>
+          </div>
+          {switchable && roundsOpen && estimates.map((e) => (
+            <button
+              key={e.id}
+              className="menuitem scopemenuround"
+              role="option"
+              aria-selected={e.id === openEstimateId}
+              onClick={() => { onEstimate?.(e.id); setRoundsOpen(false) }}
+            >
+              <span className="grow">{e.name}</span>
+              {e.id === openEstimateId && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
+            </button>
+          ))}
+          <div className="menusep" />
+          <div className="menuhead">Scopes</div>
+          {scopes.length === 0 && (
+            <div className="menunote">
+              <span>
+                {round === null
+                  ? 'No round is open. Start one in Estimates; scopes live inside it.'
+                  : 'No scopes in this round yet. Add one and it becomes the target for what you draw.'}
+              </span>
+            </div>
+          )}
+          {scopes.map((sc) => {
+            const n = markupCountFor?.(sc.id)
+            return (
+              <button
+                key={sc.id}
+                className="menuitem scopemenurow"
+                role="option"
+                aria-selected={sc.id === activeScope}
+                title={`${sc.label} — ${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}${n === undefined ? '' : ` · ${n} markup${n === 1 ? '' : 's'}`}`}
+                onClick={() => { onScope(sc.id); setScopeOpen(false) }}
+              >
+                <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
+                <span className="scopemenutext">
+                  <span className="scopemenulabel">{sc.label}</span>
+                  <span className="scopemenusub">
+                    {PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}
+                    {n !== undefined && ` · ${n} markup${n === 1 ? '' : 's'}`}
+                  </span>
+                </span>
+                {sc.id === activeScope && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
+              </button>
+            )
+          })}
+          {round === null && onOpenEstimates !== undefined && (
+            <>
+              <div className="menusep" />
+              <button className="menuitem" onClick={() => { onOpenEstimates(); setScopeOpen(false) }}>
+                <Glyph icon={Round} role="inline" /><span className="grow">Open the estimates panel</span>
+              </button>
+            </>
+          )}
+          {onAddScope !== undefined && round !== null && (
+            <>
+              <div className="menusep" />
+              <button className="menuitem" onClick={() => { onAddScope(); setScopeOpen(false) }}>
+                <Glyph icon={Plus} role="inline" /><span className="grow">Add a scope…</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * No drawing. The scope pill is the one control that still has a job.
+ * Read tools, Take off, Done and the overflow are not mounted: no listeners,
+ * no popovers, no disabled buttons pretending to be a toolbar.
+ */
+function IdleWorkSurface(props: ToolPillProps) {
+  return (
+    <div className="dockgroup dockwork" role="group" aria-label="Scope">
+      <ScopeControl {...props} />
+    </div>
+  )
 }
 
 /**
@@ -204,33 +383,25 @@ export interface ToolPillProps {
  *    sidebar pages; this one holds only what a narrower drawing pushed out.)
  *
  * Which tier applies is CSS — `shell.css` keys it off a container query on
- * the viewport — so the component renders every control and every overflow
+ * the viewport — so this surface renders every control and every overflow
  * item, and `data-collapse` / `data-from` say which tier hides or reveals it.
+ * ToolPill does not mount this surface when no drawing is open.
  */
-export function ToolPill({
-  tool, onTool, scopes, activeScope, onScope, takeoff, onTakeoff,
-  estimates = [], openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
-  documentOpen = true,
-}: ToolPillProps) {
-  const [scopeOpen, setScopeOpen] = useState(false)
-  /*
-   * The round list is folded inside the popover. Switching a round used to
-   * be a row among the scopes and CLOSED the menu, so reaching a scope in
-   * another round took two openings and read as if the menu had misfired.
-   * Now the round is a header that unfolds its alternatives in place; picking
-   * one swaps the scope list beneath it and the menu stays open.
-   */
-  const [roundsOpen, setRoundsOpen] = useState(false)
+export function ToolPill(props: ToolPillProps) {
+  if (props.documentOpen === false) return <IdleWorkSurface {...props} />
+  return <WorkSurface {...props} />
+}
+
+function WorkSurface(props: ToolPillProps) {
+  const {
+    tool, onTool, scopes, activeScope, takeoff, onTakeoff,
+    estimates = [], openEstimateId = null,
+  } = props
   const [moreOpen, setMoreOpen] = useState(false)
-  const scopeRef = useDismiss(scopeOpen, () => setScopeOpen(false))
   const moreRef = useDismiss(moreOpen, () => setMoreOpen(false))
-  /* Anchored to the pill, kept inside the viewport — see popover.ts. */
-  const scopeClamp = useClampedPopover<HTMLDivElement>(scopeOpen)
   const moreClamp = useClampedPopover<HTMLDivElement>(moreOpen)
   const active = scopes.find((s) => s.id === activeScope) ?? null
   const round = estimates.find((e) => e.id === openEstimateId) ?? null
-  const switchable = onEstimate !== undefined && estimates.length > 0
-
   /*
    * A tool button: the glyph, Filled when in hand, and a label the Spacious
    * tier shows. `collapse` names the tier that hides it; the read tools and
@@ -244,8 +415,7 @@ export function ToolPill({
       data-collapse={collapse}
       aria-pressed={tool === t.id}
       aria-label={t.label}
-      title={documentOpen ? (t.title ?? t.label) : 'Open a drawing first'}
-      disabled={!documentOpen}
+      title={t.title ?? t.label}
       onClick={() => onTool(t.id as Tool)}
     >
       <Glyph icon={t.icon} role="inline" filled={tool === t.id} />
@@ -253,15 +423,14 @@ export function ToolPill({
     </button>
   )
 
-  /* What the pill says when no scope is active: the state, not a blank. */
-  const pillText = active?.label
-    ?? (round === null ? 'No round open' : scopes.length === 0 ? 'Add a scope…' : 'Choose a scope…')
-  const wantsScope = active === null && round !== null && scopes.length === 0
-  const takeoffTitle = !documentOpen
-    ? 'Open a drawing first'
-    : round === null
-      ? 'Start a round first'
-      : active === null ? 'Choose a scope first' : `Start takeoff on ${active.label}`
+  /* Same verbs as the scope pill: the button is waiting on that step. */
+  const takeoffTitle = round === null
+    ? 'Start a round first'
+    : active !== null
+      ? `Start takeoff on ${active.label}`
+      : scopes.length === 0
+        ? 'Add a scope first'
+        : 'Choose a scope first'
 
   return (
     /*
@@ -273,131 +442,7 @@ export function ToolPill({
     <div className="dockgroup dockwork" role="toolbar" aria-label="Read the sheet and take off">
       {READ_TOOLS.map((t) => toolButton(t, 'read'))}
       <span className="dockrule" aria-hidden="true" />
-
-      <div ref={scopeRef} className="dockscopewrap" style={{ position: 'relative' }}>
-        <button
-          className={active === null ? 'dockscope muted' : 'dockscope'}
-          aria-haspopup="listbox"
-          aria-expanded={scopeOpen}
-          title={active === null
-            ? (round === null ? 'Choose the estimate and scope markups land in' : `${round.name} — choose a scope`)
-            : `${round === null ? '' : `${round.name} › `}${active.label}`}
-          onClick={() => setScopeOpen((v) => !v)}
-        >
-          {wantsScope
-            ? <Glyph icon={Plus} role="small" />
-            : (
-              <span
-                className="scopedot"
-                style={active === null ? undefined : { background: active.color }}
-                aria-hidden="true"
-              />
-            )}
-          {/*
-            One line. It carried a second line reading "Active" under the scope
-            name — inside a 32px control, on the only scope the pill can show.
-            The dot already says which scope; nothing needed to say that the
-            selected one was selected.
-          */}
-          <span className="dockscopename">{pillText}</span>
-          <Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} />
-        </button>
-        {scopeOpen && (
-          <div
-            className="dockmenu left scopemenu"
-            role="listbox"
-            aria-label="Estimate and scope"
-            ref={scopeClamp.ref}
-            style={scopeClamp.style}
-          >
-            {/*
-              THE ROUND, then ITS SCOPES. Markups land in a scope OF a round, so
-              the popover answers both questions in that order: which bid am I
-              in, and which product am I drawing. The round is a header that
-              can be unfolded to switch; the scopes are the list; adding a
-              scope is the foot. Nothing here closes the menu except choosing
-              a scope, which is the one thing the menu is for.
-            */}
-            <div className="scopemenuest">
-              <span className="menuhead">Estimate</span>
-              <button
-                className="scopemenuswitch"
-                aria-expanded={switchable ? roundsOpen : undefined}
-                disabled={!switchable}
-                title={switchable ? 'Switch round' : undefined}
-                onClick={() => { if (switchable) setRoundsOpen((v) => !v) }}
-              >
-                <Glyph icon={Round} role="row" />
-                <span className="scopemenuname">{round?.name ?? 'No estimate open'}</span>
-                {switchable && estimates.length > 1 && <Glyph icon={ChevronDown} role="small" />}
-              </button>
-            </div>
-            {switchable && roundsOpen && estimates.map((e) => (
-              <button
-                key={e.id}
-                className="menuitem scopemenuround"
-                role="option"
-                aria-selected={e.id === openEstimateId}
-                onClick={() => { onEstimate(e.id); setRoundsOpen(false) }}
-              >
-                <span className="grow">{e.name}</span>
-                {e.id === openEstimateId && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
-              </button>
-            ))}
-            <div className="menusep" />
-            <div className="menuhead">Scopes</div>
-            {scopes.length === 0 && (
-              <div className="menunote">
-                <span>
-                  {round === null
-                    ? 'No estimate is open. Start one in the Estimates panel; scopes live inside it.'
-                    : 'No scopes in this estimate yet. Add one and it becomes the target for what you draw.'}
-                </span>
-              </div>
-            )}
-            {scopes.map((sc) => {
-              const n = markupCountFor?.(sc.id)
-              return (
-                <button
-                  key={sc.id}
-                  className="menuitem scopemenurow"
-                  role="option"
-                  aria-selected={sc.id === activeScope}
-                  title={`${sc.label} — ${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}${n === undefined ? '' : ` · ${n} markup${n === 1 ? '' : 's'}`}`}
-                  onClick={() => { onScope(sc.id); setScopeOpen(false) }}
-                >
-                  <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
-                  <span className="scopemenutext">
-                    <span className="scopemenulabel">{sc.label}</span>
-                    <span className="scopemenusub">
-                      {PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]}
-                      {n !== undefined && ` · ${n} markup${n === 1 ? '' : 's'}`}
-                    </span>
-                  </span>
-                  {/* The Filled glyph in the accent: the same rule the rail follows. */}
-                  {sc.id === activeScope && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
-                </button>
-              )
-            })}
-            {round === null && onOpenEstimates !== undefined && (
-              <>
-                <div className="menusep" />
-                <button className="menuitem" onClick={() => { onOpenEstimates(); setScopeOpen(false) }}>
-                  <Glyph icon={Round} role="inline" /><span className="grow">Open the estimates panel</span>
-                </button>
-              </>
-            )}
-            {onAddScope !== undefined && round !== null && (
-              <>
-                <div className="menusep" />
-                <button className="menuitem" onClick={() => { onAddScope(); setScopeOpen(false) }}>
-                  <Glyph icon={Plus} role="inline" /><span className="grow">Add scope…</span>
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <ScopeControl {...props} />
 
       {/*
         ONE SLOT, TWO STATES. At rest it is the accent Take off — the one
@@ -407,7 +452,7 @@ export function ToolPill({
       {!takeoff && (
         <button
           className="docktakeoff"
-          disabled={active === null || !documentOpen}
+          disabled={active === null}
           title={takeoffTitle}
           onClick={() => onTakeoff(true)}
         >
@@ -463,7 +508,6 @@ export function ToolPill({
                 role="menuitemradio"
                 aria-checked={tool === t.id}
                 data-from="minimum"
-                disabled={!documentOpen}
                 onClick={() => { onTool(t.id as Tool); setMoreOpen(false) }}
               >
                 <Glyph icon={t.icon} role="inline" filled={tool === t.id} />
@@ -553,7 +597,22 @@ export interface DocumentPillProps {
   onFitWidth: () => void
 }
 
-export function DocumentPill({
+export function DocumentPill(props: DocumentPillProps) {
+  /*
+   * No sheet, and no half-finished gesture waiting on one. Page, zoom, scale
+   * and their overflow have nothing to act on, so none of that state or those
+   * listeners is mounted. A pinned calibration or region still needs the
+   * control, even if the page count has not caught up.
+   */
+  const sheetMissing = props.pageCount === 0
+    && props.calibration === undefined
+    && props.pendingRegion === undefined
+    && props.regions?.toolActive !== true
+  if (sheetMissing) return null
+  return <SheetSurface {...props} />
+}
+
+function SheetSurface({
   page, pageCount, onPage, feetPerPoint, onPreset, onCalibrate, onDrawRegion, onApplyToAll,
   regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth,
 }: DocumentPillProps) {

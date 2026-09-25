@@ -286,6 +286,61 @@ describe('the dock', () => {
     for (const item of items) expect(item, item).toMatch(/data-from="(compact|minimum)"/)
   })
 
+  /**
+   * No drawing: the scope pill stays, because choosing where markups land
+   * does not need a sheet. The read tools, Take off and the overflow are a
+   * different component and are not mounted — no disabled row, no listeners.
+   */
+  it('leaves the tools unmounted when no drawing is open', () => {
+    const gate = src.slice(src.indexOf('export function ToolPill('), src.indexOf('function WorkSurface('))
+    expect(gate).toContain('props.documentOpen === false')
+    expect(gate).toContain('<IdleWorkSurface')
+    const idle = src.slice(src.indexOf('function IdleWorkSurface('), src.indexOf('export function ToolPill('))
+    expect(idle).toContain('aria-label="Scope"')
+    expect(idle).not.toContain('READ_TOOLS')
+    expect(idle).not.toContain('docktakeoff')
+    expect(idle).not.toContain('dockmore')
+    expect(idle).not.toContain('useDismiss')
+    expect(idle).not.toContain('useClampedPopover')
+  })
+
+  /**
+   * No sheet: page, zoom, scale and their overflow are not mounted, unless a
+   * calibration or a region is already waiting — that control is the question.
+   */
+  it('leaves the sheet controls unmounted when there is no sheet', () => {
+    const gate = src.slice(src.indexOf('export function DocumentPill('), src.indexOf('function SheetSurface('))
+    expect(gate).toContain('props.pageCount === 0')
+    expect(gate).toContain('props.calibration === undefined')
+    expect(gate).toContain('props.pendingRegion === undefined')
+    expect(gate).toContain('props.regions?.toolActive !== true')
+    expect(gate).toContain('return null')
+    expect(gate).not.toContain('useDismiss')
+    expect(gate).not.toContain('useState')
+  })
+
+  /**
+   * The closed pill, the menu and Take off use one set of words. "Add a scope…"
+   * is the phrase in both places; a missing round is "No round open" on the
+   * pill and in the menu, and Take off says to start one.
+   */
+  it('uses the same words for a missing round and a missing scope', () => {
+    const scope = src.slice(src.indexOf('function ScopeControl('), src.indexOf('function IdleWorkSurface('))
+    expect(scope).toContain("'No round open'")
+    expect(scope).toContain("'Add a scope…'")
+    expect(scope).toContain("'Choose a scope…'")
+    expect(scope).toContain('>Add a scope…</span>')
+    expect(scope).toContain("round?.name ?? 'No round open'")
+    expect(scope).not.toContain('No estimate open')
+    expect(scope).not.toContain('Add scope…')
+    const work = src.slice(src.indexOf('function WorkSurface('), src.indexOf('export function DocumentPill('))
+    expect(work).toContain('Start a round first')
+    expect(work).toContain('Add a scope first')
+    expect(work).toContain('Choose a scope first')
+    expect(work).not.toContain('Open a drawing first')
+    expect(work).not.toContain('disabled={!documentOpen}')
+  })
+
   /** One slot, two states: the accent Take off at rest, an outlined Done in takeoff. */
   it('puts Done where Take off was, not an × after the tools', () => {
     const pill = src.slice(src.indexOf('export function ToolPill('), src.indexOf('export function DocumentPill('))
