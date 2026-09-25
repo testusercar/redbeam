@@ -135,10 +135,12 @@ npm run tauri:build:x64
 npm run tauri:build:arm64
 ```
 
-Each build emits a `.sig` beside the NSIS installer. `workers/updater/publish.ps1`
-uploads those installers and `.sig` files with `wrangler --remote`, then writes
-and uploads `manifest.json` last. It does not read the private key. The release
-workflow is what calls it for a version you ship. `scripts/build-arm64.cmd` is
+Each build emits a `.sig` beside the NSIS installer. The release workflow
+calls `workers/updater/publish.ps1`, which uploads those installers and
+`.sig` files with `wrangler --remote`, then `manifest.json` last, in the
+same run as the GitHub Release. The script does not read the private key,
+and it refuses that upload from a PC (use `-DryRun` there).
+`scripts/build-arm64.cmd` is
 the native ARM64 machine script. GitHub Actions cross-compiles arm64 on
 `windows-latest` instead, and passes `--bundles nsis` because WiX has no
 arm64 bundle.

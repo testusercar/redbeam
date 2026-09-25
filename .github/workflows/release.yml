@@ -1,13 +1,19 @@
 # Build signed Windows installers and publish them to the update channel.
 #
-# Ship path: bump the version, commit, tag vMAJOR.MINOR.PATCH, push the tag.
-# This workflow builds x64 and arm64 NSIS on windows-latest, signs them with
-# TAURI_SIGNING_PRIVATE_KEY, and runs workers/updater/publish.ps1, which puts
-# the installers and .sig files and then manifest.json, all with wrangler
-# --remote. No step runs on a particular PC.
+# Ship path: bump the version, commit, tag an annotated vMAJOR.MINOR.PATCH
+# (the tag message is the change notes), push the tag. This workflow builds
+# x64 and arm64 NSIS on windows-latest and signs them with
+# TAURI_SIGNING_PRIVATE_KEY. A live run then, in order: writes the change
+# notes (and fails if they are empty), opens a draft GitHub Release with
+# those notes and the four installer files, runs workers/updater/publish.ps1
+# (installers and .sig files, then manifest.json, all with wrangler --remote),
+# marks that release published, and checks the release plus Worker /health.
+# If the R2 upload fails, the draft release is deleted. No step runs on a
+# particular PC, and nothing uploads to R2 without that release in the same run.
 #
 # workflow_dispatch is the same pipeline with a dry_run switch (default on)
-# so a click in the Actions tab does not upload another installer.
+# so a click in the Actions tab does not upload another installer or open a
+# release. A live dispatch requires non-empty notes.
 # Tags must be vMAJOR.MINOR.PATCH. v1.2.3-beta fails the version check.
 
 name: Release
@@ -23,11 +29,11 @@ on:
         required: true
         type: string
       notes:
-        description: "Release notes the installed app shows with the update."
+        description: "Change notes for the updater and the GitHub Release. Required when dry run is off. Whitespace-only notes fail the job before any release or upload."
         required: true
         type: string
       dry_run:
-        description: "Build and sign, write the manifest, and do not upload to R2 or GitHub Releases."
+        description: "Build and sign, write the manifest, and do not upload to R2 or open a GitHub Release."
         required: false
         type: boolean
         default: true
@@ -135,6 +141,7 @@ jobs:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run == true || inputs.dry_run == 'true') && 'true' || 'false' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -179,16 +186,20 @@ jobs:
             }
           }
 
-      - name: Publish to R2
-        id: channel
+      # Notes are resolved once, before any GitHub Release or R2 upload.
+      # A live run fails here when the notes are missing. Dry run still
+      # writes release-notes.txt and does not fail on empty notes.
+      - name: Resolve version and change notes
+        id: notes
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
           $version = node workers/updater/assert-version.mjs $env:RELEASE_VERSION
           if ($LASTEXITCODE -ne 0) { throw "version check failed" }
           $version = "$version".Trim()
           $tag = "v$version"
-          # A missing tag is the workflow_dispatch case: the release step creates it.
-          # git exiting 1 must not fail the step.
+          # A missing tag is the workflow_dispatch case. git exiting 1 must not fail the step.
           $saved = $ErrorActionPreference
           $ErrorActionPreference = 'Continue'
           $existing = git rev-parse --verify "refs/tags/${tag}^{commit}" 2>$null
@@ -200,34 +211,181 @@ jobs:
               throw "Tag $tag points at $($existing.Trim()), not $head. Refusing to publish this commit over that tag."
             }
           }
-          $notes = $env:RELEASE_NOTES
-          if ([string]::IsNullOrWhiteSpace($notes)) {
-            $notes = (git tag -l --format='%(contents)' $tag | Out-String).Trim()
-            if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "REDBEAM $version" }
+          $live = $env:DRY_RUN -ne 'true'
+          $dispatch = $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch'
+          if ($dispatch) {
+            $notes = "$env:RELEASE_NOTES".Trim()
+            if ($live -and [string]::IsNullOrWhiteSpace($notes)) {
+              throw "workflow_dispatch live publish requires non-empty notes. Fill in the notes input and run again. Refusing to publish without change notes."
+            }
+          } else {
+            if (-not $tagExists) {
+              throw "Tag $tag is not on this checkout. Push an annotated tag (git tag -a $tag -m `"What changed.`") or run workflow_dispatch with notes. Refusing to publish without change notes."
+            }
+            $ErrorActionPreference = 'Continue'
+            $tagTypeRaw = @(git cat-file -t $tag 2>$null)
+            $tagTypeCode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            $tagType = ($tagTypeRaw -join "`n").Trim()
+            if ($tagTypeCode -ne 0 -or $tagType -ne 'tag') {
+              throw "Tag $tag is not annotated. Create it with: git tag -a $tag -m `"What changed.`" and push that tag. Or run workflow_dispatch with notes. Refusing to publish without change notes."
+            }
+            $ErrorActionPreference = 'Continue'
+            # Join lines ourselves. Out-String wraps at the console width and
+            # would break a long tag message.
+            $noteLines = @(git tag -l --format='%(contents)' $tag)
+            $notesCode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            if ($notesCode -ne 0) { throw "Could not read the message of tag $tag." }
+            $notes = ($noteLines -join "`n").Trim()
+            if ([string]::IsNullOrWhiteSpace($notes)) {
+              throw "Annotated tag $tag has an empty message. Recreate it with: git tag -a $tag -m `"What changed.`" Or run workflow_dispatch with notes. Refusing to publish without change notes."
+            }
           }
-          Set-Content -Path release-notes.txt -Value $notes -Encoding utf8NoBOM
+          if ($live -and [string]::IsNullOrWhiteSpace($notes)) {
+            throw "Live publish requires change notes. Refusing to publish without change notes."
+          }
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'release-notes.txt'), $notes, $utf8)
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8NoBOM
+          Write-Host "Change notes for $tag ($($notes.Length) characters)."
+
+      # Draft first. gh (not a second softprops upload) because the release
+      # API's get-by-tag endpoint does not return drafts, so a later step
+      # cannot look the draft up that way. --draft keeps it unpublished
+      # while the assets upload.
+      - name: Create draft GitHub Release
+        id: draft_release
+        if: env.DRY_RUN != 'true'
+        shell: pwsh
+        env:
+          NOTES_VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = "$env:NOTES_VERSION".Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "version output is empty" }
+          $tag = "v$version"
+          $repo = $env:GITHUB_REPOSITORY
+          $errFile = Join-Path ([IO.Path]::GetTempPath()) "gh-release-view-$tag.txt"
+          $ErrorActionPreference = 'Continue'
+          $viewLines = @(gh release view $tag --repo $repo --json isDraft,tagName 2>$errFile)
+          $viewCode = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          $errText = ''
+          if (Test-Path -LiteralPath $errFile) { $errText = [IO.File]::ReadAllText($errFile).Trim() }
+          if ($viewCode -eq 0) {
+            $rel = ($viewLines -join "`n") | ConvertFrom-Json
+            if (-not $rel.isDraft) {
+              throw "GitHub Release $tag is already published. Refusing to upload to R2 over it."
+            }
+            Write-Host "Replacing leftover draft $tag from an earlier run."
+            & gh release delete $tag --yes --repo $repo
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete leftover draft $tag." }
+          } elseif ($viewCode -eq 1 -and $errText -match 'release not found') {
+            Write-Host "No GitHub Release $tag yet."
+          } else {
+            throw "Could not look up GitHub Release $tag (gh exit $viewCode). $errText"
+          }
+          function One-Artifact {
+            param([string]$Dir, [string]$Filter)
+            $items = @(Get-ChildItem -LiteralPath $Dir -Filter $Filter -File)
+            if ($items.Count -ne 1) { throw "Expected one $Filter in $Dir, found $($items.Count)." }
+            return $items[0].FullName
+          }
+          $x64 = 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+          $arm = 'apps/desktop/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis'
+          $files = @(
+            (One-Artifact $x64 '*-setup.exe')
+            (One-Artifact $x64 '*-setup.exe.sig')
+            (One-Artifact $arm '*-setup.exe')
+            (One-Artifact $arm '*-setup.exe.sig')
+          )
+          $notesPath = (Resolve-Path -LiteralPath 'release-notes.txt').Path
+          & gh release create $tag --repo $repo --draft --target $env:GITHUB_SHA --title $tag --notes-file $notesPath @files
+          if ($LASTEXITCODE -ne 0) { throw "Could not create draft GitHub Release $tag." }
+          $createdLines = @(gh release view $tag --repo $repo --json isDraft,body)
+          if ($LASTEXITCODE -ne 0) { throw "Draft GitHub Release $tag was not created." }
+          $check = ($createdLines -join "`n") | ConvertFrom-Json
+          $expected = [IO.File]::ReadAllText($notesPath).Replace("`r`n", "`n").Trim()
+          $actual = "$($check.body)".Replace("`r`n", "`n").Trim()
+          if (-not $check.isDraft -or [string]::IsNullOrWhiteSpace($actual) -or $actual -ne $expected) {
+            & gh release delete $tag --yes --repo $repo
+            if ($LASTEXITCODE -ne 0) { throw "GitHub Release $tag was not a draft with these notes, and deleting it failed. Refusing to upload to R2." }
+            throw "GitHub Release $tag was not a draft with these notes. Deleted it. Refusing to upload to R2."
+          }
+
+      - name: Publish to R2
+        id: r2
+        if: env.DRY_RUN == 'true' || steps.draft_release.outcome == 'success'
+        shell: pwsh
+        env:
+          NOTES_VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = "$env:NOTES_VERSION".Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "version output is empty" }
+          $notesPath = Join-Path (Get-Location) 'release-notes.txt'
+          if (-not (Test-Path -LiteralPath $notesPath)) { throw "release-notes.txt was not written." }
+          $notes = [IO.File]::ReadAllText($notesPath)
+          if ($env:DRY_RUN -ne 'true' -and [string]::IsNullOrWhiteSpace($notes)) {
+            throw "release-notes.txt is empty. Refusing to upload."
+          }
           $publishArgs = @('-Version', $version, '-Notes', $notes, '-Yes')
           if ($env:DRY_RUN -eq 'true') { $publishArgs += '-DryRun' }
           & .\workers\updater\publish.ps1 @publishArgs
           if ($LASTEXITCODE -ne 0) { throw "publish.ps1 failed" }
-          if ($env:DRY_RUN -eq 'true') { return }
+
+      - name: Delete draft GitHub Release
+        if: failure() && env.DRY_RUN != 'true' && steps.draft_release.outcome == 'success' && steps.r2.outcome == 'failure'
+        shell: pwsh
+        env:
+          NOTES_VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = "$env:NOTES_VERSION".Trim()
+          $tag = "v$version"
+          Write-Host "R2 publish failed. Deleting draft GitHub Release $tag."
+          & gh release delete $tag --yes --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "Could not delete draft GitHub Release $tag. Delete it before retrying." }
+
+      - name: Publish GitHub Release
+        id: publish_release
+        if: env.DRY_RUN != 'true' && steps.r2.outcome == 'success'
+        shell: pwsh
+        env:
+          NOTES_VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = "$env:NOTES_VERSION".Trim()
+          $tag = "v$version"
+          $notesPath = (Resolve-Path -LiteralPath 'release-notes.txt').Path
+          & gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --notes-file $notesPath
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish GitHub Release $tag. It is still a draft." }
+
+      - name: Verify GitHub Release and update channel
+        if: env.DRY_RUN != 'true' && steps.r2.outcome == 'success' && steps.publish_release.outcome == 'success'
+        shell: pwsh
+        env:
+          NOTES_VERSION: ${{ steps.notes.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = "$env:NOTES_VERSION".Trim()
+          $tag = "v$version"
+          $jsonLines = @(gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft,tagName,body)
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release $tag does not exist." }
+          $rel = ($jsonLines -join "`n") | ConvertFrom-Json
+          if ($rel.isDraft) { throw "GitHub Release $tag is still a draft." }
+          $expected = [IO.File]::ReadAllText((Resolve-Path -LiteralPath 'release-notes.txt')).Replace("`r`n", "`n").Trim()
+          $actual = "$($rel.body)".Replace("`r`n", "`n").Trim()
+          if ($actual -ne $expected) { throw "GitHub Release $tag notes do not match release-notes.txt." }
           $health = curl.exe -fsS https://redbeam-updates.trackchairking.workers.dev/health
+          if ($LASTEXITCODE -ne 0) { throw "Worker /health request failed." }
           Write-Host $health
           if ($health -notmatch '"channel":"published"') {
             throw "Worker health did not report a published channel: $health"
           }
-
-      - name: GitHub Release
-        if: env.DRY_RUN != 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.channel.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          body_path: release-notes.txt
-          fail_on_unmatched_files: true
-          files: |
-            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sig
-            apps/desktop/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-            apps/desktop/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sig

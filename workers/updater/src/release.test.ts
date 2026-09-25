@@ -62,4 +62,61 @@ describe('the release workflow', () => {
     expect(publish).toContain('Do not set a storage class')
     expect(publish).toContain('Do not create another bucket')
   })
+
+  it('refuses a live upload outside GitHub Actions, after the dry-run return', () => {
+    const dry = publish.indexOf('if ($DryRun)')
+    const refuse = publish.indexOf('Refusing to upload from this machine')
+    const put = publish.indexOf('function Put-R2Object')
+    expect(dry).toBeGreaterThan(-1)
+    expect(refuse).toBeGreaterThan(dry)
+    expect(put).toBeGreaterThan(refuse)
+    expect(publish).toContain('GITHUB_ACTIONS')
+  })
+
+  it('publishes a GitHub Release with the same notes in the same run as R2', () => {
+    expect(workflow).toContain('default: true')
+    expect(workflow).not.toContain('REDBEAM $version')
+    const names = [
+      'Resolve version and change notes',
+      'Create draft GitHub Release',
+      'Publish to R2',
+      'Delete draft GitHub Release',
+      'Publish GitHub Release',
+      'Verify GitHub Release and update channel',
+    ]
+    let at = -1
+    for (const name of names) {
+      const next = workflow.indexOf(name, at + 1)
+      expect(next, name).toBeGreaterThan(at)
+      at = next
+    }
+    expect(workflow).toContain('Refusing to publish without change notes')
+    expect(workflow).toContain('gh release create')
+    expect(workflow).toContain('--draft')
+    expect(workflow).toContain('gh release delete')
+    expect(workflow).toContain('--draft=false')
+    expect(workflow).toContain('release-notes.txt')
+    expect(workflow).toContain("'-Notes'")
+    expect(workflow).toContain("'-DryRun'")
+    expect(workflow).toContain('"channel":"published"')
+    const create = workflow.indexOf('gh release create')
+    const upload = workflow.indexOf('publish.ps1 @publishArgs')
+    const undraft = workflow.indexOf('--draft=false')
+    expect(create).toBeLessThan(upload)
+    expect(upload).toBeLessThan(undraft)
+    const between = (start: string, end: string, needle: string) => {
+      const from = workflow.indexOf(start)
+      const to = workflow.indexOf(end, from + start.length)
+      const at = workflow.indexOf(needle, from)
+      expect(from, start).toBeGreaterThan(-1)
+      expect(to, end).toBeGreaterThan(from)
+      expect(at, needle).toBeGreaterThan(from)
+      expect(at, needle).toBeLessThan(to)
+    }
+    between('- name: Create draft GitHub Release', '- name: Publish to R2', "if: env.DRY_RUN != 'true'")
+    between('- name: Publish to R2', '- name: Delete draft GitHub Release', "steps.draft_release.outcome == 'success'")
+    between('- name: Delete draft GitHub Release', '- name: Publish GitHub Release', 'failure()')
+    between('- name: Publish GitHub Release', '- name: Verify GitHub Release', "steps.r2.outcome == 'success'")
+    between('- name: Verify GitHub Release', 'channel":"published"', "steps.publish_release.outcome == 'success'")
+  })
 })

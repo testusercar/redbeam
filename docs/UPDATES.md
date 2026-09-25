@@ -9,6 +9,10 @@ then **Restart now**. The installer runs passive (`windows.installMode` in
 
 Publishing that build does not use a particular PC. GitHub Actions on
 `windows-latest` builds, signs, and uploads. The XPS is not part of the path.
+A live publish always cuts a GitHub Release with the change notes in the
+same run as the R2 upload. Do not put objects in R2 from the XPS or any
+other machine. `publish.ps1` refuses that upload unless it is running inside
+the release workflow.
 
 ## How to ship
 
@@ -18,18 +22,24 @@ Publishing that build does not use a particular PC. GitHub Actions on
    - `apps/desktop/package.json`
    - `package.json`
 2. Commit and push that bump.
-3. Tag the commit and push the tag. The tag is `v` plus the version, for example `v0.3.2`. Annotated or lightweight both work; an annotated tag's message becomes the release notes.
+3. Tag the commit with an **annotated** tag and push the tag. The tag is `v` plus the version, for example `v0.3.2`. The tag message is the change notes the installed app shows and the body of the GitHub Release. A lightweight tag, or an annotated tag whose message is empty, fails the job before a release is opened and before anything is uploaded.
 
 ```powershell
 git tag -a v0.3.2 -m "What changed."
 git push origin v0.3.2
 ```
 
-GitHub Actions then:
+GitHub Actions then, in this order:
 
-- builds a signed x64 NSIS installer and a signed arm64 NSIS installer
-- uploads each installer and its `.sig`, then `manifest.json` last, with `wrangler r2 object put --remote`
-- attaches those files to a GitHub Release for the tag
+1. Builds a signed x64 NSIS installer and a signed arm64 NSIS installer.
+2. Resolves the change notes once and writes `release-notes.txt`. Missing or whitespace-only notes fail the job here. There is no fallback that invents a notes string from the version.
+3. Opens a **draft** GitHub Release `v<version>` on that commit, with those notes and the four files (x64 and arm64 `setup.exe` and `.sig`).
+4. Uploads each installer and its `.sig`, then `manifest.json` last, with `wrangler r2 object put --remote`. The manifest `notes` field is that same string.
+5. If that upload fails, deletes the draft release and fails the job. The release stays unpublished, so the public updater is not left ahead of a published GitHub Release.
+6. Marks the GitHub Release published (it is no longer a draft).
+7. Checks that GitHub Release `v<version>` exists and is not a draft, and that `GET /health` reports `"channel":"published"`. Either check failing fails the job.
+
+A successful live run has both: the R2 channel is published, and the GitHub Release for that version is published, with the same notes. The workflow does not upload `manifest.json` unless the draft release for that version was created in the same run, and it does not leave the job green unless that release is no longer a draft.
 
 Installed copies see the update on the next check. The Worker reports
 `{"ok":true,"channel":"published"}` from `/health` once the manifest is up.
@@ -37,9 +47,12 @@ Installed copies see the update on the next check. The Worker reports
 `workflow_dispatch` (Actions → Release → Run workflow) is the same pipeline.
 It asks for the version and the notes. **Dry run defaults to on**: it builds
 and signs and writes the manifest, and it does not upload to R2 or open a
-GitHub Release. Turn dry run off to publish the commit you dispatched without
-pushing a tag. If the tag already points at a different commit, the workflow
-stops before uploading.
+GitHub Release, draft or otherwise. Turn dry run off to publish the commit
+you dispatched without pushing a tag. A live dispatch requires non-empty
+notes; whitespace fails the job before a release is opened and before any
+upload. If the tag already points at a different commit, the workflow stops
+before either side effect. If that version already has a published GitHub
+Release, the job stops before uploading again.
 
 `-AllowSingleArch` is not used here. A release publishes both architectures.
 That switch is only for a one-architecture smoke of `publish.ps1`.
@@ -82,12 +95,12 @@ installer.
 
 | Path | Role |
 | --- | --- |
-| `.github/workflows/release.yml` | Tag or dispatch → Windows NSIS build, sign, R2 publish, GitHub Release. |
+| `.github/workflows/release.yml` | Tag or dispatch → Windows NSIS build, sign, draft GitHub Release, R2 publish, then publish that release. |
 | `workers/updater/src/index.ts` | The worker. Manifest check, and a proxy for installer files. |
 | `workers/updater/src/manifest.ts` | Version compare and manifest parsing. Tested. No Cloudflare types. |
 | `workers/updater/wrangler.toml` | Worker name `redbeam-updates`, R2 binding `UPDATES`. No account id, no token. |
 | `workers/updater/manifest.example.json` | The shape to upload as `manifest.json`. Not uploaded by itself. |
-| `workers/updater/publish.ps1` | Upload the signed installers and `.sig` files, then `manifest.json` last. Every put uses `--remote`. |
+| `workers/updater/publish.ps1` | Upload the signed installers and `.sig` files, then `manifest.json` last. Every put uses `--remote`. Refuses to upload outside GitHub Actions. |
 | `workers/updater/assert-version.mjs` | Refuses a tag that does not match the versions committed in the tree. |
 | `apps/desktop/src-tauri/tauri.conf.json` | `plugins.updater.endpoints`, the public key, `installMode: passive`. |
 
@@ -171,15 +184,17 @@ Infrequent Access is not included):
 Stop well before the storage cap. If the bucket dashboard is around **8 GB**,
 delete old `REDBEAM_*` objects before another publish. `DeleteObject` is a free
 operation. `publish.ps1` refuses a single publish larger than 512 MB, warns at
-200 MB, and never sets a storage class. `-Yes` and `CI=true` skip the
-"type yes" prompt. They do not skip the 512 MB stop, and they do not look at
-the dashboard for you.
+200 MB, and never sets a storage class. Inside GitHub Actions, `-Yes` skips
+the "type yes" prompt. It does not skip the 512 MB stop, and it does not look
+at the dashboard for you. `CI=true` on a PC does not upload.
 
 Do not add a second bucket, do not set an R2 storage class, and do not set
 `[limits]` in `wrangler.toml` (that raises Worker CPU on the paid plan). A
 publish is a handful of Class A puts. Each app check is one Class B read of
 `manifest.json`, then one read of the installer if the person installs it.
-Do not publish extra installers to try the pipeline. Use dry run.
+Do not publish extra installers to try the pipeline. Use dry run. Do not
+upload from the XPS: `publish.ps1` refuses a live upload unless
+`GITHUB_ACTIONS` is set, which is this workflow.
 
 `wrangler r2 object put` without `--remote` writes to local Miniflare. The
 live `/health` does not change. `publish.ps1` always passes `--remote`.
@@ -214,29 +229,36 @@ copies call the new URL.
 
 ## publish.ps1 by hand
 
-The release workflow is the way a version ships. The script is what that
-workflow runs, and it still runs on its own when you already have signed
-installers on disk. It never reads the private key.
+The release workflow is the only live publish. It is what uploads to R2, and
+the same run publishes the GitHub Release with the same notes. The script
+never reads the private key. Outside GitHub Actions it refuses to upload,
+including when `-Yes` is set or `CI=true`. That includes the XPS. A typed
+"yes" is not a way around it.
 
-From the repo root:
+From the repo root, plan the upload and write the manifest. This does not
+call wrangler:
 
 ```powershell
-.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -Yes
+.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -DryRun
 ```
 
-One architecture, smoke only:
+One architecture, smoke of the file check only. The release workflow does
+not pass `-AllowSingleArch`, and this still does not upload:
 
 ```powershell
-.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -Yes
+.\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -DryRun
 ```
 
 `-DryRun` writes `workers/updater/.publish/manifest.json` (gitignored) and
 prints the put order. It does not call wrangler and it does not prompt.
-`-Yes` skips the prompt. So does `CI=true` or `GITHUB_ACTIONS=true`.
+`-Yes` skips the prompt only after the script is already on GitHub Actions.
+It does not enable a local upload.
 
 The script looks in `apps/desktop/src-tauri/target/<triple>/release/bundle/nsis/`
 for `REDBEAM_<version>_x64-setup.exe` and `REDBEAM_<version>_arm64-setup.exe`,
-each with a `.sig`. It then runs, in order:
+each with a `.sig`. Inside the release workflow, after the draft GitHub
+Release exists, it runs these puts in order. `-DryRun` prints the same order
+and does not run it:
 
 ```text
 npx wrangler r2 object put redbeam-updates/REDBEAM_0.3.2_x64-setup.exe --file <exe> --content-type application/octet-stream --remote

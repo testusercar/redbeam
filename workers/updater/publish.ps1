@@ -7,13 +7,13 @@
 # The release path is .github/workflows/release.yml. It calls this script
 # with -Yes. Nothing here logs into Cloudflare from a particular PC.
 #
-#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -Yes
-#
-# One architecture, smoke only — the release workflow does not pass this:
-#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -Yes
-#
-# Plan the uploads and write manifest.json without calling wrangler:
+# Live upload runs only inside .github/workflows/release.yml (GITHUB_ACTIONS).
+# That workflow also publishes the GitHub Release with the same notes.
+# From a PC, including the XPS, plan the upload and stop:
 #   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -DryRun
+#
+# One architecture, smoke of the file check only — the release workflow does not pass this:
+#   .\workers\updater\publish.ps1 -Version 0.3.2 -Notes "What changed." -AllowSingleArch -DryRun
 
 [CmdletBinding()]
 param(
@@ -29,6 +29,7 @@ param(
 
   # Skip the "type yes" prompt. Also skipped when CI or GITHUB_ACTIONS is
   # true or 1. Does not skip the 512 MB stop or the two-architecture rule.
+  # Does not allow an upload outside GitHub Actions; that refusal is below.
   [switch]$Yes
 )
 
@@ -188,6 +189,17 @@ Write-Host "  npx wrangler r2 object put $Bucket/manifest.json --remote"
 if ($DryRun) {
   Write-Host 'Dry run: no wrangler upload, no prompt.'
   return
+}
+
+# The release workflow is the only live publish. It opens the GitHub Release
+# in the same run. -Yes, CI=true, and a typed "yes" do not override this.
+$actions = [Environment]::GetEnvironmentVariable('GITHUB_ACTIONS')
+if ($actions -ne 'true' -and $actions -ne '1') {
+  throw @"
+Refusing to upload from this machine. Live R2 publish runs only in
+.github/workflows/release.yml, which also publishes the GitHub Release
+with the same notes. Use -DryRun to write the manifest and print the put order.
+"@
 }
 
 function Test-NonInteractivePublish {
