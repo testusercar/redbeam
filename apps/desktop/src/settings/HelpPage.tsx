@@ -7,6 +7,7 @@
  * — see `submitFeedback`.
  */
 import { useEffect, useState, type ClipboardEvent, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useReturnFocus } from '../returnFocus.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
 
@@ -21,7 +22,7 @@ function submitFeedback(_note: string, _screenshot: string): void {
   // Unwired on purpose. The Worker has no Notion token yet.
 }
 
-export function HelpBody({ onFeedback }: { onFeedback: () => void }) {
+export function HelpBody() {
   return (
     <div className="prefs-help">
       <section className="prefs-run" aria-labelledby="help-open">
@@ -111,14 +112,6 @@ export function HelpBody({ onFeedback }: { onFeedback: () => void }) {
           In a browser there are no file dialogs. Full-text search and a second window are desktop-only.
         </p>
       </section>
-
-      <section className="prefs-run" aria-labelledby="help-feedback">
-        <h3 className="prefs-runtitle" id="help-feedback">Feedback</h3>
-        <p>A few words about what happened, and a screenshot.</p>
-        <p>
-          <button type="button" className="st-btn" onClick={onFeedback}>Send feedback</button>
-        </p>
-      </section>
     </div>
   )
 }
@@ -131,6 +124,10 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<string | null>(null)
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
+
+  useEffect(() => {
+    document.getElementById('help-note')?.focus()
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -176,7 +173,7 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
     setStatus('Not sent. This copy cannot deliver feedback yet.')
   }
 
-  return (
+  return createPortal(
     <div
       className="feedback"
       role="presentation"
@@ -194,16 +191,15 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
           <label className="prefs-label" htmlFor="help-note">What happened</label>
           <textarea
             id="help-note"
-            className="prefs-note"
-            rows={3}
+            className="feedback-note"
+            rows={2}
             value={note}
             placeholder="The scale on A-101 stayed blank after I calibrated."
-            autoFocus
             onChange={(e) => { setNote(e.target.value); setStatus(null) }}
           />
           <span className="prefs-label" id="help-shot-label">Screenshot</span>
           <div
-            className="prefs-shot"
+            className="feedback-shot"
             tabIndex={0}
             role="group"
             aria-labelledby="help-shot-label"
@@ -212,20 +208,21 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
             {shot === null
               ? <span className="prefs-desc">Paste a screenshot.</span>
               : <img src={shot} alt="Pasted screenshot" />}
+            {shot !== null && (
+              <button type="button" className="st-btn subtle" onClick={() => { setShot(null); setStatus(null) }}>
+                Remove
+              </button>
+            )}
           </div>
-          {shot !== null && (
-            <button type="button" className="st-btn subtle" onClick={() => { setShot(null); setStatus(null) }}>
-              Remove screenshot
-            </button>
-          )}
           {problem !== null && <p className="prefs-feedbackstatus" role="alert">{problem}</p>}
           {status !== null && <p className="prefs-feedbackstatus" role="status">{status}</p>}
           <div className="feedback-actions">
-            <button type="submit" className="st-btn">Send feedback</button>
+            <button type="submit" className="st-btn">Send</button>
             <button type="button" className="st-btn subtle" onClick={onClose}>Close</button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

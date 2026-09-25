@@ -174,7 +174,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
             </div>
           )}
 
-          {help ? <HelpBody onFeedback={() => setFeedback(true)} /> : null}
+          {help ? <HelpBody /> : null}
 
           {!help && q !== '' && visible.length === 0 && (
             <p className="prefs-empty">No setting matches “{query.trim()}”.</p>

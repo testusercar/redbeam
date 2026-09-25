@@ -283,13 +283,44 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--ads-sp-2);
-  min-height: 0;
-  overflow: auto;
 }
 .feedback-form .prefs-label { display: block; }
-.feedback-form .prefs-note,
-.feedback-form .prefs-shot,
-.feedback-form .feedback-actions { align-self: stretch; }
+.feedback-note,
+.feedback-shot,
+.feedback-form .feedback-actions,
+.feedback-form .prefs-feedbackstatus { align-self: stretch; }
+.feedback-note {
+  width: 100%;
+  height: calc(var(--ads-sp-8) + var(--ads-sp-4));
+  margin: 0;
+  padding: var(--ads-sp-2) var(--ads-sp-3);
+  border: 1px solid var(--rb-line);
+  border-bottom-color: var(--rb-line-2);
+  border-radius: 4px;
+  background: var(--rb-canvas);
+  color: var(--rb-ink);
+  font: 13px var(--ads-sans);
+  resize: none;
+}
+.feedback-note:focus { outline: none; border-bottom: 2px solid var(--rb-accent); }
+.feedback-shot {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: 32px;
+  padding: 0 var(--ads-sp-2);
+  overflow: hidden;
+  border: 1px dashed var(--rb-line-2);
+  border-radius: 4px;
+  background: var(--rb-canvas);
+}
+.feedback-shot img {
+  width: var(--ads-sp-5);
+  height: var(--ads-sp-5);
+  flex: none;
+  object-fit: cover;
+}
+.feedback-shot .st-btn { margin-left: auto; }
 
 .prefs-headlink {
   border: 0;
@@ -308,35 +339,6 @@
   color: var(--rb-ink-2);
   font-size: 13px;
   line-height: 18px;
-}
-.prefs-note {
-  width: 100%;
-  min-height: calc(var(--ads-sp-8) + var(--ads-sp-8));
-  padding: var(--ads-sp-2) var(--ads-sp-3);
-  border: 1px solid var(--rb-line);
-  border-bottom-color: var(--rb-line-2);
-  border-radius: 4px;
-  background: var(--rb-canvas);
-  color: var(--rb-ink);
-  font: 13px var(--ads-sans);
-  resize: vertical;
-}
-.prefs-note:focus { outline: none; border-bottom: 2px solid var(--rb-accent); }
-.prefs-shot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--ads-sp-8);
-  padding: var(--ads-sp-3);
-  border: 1px dashed var(--rb-line-2);
-  border-radius: 4px;
-  background: var(--rb-canvas);
-}
-.prefs-shot img {
-  display: block;
-  max-width: 100%;
-  max-height: 8rem;
-  object-fit: contain;
 }
 .prefs-feedbackstatus {
   margin: 0;
