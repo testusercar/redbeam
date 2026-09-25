@@ -12,7 +12,8 @@ import {
   buildBom, bomToTsv,
   type MarkupKind, type PieceResult, type ScalePreset,
   type Calibration, type Markup, type Scope, type ScopeType, type QuantityResult,
-  PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, pageDirectionsFrom, areaDirectionsFrom,
+  PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
+  areaOriginsFrom, patternStartPoint,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
 } from '@redbeam/domain'
 import {
@@ -100,11 +101,16 @@ import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/s
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { hitTestDimension } from './tools/dimension.js'
+import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
+import {
+  hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
+  visibleAnnotations, type HiddenBook,
+} from './tools/foreignMarkups.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff } from './shell/icons.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -206,11 +212,15 @@ const OVERSCROLL = 0.5
  * that contains it, so a note inside a room picks the note. A hair of
  * slack, as the right-click menu has always allowed.
  */
-function annotationAt(n: { x: number; y: number }, list: readonly PageAnnotation[]): PageAnnotation | null {
+function annotationAt(
+  n: { x: number; y: number },
+  list: readonly PageAnnotation[],
+  hidden?: ReadonlySet<number>,
+): PageAnnotation | null {
   const slack = 0.002
   let best: PageAnnotation | null = null
   let bestArea = Number.POSITIVE_INFINITY
-  for (const a of list) {
+  for (const a of visibleAnnotations(list, hidden ?? new Set())) {
     const r = a.rect
     if (n.x < r.x0 - slack || n.x > r.x1 + slack || n.y < r.y0 - slack || n.y > r.y1 + slack) continue
     const area = (r.x1 - r.x0) * (r.y1 - r.y0)
@@ -780,6 +790,11 @@ export default function Workspace({
    * page's /Annots array; the list is refreshed when the sheet changes.
    */
   const annotsRef = useRef<PageAnnotation[]>([])
+  /** PDF annotation indexes hidden for the open document. Session only; the file is never written. */
+  const hiddenAnnotsRef = useRef<Set<number>>(new Set())
+  const [hiddenAnnotCount, setHiddenAnnotCount] = useState(0)
+  const [asideAsk, setAsideAsk] = useState(false)
+  const closeDbRef = useRef<(() => Promise<void>) | null>(null)
   const [selectedAnnots, setSelectedAnnots] = useState<number[]>([])
   const selectedAnnotsRef = useRef<number[]>([])
   const selectAnnots = useCallback((next: number[]) => { selectedAnnotsRef.current = next; setSelectedAnnots(next) }, [])
@@ -860,7 +875,7 @@ export default function Workspace({
    * than something on the sheet — it must not pan or scale with the page.
    */
   const [markupMenu, setMarkupMenu] = useState<
-    { x: number; y: number; markupId: string; part: Hit['part']; index: number } | null
+    { x: number; y: number; nx: number; ny: number; markupId: string; part: Hit['part']; index: number } | null
   >(null)
   /**
    * The menu for a right-click on the DRAWING itself: the PDF's own markups
@@ -1057,6 +1072,19 @@ export default function Workspace({
           else if (runs.length > 0) drawRunLayout(oc, runs, viewRef.current, opts)
         }
       }
+      const hereId = pageIdFor(docIdRef.current, pageIndexRef.current)
+      const origins: PatternOriginItem[] = []
+      for (const m of markupsRef.current) {
+        if (m.kind !== 'area' || m.pageId !== hereId || m.scopeId === null) continue
+        const sc = scopesRef.current.find((s) => s.id === m.scopeId)
+        if (sc === undefined) continue
+        const point = areaOriginsFrom(sc.specifications).get(m.id)
+        if (point === undefined) continue
+        origins.push({ kind: 'origin', id: m.id, point, color: sc.color })
+      }
+      if (origins.length > 0) {
+        drawPatternItems(oc, origins, viewRef.current, page.width, page.height, { labels: true })
+      }
       const ids = new Set(selectedRef.current)
       const sel = markupsRef.current.filter((m) => ids.has(m.id))
       drawSelection(oc, sel, viewRef.current, page.width, page.height,
@@ -1148,6 +1176,7 @@ export default function Workspace({
         return
       }
       held = opened
+      closeDbRef.current = () => opened.close()
       dbRef.current = opened.driver
       saveRef.current = debounceSave(opened.save)
       setBackend(opened.backend)
@@ -1275,6 +1304,7 @@ export default function Workspace({
       // database. The core drops the connection when the last window is.
       const done = held
       held = null
+      closeDbRef.current = null
       dbRef.current = null
       if (done !== null) void done.close()
     }
@@ -1737,6 +1767,14 @@ export default function Workspace({
       },
       onPage: (info) => {
         setPage({ width: info.width, height: info.height })
+        let stored: number[] = []
+        try {
+          const book = parseHiddenBook(sessionStorage.getItem(hiddenStorageKey(docIdRef.current ?? '')))
+          stored = hiddenOnPage(book, info.index)
+        } catch { stored = [] }
+        hiddenAnnotsRef.current = new Set(stored)
+        setHiddenAnnotCount(stored.length)
+        if (viewer.setHiddenAnnotations(info.index, stored)) viewer.requestVisible(viewRef.current)
         // The sheet's own markups, for the Select tool: asked of THIS viewer,
         // for the page it has just shown, so a document switch cannot serve
         // the previous document's list.
@@ -3561,11 +3599,64 @@ export default function Workspace({
       try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
     }
     const convertible = all.filter((a) => a.shape !== 'other')
+    const visible = visibleAnnotations(convertible, hiddenAnnotsRef.current)
     const slack = 0.002
-    const under = convertible.filter((a) =>
+    const under = visible.filter((a) =>
       n.x >= a.rect.x0 - slack && n.x <= a.rect.x1 + slack && n.y >= a.rect.y0 - slack && n.y <= a.rect.y1 + slack)
     setAnnotMenu({ x, y, nx: n.x, ny: n.y, annotations: under, onSheet: convertible.length })
   }, [])
+
+  const persistHidden = useCallback((next: number[]) => {
+    hiddenAnnotsRef.current = new Set(next)
+    setHiddenAnnotCount(next.length)
+    const docId = docIdRef.current
+    const page = pageIndexRef.current
+    if (docId) {
+      try {
+        const book: HiddenBook = parseHiddenBook(sessionStorage.getItem(hiddenStorageKey(docId)))
+        const key = String(page)
+        if (next.length === 0) delete book[key]
+        else book[key] = next
+        sessionStorage.setItem(hiddenStorageKey(docId), JSON.stringify(book))
+      } catch { /* the view still changes */ }
+    }
+    const viewer = viewerRef.current
+    if (viewer !== null && viewer.setHiddenAnnotations(page, next)) viewer.requestVisible(viewRef.current)
+    requestPaint()
+  }, [requestPaint])
+
+  const hidePdfMarkup = useCallback((index: number) => {
+    persistHidden(hideAnnotation([...hiddenAnnotsRef.current], index))
+    setStatus('that PDF markup is hidden on this sheet. The file is unchanged.')
+  }, [persistHidden])
+
+  const hidePdfMarkups = useCallback((which: 'all' | 'none') => {
+    if (which === 'none') {
+      persistHidden(showHidden())
+      setStatus('hidden PDF markups are showing again')
+      return
+    }
+    const indexes = annotsRef.current.map((a) => a.index)
+    persistHidden(hideAll(indexes))
+    setStatus('PDF markups on this sheet are hidden. The file is unchanged.')
+  }, [persistHidden])
+
+  const asideCurrentProject = useCallback(async () => {
+    if (!projectBridge.desktop) {
+      setStatus('the browser build cannot set a project aside')
+      return
+    }
+    try {
+      const close = closeDbRef.current
+      closeDbRef.current = null
+      await close?.()
+      dbRef.current = null
+      await projectBridge.removeProjectData(projectPath)
+      onCloseProject()
+    } catch (err) {
+      setStatus(`could not set the project aside: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, [onCloseProject, projectPath])
 
   /** The markup kind a PDF annotation becomes. A square is a room; a circle is a note. */
   const kindForAnnotation = (a: PageAnnotation): MarkupKind =>
@@ -3823,6 +3914,51 @@ export default function Workspace({
       ? `pattern runs along that edge for ${sc.label} on this sheet`
       : `pattern runs along that edge for this area only`)
   }, [saveScope])
+
+  /**
+   * Start the panel grid at a point inside one area.
+   *
+   * The automatic origin is the bounding-rect centre, shared by every area
+   * that has not been told otherwise. A right-click stores a point on this
+   * area only, in the same specifications the direction already lives in.
+   */
+  const startPatternHere = useCallback(async (markup: Markup, click: { x: number; y: number }) => {
+    if (markup.kind !== 'area' || markup.scopeId === null) {
+      setStatus('start the pattern on an area')
+      return
+    }
+    const placed = patternStartPoint(click, markup.rings)
+    if (placed === null) {
+      setStatus('that point is outside the area, so the pattern start is unchanged')
+      return
+    }
+    const sc = scopesRef.current.find((x) => x.id === markup.scopeId)
+    if (!sc) return
+    const specs = sc.specifications
+    const areas = { ...(specs[AREA_ORIGINS_KEY] as Record<string, unknown> ?? {}) }
+    areas[markup.id] = { x: placed.x, y: placed.y }
+    await saveScope({
+      ...sc,
+      specifications: { ...specs, [AREA_ORIGINS_KEY]: areas },
+    })
+    setStatus('the pattern starts there for this area')
+    requestPaint()
+  }, [saveScope, requestPaint])
+
+  const clearPatternOrigin = useCallback(async (markup: Markup) => {
+    if (markup.scopeId === null) return
+    const sc = scopesRef.current.find((x) => x.id === markup.scopeId)
+    if (!sc) return
+    const specs = sc.specifications
+    const areas = { ...(specs[AREA_ORIGINS_KEY] as Record<string, unknown> ?? {}) }
+    delete areas[markup.id]
+    await saveScope({
+      ...sc,
+      specifications: { ...specs, [AREA_ORIGINS_KEY]: areas },
+    })
+    setStatus('this area uses the automatic pattern start')
+    requestPaint()
+  }, [saveScope, requestPaint])
 
   /**
    * Duplicate an estimate: its scopes and their specifications, not its takeoff.
@@ -6093,6 +6229,20 @@ export default function Workspace({
       },
       { id: 'close-project', kind: 'command', title: 'Close project', detail: 'Back to the start page', keywords: ['exit', 'start'], run: onCloseProject },
       {
+        id: 'set-project-aside', kind: 'command', title: 'Set this project’s REDBEAM data aside',
+        detail: 'Moves redbeam.db into .redbeam/removed. The drawings stay, and the takeoff can be put back.',
+        keywords: ['delete', 'remove', 'project', 'archive'],
+        ...stuck(projectBridge.desktop ? undefined : 'the browser build keeps its data in this tab'),
+        run: () => setAsideAsk(true),
+      },
+      {
+        id: 'hide-pdf-markups', kind: 'command', title: 'Hide PDF markups on this sheet',
+        detail: 'Bluebeam and other annotations stay in the file. This view stops drawing them.',
+        keywords: ['bluebeam', 'annotation', 'hide', 'markup'],
+        ...stuck(noSheet),
+        run: () => hidePdfMarkups('all'),
+      },
+      {
         id: 'undo', kind: 'command', title: undoState.undoLabel === null ? 'Undo' : `Undo ${undoState.undoLabel}`,
         shortcut: 'Ctrl+Z', ...stuck(undoState.canUndo ? undefined : 'nothing to undo'), stay: true, run: () => void doUndo(),
       },
@@ -6322,6 +6472,12 @@ export default function Workspace({
         id: 'direction-from-edge', kind: 'command', title: 'Direction from an edge…', detail: 'pick a scope, one of its areas, one of its edges',
         keywords: ['scope-action', 'orientation', 'pattern'], ...stuck(noRound ?? noSheet),
         step: pickScope('Direction from an edge', (sc) => edgeDirectionCommand(sc.id)),
+      },
+      {
+        id: 'start-pattern', kind: 'command', title: 'Start the pattern here',
+        detail: 'Right-click an area',
+        keywords: ['origin', 'pattern', 'grid', 'panel'],
+        run: () => setStatus('Right-click an area and choose Start the pattern here'),
       },
       {
         id: 'duplicate-scope', kind: 'command', title: 'Duplicate scope…',
@@ -6662,7 +6818,8 @@ export default function Workspace({
     beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups,
     openParts, prefs, settings, setZoom, openDocument, refreshEstimates,
     identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged,
-    openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, runSearch, goToHit, page.width, page.height,
+    openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, startPatternHere, clearPatternOrigin,
+    hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, commitState, projectMarkups,
   ])
@@ -6682,6 +6839,7 @@ export default function Workspace({
           onContextWindow: () => void openContextWindow(identity.projectId ?? projectPath),
           onPalette: openPalette,
           onSettings: openSettings,
+          ...(projectBridge.desktop ? { onSetAside: () => setAsideAsk(true) } : {}),
           onCloseProject,
         }}
         {...(recentProjects !== undefined && onOpenProject !== undefined
@@ -6932,7 +7090,7 @@ export default function Workspace({
               // One of the PDF's markups there joins the selection first, so
               // the menu's "convert the selected" acts on what was clicked.
               const n = screenToNormalized(hx, hy, viewRef.current, page.width, page.height)
-              const a = annotationAt(n, annotsRef.current)
+              const a = annotationAt(n, annotsRef.current, hiddenAnnotsRef.current)
               if (a !== null && !selectedAnnotsRef.current.includes(a.index)) {
                 selectAnnots([a.index])
                 requestPaint()
@@ -6948,7 +7106,8 @@ export default function Workspace({
               selectedRef.current = [hit.markupId]
               requestPaint()
             }
-            setMarkupMenu({ x: hx, y: hy, markupId: hit.markupId, part: hit.part, index: hit.index })
+            const n = screenToNormalized(hx, hy, viewRef.current, page.width, page.height)
+            setMarkupMenu({ x: hx, y: hy, nx: n.x, ny: n.y, markupId: hit.markupId, part: hit.part, index: hit.index })
           }}
         >
           {/* Size comes from useStageSize, never from width/height props: the
@@ -7028,6 +7187,40 @@ export default function Workspace({
                 <Glyph icon={Crosshair} role="row" />
                 <span className="grow">Trace the region here as an area</span>
               </button>
+              <div className="menusep" />
+              {annotMenu.annotations.length > 0 && (
+                <button
+                  className="menuitem" role="menuitem"
+                  onClick={() => {
+                    const target = annotMenu.annotations.reduce((best, a) => {
+                      const area = (a.rect.x1 - a.rect.x0) * (a.rect.y1 - a.rect.y0)
+                      const bestArea = (best.rect.x1 - best.rect.x0) * (best.rect.y1 - best.rect.y0)
+                      return area < bestArea ? a : best
+                    })
+                    hidePdfMarkup(target.index)
+                    setAnnotMenu(null)
+                  }}
+                >
+                  <Glyph icon={EyeOff} role="row" />
+                  <span className="grow">Hide this PDF markup</span>
+                </button>
+              )}
+              <button
+                className="menuitem" role="menuitem"
+                onClick={() => { hidePdfMarkups('all'); setAnnotMenu(null) }}
+              >
+                <Glyph icon={EyeOff} role="row" />
+                <span className="grow">Hide all PDF markups on this sheet</span>
+              </button>
+              {hiddenAnnotCount > 0 && (
+                <button
+                  className="menuitem" role="menuitem"
+                  onClick={() => { hidePdfMarkups('none'); setAnnotMenu(null) }}
+                >
+                  <Glyph icon={Eye} role="row" />
+                  <span className="grow">Show hidden PDF markups</span>
+                </button>
+              )}
             </div>
           </>
         )}
@@ -7079,6 +7272,33 @@ export default function Workspace({
                   — which is a hand-traced copy of a vector the markup already
                   holds exactly. The edge under the pointer IS the answer.
                 */}
+                {m.kind === 'area' && m.scopeId !== null && (() => {
+                  const sc = scopes.find((x) => x.id === m.scopeId)
+                  const placed = sc !== undefined && areaOriginsFrom(sc.specifications).has(m.id)
+                  return (
+                    <>
+                      <button
+                        className="menuitem" role="menuitem"
+                        onClick={() => {
+                          void startPatternHere(m, { x: markupMenu.nx, y: markupMenu.ny })
+                          setMarkupMenu(null)
+                        }}
+                      >
+                        <Glyph icon={Crosshair} role="row" />
+                        <span className="grow">Start the pattern here</span>
+                      </button>
+                      {placed && (
+                        <button
+                          className="menuitem" role="menuitem"
+                          onClick={() => { void clearPatternOrigin(m); setMarkupMenu(null) }}
+                        >
+                          <Glyph icon={Compass} role="row" />
+                          <span className="grow">Use the automatic pattern start</span>
+                        </button>
+                      )}
+                    </>
+                  )
+                })()}
                 {markupMenu.part === 'edge' && m.scopeId !== null && (() => {
                   const sc = scopes.find((x) => x.id === m.scopeId)
                   const pages = sc === undefined
@@ -7183,6 +7403,19 @@ export default function Workspace({
             </>
           )
         })()}
+
+        {asideAsk && (
+          <div className="nesting" role="presentation">
+            <div className="nesting-card" role="dialog" aria-labelledby="aside-title">
+              <h2 id="aside-title">Set this project’s REDBEAM data aside?</h2>
+              <p>The takeoff moves into the folder’s .redbeam/removed folder. The drawings are not touched, and the database can be put back.</p>
+              <div className="nesting-actions">
+                <button type="button" className="st-btn danger" onClick={() => { setAsideAsk(false); void asideCurrentProject() }}>Set aside</button>
+                <button type="button" className="st-btn subtle" onClick={() => setAsideAsk(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <Dock
           pinned={pendingCal !== null || pendingRegion !== null}

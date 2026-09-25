@@ -94,6 +94,9 @@ const REGISTER: ReadonlyArray<[affordance: string, commandId: string]> = [
   ['markup row · move to another scope', 'move-markup'],
   ['markup row · delete', 'delete-markup'],
   ['drawing menu · direction from an edge', 'direction-from-edge'],
+  ['drawing menu · start the pattern here', 'start-pattern'],
+  ['drawing menu · hide PDF markups', 'hide-pdf-markups'],
+  ['app menu · set project data aside', 'set-project-aside'],
   ['drawing menu · convert the PDF\'s markups', 'convert-annotations'],
   // settings
   ['settings · every switch', 'set:'],

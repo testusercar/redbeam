@@ -11,6 +11,7 @@ import {
   normalizedDirectionFromAngle,
   patternDirectionLine,
   patternOriginPoint,
+  patternStartPoint,
   pointInRegion,
   resolveDirectionZone,
   resolvePatternDirection,
@@ -299,6 +300,26 @@ describe('resolvePatternOrigin', () => {
     expect(pointInRegion({ x: 0.2, y: 0.2 }, donut)).toBe(true)
     const r = resolvePatternOrigin([{ id: 'inHole', rings: [[{ x: 0.5, y: 0.5 }]] }], donut, SQUARE)
     expect(r?.source).toBe('derived')
+  })
+})
+
+describe('patternStartPoint', () => {
+  const area: Region = [[
+    { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.6, y: 0.6 }, { x: 0.2, y: 0.6 },
+  ]]
+
+  it('uses the click when it is inside the area', () => {
+    expect(patternStartPoint({ x: 0.3, y: 0.4 }, area)).toEqual({ x: 0.3, y: 0.4 })
+  })
+
+  it('pulls a click just outside the ring in, so an edge grip can start the pattern', () => {
+    const started = patternStartPoint({ x: 0.19, y: 0.4 }, area)
+    expect(started).not.toBeNull()
+    expect(pointInRegion(started!, area)).toBe(true)
+  })
+
+  it('refuses a click that cannot be pulled into the area', () => {
+    expect(patternStartPoint({ x: 0.9, y: 0.9 }, area)).toBeNull()
   })
 })
 

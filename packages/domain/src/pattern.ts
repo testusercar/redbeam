@@ -374,6 +374,45 @@ export function resolvePatternOrigin(
   return { point: toPagePoints(n, page), normalized: n, source: 'derived' }
 }
 
+/**
+ * Where "start the pattern here" lands.
+ *
+ * The click is used when it is inside the area. A grip can sit a few pixels
+ * outside the ring, and an origin outside the region is ignored by
+ * `resolvePatternOrigin`, so that click is walked toward the area's centre
+ * until it is inside. A click that cannot be pulled in — a hole, an empty
+ * ring — is null, and the caller says so rather than storing a point the
+ * layout will skip.
+ */
+/**
+ * Where a right-click should start the pattern.
+ *
+ * A click inside the area is used as-is. A click a hair outside — an edge
+ * grip — is walked toward the bounding-rect centre, but only across a short
+ * slack, and only if that walk lands inside the area. A click elsewhere on
+ * the sheet, or one whose centre sits in a hole, returns null so the caller
+ * leaves the automatic origin alone.
+ */
+export function patternStartPoint(click: Point, rings: Region): Point | null {
+  if (pointInRegion(click, rings)) return click
+  const rect = normalizedBoundingRect(rings)
+  if (!rect) return null
+  const centre = { x: (rect.left + rect.right) * 0.5, y: (rect.top + rect.bottom) * 0.5 }
+  if (!pointInRegion(centre, rings)) return null
+  const SLACK = 0.03
+  const dx = centre.x - click.x
+  const dy = centre.y - click.y
+  const dist = Math.hypot(dx, dy)
+  if (dist < 1e-9) return null
+  const reach = Math.min(SLACK, dist)
+  for (let i = 1; i <= 8; i++) {
+    const t = (reach * i) / 8 / dist
+    const p = { x: click.x + dx * t, y: click.y + dy * t }
+    if (pointInRegion(p, rings)) return p
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Direction zones
 // ---------------------------------------------------------------------------

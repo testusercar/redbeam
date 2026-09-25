@@ -24,6 +24,8 @@ export interface TileJob {
   ty: number
   tile: number
   zoom: number
+  /** Annotation indexes hidden for this raster. Absent when the page draws them all. */
+  hidden?: number[]
 }
 
 export interface ThumbJob {

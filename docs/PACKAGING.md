@@ -103,53 +103,75 @@ gets a reputation for being broken before it is opened.
 
 ## Updates
 
-The mechanism is built (plan TH.7) and has **nowhere to look yet**.
+The updater looks at the Worker in `workers/updater`. The endpoint in
+`tauri.conf.json` is the live host:
 
-The signing key is generated and lives OUTSIDE the repo, at
-`%USERPROFILE%\.redbeam\updater.key`, with its public half pasted into
-`tauri.conf.json`. **Back that file up.** It is not the code-signing
-certificate and it is not recoverable: an installed copy only accepts an update
-signed by the private half of the key it shipped with, so losing it strands
-every existing install permanently — they can then only be moved by hand.
-
-To sign an update, set the key before building:
-
-```bash
-$env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.redbeam\updater.key"
-npm run tauri:build:x64
+```text
+https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}
 ```
 
-That emits a `.sig` beside the installer. Both go wherever the manifest points.
+A missing manifest answers `503` on that URL, so the app says it could not
+check. It does not say the copy is up to date. `GET /health` answers `200`
+with `"channel": "published"` once a manifest is in R2, and `"channel": "empty"`
+when the bucket has none. Shipping a release is a version bump, a `v*` tag,
+and GitHub Actions. That path does not use the XPS. The free-tier ceiling,
+the Actions secrets, and the Settings row are in [UPDATES.md](UPDATES.md).
 
-### What is still needed
+The updater signing key is not the Authenticode certificate above. It lives
+OUTSIDE the repo, at `%USERPROFILE%\.redbeam\updater.key`, and its public half
+is in `tauri.conf.json` (minisign key id `F0ECFC2EF7375954`). **Back that file
+up,** and paste it once into the GitHub Actions secret
+`TAURI_SIGNING_PRIVATE_KEY`. It is not recoverable: an installed copy only
+accepts an update signed by the private half of the key it shipped with, so
+losing it strands every existing install permanently — they can then only be
+moved by hand.
 
-`plugins.updater.endpoints` is deliberately EMPTY. It wants a URL serving a
-small JSON manifest:
+A local signed build, when you are not cutting a release, still names the
+target and points at that file:
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.redbeam\updater.key"
+npm run tauri:build:x64
+npm run tauri:build:arm64
+```
+
+Each build emits a `.sig` beside the NSIS installer. `workers/updater/publish.ps1`
+uploads those installers and `.sig` files with `wrangler --remote`, then writes
+and uploads `manifest.json` last. It does not read the private key. The release
+workflow is what calls it for a version you ship. `scripts/build-arm64.cmd` is
+the native ARM64 machine script. GitHub Actions cross-compiles arm64 on
+`windows-latest` instead, and passes `--bundles nsis` because WiX has no
+arm64 bundle.
+
+The manifest the worker serves:
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "notes": "What changed",
-  "pub_date": "2026-09-04T00:00:00Z",
+  "pub_date": "2026-09-23T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "<contents of the .sig file>",
-      "url": "https://example/REDBEAM_0.2.0_x64-setup.exe"
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_x64-setup.exe"
+    },
+    "windows-aarch64": {
+      "signature": "<contents of the .sig file>",
+      "url": "https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_0.3.0_arm64-setup.exe"
     }
   }
 }
 ```
 
-Anything that serves two files over HTTPS will do — a SharePoint document
-library, an S3 bucket, a GitHub release. It must be HTTPS: the updater will not
-fetch over plain HTTP or a UNC path.
+It must be HTTPS: the updater will not fetch over plain HTTP or a UNC path.
+Install stays in place (`windows.installMode: passive`). The private key stays
+outside the repo.
 
-**Until an endpoint exists the app says so.** Settings reports "No update
-channel is set up… it will stay on this version" rather than the
-healthy-looking "you're up to date", and offers no button that cannot succeed.
-That distinction is load-bearing and tested: a dead channel reporting the
-healthy sentence is a failure nobody would ever discover, because it is exactly
-what a working one says.
+**An empty endpoint list still has to say so.** If `endpoints` is emptied
+again, Settings reports "No update channel is set up… it will stay on this
+version" rather than "you're up to date", and offers no button that cannot
+succeed. A failed check says "could not check". That distinction is
+load-bearing and tested.
 
 ## Problem reports
 

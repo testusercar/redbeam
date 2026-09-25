@@ -33,3 +33,7 @@ packages/*/src/**/*.js.map
 
 # Local Claude Code tooling (launch configs, session settings) — machine-specific.
 .claude/
+
+# Manifest written by workers/updater/publish.ps1. Signatures are not secret,
+# but this file is a publish artifact and must not be committed by accident.
+workers/updater/.publish/

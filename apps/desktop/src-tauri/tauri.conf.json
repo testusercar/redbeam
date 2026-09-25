@@ -21,7 +21,7 @@
         "minHeight": 640,
         "resizable": true,
         "decorations": false,
-      "transparent": true,
+        "transparent": true,
         "shadow": true,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
         "zoomHotkeysEnabled": true,
@@ -63,12 +63,15 @@
         ],
         "displayLanguageSelector": false
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzQzZBNjhDNjRBQkE4QTYKUldTbXFLdGtqS2JHNC9VbXNLRWU5ZHEvSzRTODJ1U1FseFBuSnpKdUcrV29ndHl6NG96aXhEM2kK",
-      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwRUNGQzJFRjczNzU5NTQKUldSVVdUZjNMdnpzOERUUm5GNjFvNTF3RnFyems4eDFqS2N3MHdnRjBSWVVCV0E3cXNsWm9jRW0K",
+      "endpoints": [
+        "https://redbeam-updates.trackchairking.workers.dev/{{target}}/{{arch}}/{{current_version}}"
+      ],
       "windows": {
         "installMode": "passive"
       }
