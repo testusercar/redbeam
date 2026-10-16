@@ -69,7 +69,6 @@ into GitHub for you. Confirm the Actions secrets exist on the repository
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions. Also already on cloud agents. | API token that can write the `redbeam-updates` R2 bucket and deploy the Worker. |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions. Also already on cloud agents. | The Cloudflare account that owns the bucket. Wrangler will not prompt for it. |
 | `TAURI_SIGNING_PRIVATE_KEY` | GitHub Actions only. **Not** on cloud agents. | The entire updater private key file, including its comment lines. Not a path. |
-| `NOTION_TOKEN` | GitHub Actions, optional. | A Notion internal integration secret with access to the REDBEAM reports database. Without it, bug reports are kept in R2 only. |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | GitHub Actions, only if that key was created with a password. | Leave it unset when the password is empty. The workflow passes the secret through, and an unset secret is an empty string, which is what Tauri wants for an unencrypted key. |
 
 Nothing in the repo is that private key. Do not commit it. Do not put it in a
@@ -99,8 +98,10 @@ installer.
 | `.github/workflows/release.yml` | Tag or dispatch → Windows NSIS build, sign, draft GitHub Release, R2 publish, then publish that release. |
 | `workers/updater/src/index.ts` | The worker. Manifest check, and a proxy for installer files. |
 | `workers/updater/src/manifest.ts` | Version compare and manifest parsing. Tested. No Cloudflare types. |
-| `workers/updater/src/reports.ts` | Bug reports: parsing, the R2 keys, and the Notion row. Tested. No Cloudflare types. |
-| `.github/workflows/worker.yml` | Deploys the Worker on a change to `workers/updater` on main; copies `NOTION_TOKEN` in when that secret exists. |
+| `workers/updater/src/reports.ts` | Bug reports: parsing and the R2 keys. Tested. No Cloudflare types. |
+| `.github/workflows/worker.yml` | Deploys the Worker on a change to `workers/updater` on main and sets its `SYNC_KEY`. |
+| `.github/workflows/reports.yml` | Every ten minutes, opens a GitHub issue for each new bug report. |
+| `workers/updater/file-reports.mjs` | What reports.yml runs: the issue text, and what stays private. Tested. |
 | `workers/updater/wrangler.toml` | Worker name `redbeam-updates`, R2 binding `UPDATES`. No account id, no token. |
 | `workers/updater/manifest.example.json` | The shape to upload as `manifest.json`. Not uploaded by itself. |
 | `workers/updater/publish.ps1` | Upload the signed installers and `.sig` files, then `manifest.json` last. Every put uses `--remote`. Refuses to upload outside GitHub Actions. |
@@ -180,26 +181,36 @@ the Worker moves both.
 
 | Request | Response |
 | --- | --- |
-| `POST /reports` | `200` `{"ok":true,"id":"<uuid>","filed":"notion"\|"kept"}` once the report is in R2. `400` with the reason when a field is wrong, `413` over 6 MB, `503` when R2 will not take it. Answers CORS (`OPTIONS` is `204`). |
+| `POST /reports` | `200` `{"ok":true,"id":"<uuid>","filed":"kept"}` once the report is in R2. `400` with the reason when a field is wrong, `413` over 6 MB, `503` when R2 will not take it. Answers CORS (`OPTIONS` is `204`). |
 | `GET /shots/<uuid>.png` or `.jpg` | A report's picture, by the random name the Worker gave it. |
+| `GET /reports/inbox` | Reports with no issue yet, for the Reports workflow. `404` without `Authorization: Bearer <SYNC_KEY>`. |
+| `DELETE /reports/inbox/<uuid>` | The workflow opened its issue; drop the inbox copy. Same key. |
 
 Each report is `reports/<yyyy-mm-dd>/<uuid>.json` in the `redbeam-updates`
 bucket, and its picture is `reports/shots/<uuid>.<ext>`. That is the record:
 read it in the Cloudflare dashboard (R2 → redbeam-updates → reports/). Report
 JSON is never served by the Worker; `/files/` only serves `REDBEAM_` names.
 
-When the Worker has a `NOTION_TOKEN` secret, each report is also filed as a
-row in the **REDBEAM reports** database in Notion (`NOTION_DATABASE_ID` in
-`wrangler.toml`): Report, Note, Status (New), Machine, Version, and the picture
-in Screenshot. A Notion failure does not fail the report; it is already kept.
-To turn it on:
+### Reports become GitHub issues
 
-1. Create an internal integration at notion.so/profile/integrations and copy
-   its secret.
-2. Open the REDBEAM reports database → ••• → Connections → add that integration.
-3. Save the secret as the GitHub Actions secret `NOTION_TOKEN` and run the
-   **Worker** workflow (Actions → Worker → Run workflow). It copies the secret
-   into the Worker with `wrangler secret put`.
+Each new report also gets a copy at `reports/inbox/<uuid>.json`. Every ten
+minutes `.github/workflows/reports.yml` (Actions → Reports, or *Run workflow*
+to do it now) reads the inbox and opens an issue per report in this repo,
+labelled **bug report**, using the run's own `GITHUB_TOKEN`. It then deletes
+the inbox copy; the dated report stays. A report that GitHub refuses stays in
+the inbox for the next run, and a hidden marker in each issue body stops one
+report from being filed twice.
+
+The repo is public, so the issue holds only what the person typed and which
+build and machine they were on, inside a code block so an `@name` notifies
+no one. The screenshot, the "where you were" line (client project and sheet
+names) and their name stay in R2, and the issue says which of those came
+with it and the key to read them at.
+
+The inbox key is the Worker secret `SYNC_KEY`. Nobody types it:
+`worker.yml` derives it from `CLOUDFLARE_API_TOKEN` and sets it on every
+deploy, and `reports.yml` derives the same value, so there is no extra
+secret to add.
 
 `.github/workflows/worker.yml` deploys the Worker whenever `workers/updater`
 changes on main, with the same Cloudflare secrets as the release. Deploying

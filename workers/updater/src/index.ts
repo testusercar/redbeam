@@ -7,10 +7,12 @@
  * GET /files/:name                          — an installer or its .sig, from R2
  * POST /reports                             — a bug report from the app (see reports.ts)
  * GET /shots/:uuid.:ext                     — a report's screenshot, by its random name
+ * GET /reports/inbox                        — reports with no issue yet (SYNC_KEY only)
+ * DELETE /reports/inbox/:uuid               — an issue now exists for it (SYNC_KEY only)
  *
- * R2 holds `manifest.json` plus the installers named in it. Nothing here is
- * a secret: the manifest is public, and the signing key never comes near
- * this worker.
+ * R2 holds `manifest.json` plus the installers named in it. The manifest is
+ * public, and the signing key never comes near this worker. The one secret
+ * is SYNC_KEY, which only the inbox routes read.
  *
  * An empty bucket is not "up to date". The version check and `/manifest`
  * answer 503. `/health` still answers 200 so a person can see the worker
@@ -18,7 +20,7 @@
  */
 import { manifestStatus, parseManifest, safeAssetName, type UpdateManifest } from './manifest.js'
 import {
-  MAX_BODY_BYTES, SHOT_NAME, fileInNotion, notionPage, parseReport, reportKey, shotKey, storedReport,
+  INBOX_PAGE, MAX_BODY_BYTES, REPORT_ID, SHOT_NAME, inboxKey, parseReport, reportKey, shotKey, storedReport,
 } from './reports.js'
 
 export interface R2ObjectBody {
@@ -30,20 +32,24 @@ export interface R2ObjectBody {
 export interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>
   put(key: string, value: string | Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
+  list(options: { prefix: string; limit: number }): Promise<{ objects: Array<{ key: string }> }>
+  delete(key: string): Promise<void>
 }
 
 export interface Env {
   UPDATES: R2Bucket
-  /** Secret. When set, reports are also filed in the Notion database below. */
-  NOTION_TOKEN?: string
-  /** The REDBEAM reports database. A var in wrangler.toml, not a secret. */
-  NOTION_DATABASE_ID?: string
+  /**
+   * Secret. The Reports workflow's key to the inbox. worker.yml sets it, and
+   * reports.yml derives the same value, from CLOUDFLARE_API_TOKEN, so there
+   * is no extra secret to keep. Unset, the inbox routes are 404.
+   */
+  SYNC_KEY?: string
 }
 
 /*
  * The app posts from its own origin (tauri.localhost), so the report routes
- * answer CORS. Nothing they return is private: a report id, and whether the
- * report reached Notion.
+ * answer CORS. Nothing they return is private: a report id. The inbox routes
+ * are for the workflow, not a browser, and do not answer CORS.
  */
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
@@ -80,18 +86,51 @@ async function receiveReport(request: Request, env: Env, url: URL): Promise<Resp
       await env.UPDATES.put(key, report.screenshot.bytes, { httpMetadata: { contentType: report.screenshot.type } })
       shotUrl = `${url.origin}/shots/${key.split('/').pop()}`
     }
-    await env.UPDATES.put(reportKey(id, at), JSON.stringify(storedReport(report, id, at, shotUrl), null, 2), {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    })
+    const stored = JSON.stringify(storedReport(report, id, at, shotUrl), null, 2)
+    const httpMetadata = { contentType: 'application/json; charset=utf-8' }
+    await env.UPDATES.put(reportKey(id, at), stored, { httpMetadata })
+    await env.UPDATES.put(inboxKey(id), stored, { httpMetadata })
   } catch {
     return reportJson(503, { ok: false, error: 'reports could not be stored' })
   }
 
-  let notion: string | null = null
-  if (env.NOTION_TOKEN !== undefined && env.NOTION_TOKEN !== '' && env.NOTION_DATABASE_ID !== undefined && env.NOTION_DATABASE_ID !== '') {
-    notion = await fileInNotion(notionPage(report, env.NOTION_DATABASE_ID, shotUrl, id), env.NOTION_TOKEN)
+  return reportJson(200, { ok: true, id, filed: 'kept' })
+}
+
+function syncAllowed(request: Request, env: Env): boolean {
+  const key = env.SYNC_KEY ?? ''
+  if (key.length < 32) return false
+  const given = request.headers.get('authorization') ?? ''
+  const want = `Bearer ${key}`
+  if (given.length !== want.length) return false
+  let diff = 0
+  for (let i = 0; i < want.length; i++) diff |= given.charCodeAt(i) ^ want.charCodeAt(i)
+  return diff === 0
+}
+
+/** GET /reports/inbox and DELETE /reports/inbox/:uuid, for the Reports workflow. */
+async function inbox(request: Request, env: Env, method: string, id: string | undefined): Promise<Response> {
+  // Without the key the routes do not exist, rather than being refused.
+  if (!syncAllowed(request, env)) return new Response('not found', { status: 404 })
+  try {
+    if (id === undefined && method === 'GET') {
+      const listed = await env.UPDATES.list({ prefix: 'reports/inbox/', limit: INBOX_PAGE })
+      const reports: unknown[] = []
+      for (const { key } of listed.objects) {
+        const object = await env.UPDATES.get(key)
+        if (object === null) continue
+        try { reports.push(JSON.parse(await object.text())) } catch { /* a bad copy; the dated report is the record */ }
+      }
+      return json(200, JSON.stringify({ reports }))
+    }
+    if (id !== undefined && REPORT_ID.test(id) && method === 'DELETE') {
+      await env.UPDATES.delete(inboxKey(id))
+      return json(204, null)
+    }
+  } catch {
+    return json(503, unavailable('unreachable'))
   }
-  return reportJson(200, { ok: true, id, filed: notion === null ? 'kept' : 'notion' })
+  return new Response('not found', { status: 404 })
 }
 
 const JSON_HEADERS = {
@@ -144,6 +183,10 @@ export default {
       if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
       if (method === 'POST') return receiveReport(request, env, url)
       return new Response('method not allowed', { status: 405, headers: { allow: 'POST, OPTIONS', ...CORS_HEADERS } })
+    }
+
+    if (parts[0] === 'reports' && parts[1] === 'inbox' && parts.length <= 3) {
+      return inbox(request, env, method, parts[2])
     }
 
     if (method !== 'GET' && method !== 'HEAD') {

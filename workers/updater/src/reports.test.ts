@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import worker, { type Env } from './index.js'
-import { notionPage, parseReport, parseScreenshot, reportKey } from './reports.js'
+import { inboxKey, parseReport, parseScreenshot, reportKey } from './reports.js'
 
 // A 1x1 PNG.
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
@@ -33,6 +33,12 @@ function memoryEnv(extra: Partial<Env> = {}): Env & { objects: Map<string, { val
       async put(key: string, value: string | Uint8Array, options?: { httpMetadata?: { contentType?: string } }) {
         objects.set(key, { value, ...(options?.httpMetadata?.contentType === undefined ? {} : { type: options.httpMetadata.contentType }) })
         return {}
+      },
+      async list({ prefix, limit }: { prefix: string; limit: number }) {
+        return { objects: [...objects.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((key) => ({ key })) }
+      },
+      async delete(key: string) {
+        objects.delete(key)
       },
     },
     ...extra,
@@ -134,58 +140,52 @@ describe('POST /reports', () => {
     const res = await post(REPORT, env)
     expect(res.status).toBe(503)
   })
-
-  it('keeps the report when Notion refuses it', async () => {
-    const env = memoryEnv({ NOTION_TOKEN: 'secret', NOTION_DATABASE_ID: 'db' })
-    const real = globalThis.fetch
-    globalThis.fetch = (async () => new Response('{"message":"unauthorized"}', { status: 401 })) as typeof fetch
-    try {
-      const res = await post(REPORT, env)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toMatchObject({ ok: true, filed: 'kept' })
-      expect(env.objects.size).toBe(1)
-    } finally {
-      globalThis.fetch = real
-    }
-  })
-
-  it('files it in Notion when the token is set', async () => {
-    const env = memoryEnv({ NOTION_TOKEN: 'secret', NOTION_DATABASE_ID: 'db' })
-    const real = globalThis.fetch
-    let sent: { url: string; init: RequestInit } | null = null
-    globalThis.fetch = (async (url: string, init: RequestInit) => {
-      sent = { url, init }
-      return new Response('{"url":"https://notion.so/page"}', { status: 200 })
-    }) as typeof fetch
-    try {
-      const res = await post(REPORT, env)
-      expect(await res.json()).toMatchObject({ ok: true, filed: 'notion' })
-      expect(sent!.url).toBe('https://api.notion.com/v1/pages')
-      expect((sent!.init.headers as Record<string, string>)['authorization']).toBe('Bearer secret')
-    } finally {
-      globalThis.fetch = real
-    }
-  })
 })
 
-describe('notionPage', () => {
-  it('fills the REDBEAM reports columns', () => {
-    const r = parseReport(REPORT)
-    if (typeof r === 'string') throw new Error(r)
-    const page = notionPage(r, 'db', 'https://updates.example/shots/x.png', 'id-1')
-    expect(page.parent).toEqual({ database_id: 'db' })
-    expect(page.properties.Report.title[0]?.text.content).toBe('A quantity is wrong: Trim count doubled on A-101')
-    expect(page.properties.Status).toEqual({ select: { name: 'New' } })
-    expect(page.properties.Machine).toEqual({ select: { name: 'ARM' } })
-    expect(page.properties.Version.rich_text[0]?.text.content).toBe('0.3.2')
-    expect('Screenshot' in page.properties).toBe(true)
-    // Two paragraphs of details, the facts as bullets, and the picture last.
-    expect(page.children.at(-1)).toMatchObject({ type: 'image' })
+const KEY = 'k'.repeat(64)
+
+function asWorkflow(path: string, env: Env, init: RequestInit = {}, key: string | null = KEY): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (key !== null) headers.set('authorization', `Bearer ${key}`)
+  return worker.fetch(new Request(`https://updates.example${path}`, { ...init, headers }), env)
+}
+
+describe('the report inbox', () => {
+  it('holds a copy of each new report until the workflow files it', async () => {
+    const env = memoryEnv({ SYNC_KEY: KEY })
+    const { id } = await (await post({ ...REPORT, screenshot: PNG }, env)).json() as { id: string }
+    expect(env.objects.has(inboxKey(id))).toBe(true)
+
+    const res = await asWorkflow('/reports/inbox', env)
+    expect(res.status).toBe(200)
+    const { reports } = await res.json() as { reports: Array<Record<string, unknown>> }
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toMatchObject({ id, summary: REPORT.summary, kind_label: 'A quantity is wrong' })
+
+    expect((await asWorkflow(`/reports/inbox/${id}`, env, { method: 'DELETE' })).status).toBe(204)
+    expect(env.objects.has(inboxKey(id))).toBe(false)
+    // The dated report is the record and stays.
+    expect(env.objects.has(reportKey(id, new Date()))).toBe(true)
   })
 
-  it('leaves the Screenshot column empty when there is no picture', () => {
-    const r = parseReport(REPORT)
-    if (typeof r === 'string') throw new Error(r)
-    expect('Screenshot' in notionPage(r, 'db', null, 'id').properties).toBe(false)
+  it('does not exist without the key, or with the wrong one', async () => {
+    const env = memoryEnv({ SYNC_KEY: KEY })
+    await post(REPORT, env)
+    expect((await asWorkflow('/reports/inbox', env, {}, null)).status).toBe(404)
+    expect((await asWorkflow('/reports/inbox', env, {}, 'x'.repeat(64))).status).toBe(404)
+    expect((await asWorkflow('/reports/inbox', memoryEnv(), {})).status).toBe(404)
+  })
+
+  it('refuses a short key even when it matches', async () => {
+    const env = memoryEnv({ SYNC_KEY: 'short' })
+    expect((await asWorkflow('/reports/inbox', env, {}, 'short')).status).toBe(404)
+  })
+
+  it('deletes only inbox copies, by report id', async () => {
+    const env = memoryEnv({ SYNC_KEY: KEY })
+    const { id } = await (await post(REPORT, env)).json() as { id: string }
+    expect((await asWorkflow('/reports/inbox/manifest', env, { method: 'DELETE' })).status).toBe(404)
+    expect((await asWorkflow(`/reports/inbox/${id}`, env, { method: 'POST' })).status).toBe(404)
+    expect(env.objects.has(inboxKey(id))).toBe(true)
   })
 })

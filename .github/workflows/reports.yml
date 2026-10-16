@@ -1,0 +1,51 @@
+# Open a GitHub issue for each bug report sent from the app.
+#
+# The app posts reports to the update Worker (POST /reports), which keeps
+# them in R2 and holds no GitHub credential. Every ten minutes this reads the
+# Worker's report inbox and opens an issue per report with this run's own
+# GITHUB_TOKEN, labelled "bug report". See workers/updater/file-reports.mjs
+# for what an issue says and what stays private.
+#
+# The inbox key is derived from CLOUDFLARE_API_TOKEN, the same way worker.yml
+# sets it on the Worker, so there is no secret to add here.
+
+name: Reports
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: redbeam-reports
+  cancel-in-progress: false
+
+jobs:
+  file:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: workers/updater
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: File new reports as issues
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN must be an Actions secret. See docs/UPDATES.md." >&2
+            exit 1
+          fi
+          SYNC_KEY=$(printf 'redbeam-report-sync:%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | cut -c1-64)
+          echo "::add-mask::$SYNC_KEY"
+          export SYNC_KEY
+          node workers/updater/file-reports.mjs

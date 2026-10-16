@@ -1,19 +1,20 @@
 /**
  * Bug reports from the app.
  *
- * POST /reports takes one report as JSON. It is written to R2 first, under
+ * POST /reports takes one report as JSON. It is written to R2 under
  * `reports/`, and that write is the report: an answer of 200 means it is on
- * disk. Filing it in the REDBEAM reports database in Notion comes second and
- * only when the Worker has a NOTION_TOKEN secret. A Notion failure does not
- * fail the request, because the report is already kept.
+ * disk. A copy also goes in `reports/inbox/`, which is what the Reports
+ * workflow (.github/workflows/reports.yml) reads to open a GitHub issue for
+ * each one, deleting the copy once the issue exists. The Worker holds no
+ * GitHub credential; the workflow's own token opens the issues.
  *
  * A screenshot is stored beside the report and served from
- * GET /shots/<uuid>.<png|jpg>, so the Notion row can show it. The name is a
- * random UUID the Worker chose, which is the only way to find it. Report
- * JSON is never served.
+ * GET /shots/<uuid>.<png|jpg>. The name is a random UUID the Worker chose,
+ * which is the only way to find it. Report JSON is served only to the
+ * Reports workflow, which proves itself with SYNC_KEY.
  *
- * No Cloudflare types and no globals beyond fetch and crypto, so the parsing
- * and the Notion request are tested with plain objects.
+ * No Cloudflare types and no globals beyond crypto, so the parsing is tested
+ * with plain objects.
  */
 
 export const REPORT_KINDS = {
@@ -117,74 +118,12 @@ export function storedReport(report: Report, id: string, at: Date, shotUrl: stri
   return { id, received_at: at.toISOString(), ...rest, kind_label: REPORT_KINDS[report.kind], screenshot: shotUrl }
 }
 
-/** Notion caps one rich-text run at 2000 characters. */
-function runs(value: string): Array<{ type: 'text'; text: { content: string } }> {
-  const out: Array<{ type: 'text'; text: { content: string } }> = []
-  for (let i = 0; i < value.length; i += 2000) out.push({ type: 'text', text: { content: value.slice(i, i + 2000) } })
-  return out
+export const REPORT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** `reports/inbox/<id>.json`: a report no issue has been opened for yet. */
+export function inboxKey(id: string): string {
+  return `reports/inbox/${id}.json`
 }
 
-/**
- * The page to create in the REDBEAM reports database. The property names are
- * that database's: Report (title), Note, Status, Machine, Version, Screenshot.
- */
-export function notionPage(report: Report, databaseId: string, shotUrl: string | null, id: string) {
-  const title = `${REPORT_KINDS[report.kind]}: ${report.summary}`
-  const facts = [
-    `Kind: ${REPORT_KINDS[report.kind]}`,
-    `Version: ${report.version}`,
-    `Machine: ${report.machine}${report.os === '' ? '' : ` · ${report.os}`}`,
-    ...(report.where === '' ? [] : [`Where: ${report.where}`]),
-    ...(report.contact === '' ? [] : [`From: ${report.contact}`]),
-    `Report id: ${id}`,
-  ]
-  const children: unknown[] = []
-  if (report.details !== '') {
-    for (const para of report.details.split(/\n{2,}/)) {
-      if (para.trim() === '') continue
-      children.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: runs(para) } })
-    }
-  }
-  for (const fact of facts) {
-    children.push({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: runs(fact) } })
-  }
-  if (shotUrl !== null) {
-    children.push({ object: 'block', type: 'image', image: { type: 'external', external: { url: shotUrl } } })
-  }
-  return {
-    parent: { database_id: databaseId },
-    properties: {
-      Report: { title: runs(title.slice(0, 2000)) },
-      Note: { rich_text: runs((report.details || report.summary).slice(0, 2000)) },
-      Status: { select: { name: 'New' } },
-      Machine: { select: { name: report.machine } },
-      Version: { rich_text: runs(report.version) },
-      ...(shotUrl === null ? {} : {
-        Screenshot: { files: [{ name: shotUrl.split('/').pop() ?? 'screenshot', type: 'external', external: { url: shotUrl } }] },
-      }),
-    },
-    children: children.slice(0, 100),
-  }
-}
-
-/** File the report in Notion. Returns the page URL, or null on any failure. */
-export async function fileInNotion(
-  page: ReturnType<typeof notionPage>, token: string, fetchImpl: typeof fetch = fetch,
-): Promise<string | null> {
-  try {
-    const res = await fetchImpl('https://api.notion.com/v1/pages', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-        'notion-version': '2022-06-28',
-      },
-      body: JSON.stringify(page),
-    })
-    if (!res.ok) return null
-    const json = await res.json() as { url?: unknown }
-    return typeof json.url === 'string' ? json.url : null
-  } catch {
-    return null
-  }
-}
+/** How many inbox reports one GET hands out. The workflow comes back for the rest. */
+export const INBOX_PAGE = 25
