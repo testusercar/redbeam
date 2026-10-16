@@ -101,6 +101,7 @@ const REGISTER: ReadonlyArray<[affordance: string, commandId: string]> = [
   // settings
   ['settings · every switch', 'set:'],
   ['settings · reset all', 'reset-settings'],
+  ['settings · report a bug', 'report-bug'],
 ]
 
 /**

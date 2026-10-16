@@ -74,7 +74,7 @@ import { createCoreBlobUrlResolver } from './project/ingest.js'
 import { openProjectDocuments, type ProjectScanner } from './project/openProject.js'
 import { SearchPanel, type SearchScope } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
-import type { Command, Step } from './palette/commands.js'
+import type { Command, Outcome, Step } from './palette/commands.js'
 import { snapPoint, drawSnapIndicator, DEFAULT_SNAP, type SnapResult } from './snap.js'
 import {
   hitTest, drawAnnotationSelection, drawSelection, drawMarquee, markupsInRect, insertVertexAt, removeVertexAt,
@@ -110,7 +110,13 @@ import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayo
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff } from './shell/icons.js'
+import { ReportDialog } from './report/ReportDialog.js'
+import {
+  EMPTY_DRAFT, REPORT_KINDS, SUMMARY_MAX, buildPayload, captureStage, gatherContext, sendReport, whereLine,
+  type ReportDraft, type ReportKind,
+} from './report/report.js'
+import { APP_VERSION } from './update/updates.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug } from './shell/icons.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -704,6 +710,22 @@ export default function Workspace({
     setSettingsTarget(typeof target === 'string' ? target : null)
     setSettingsOpen(true)
   }, [])
+
+  /**
+   * The bug report card, and what the prompt's quick report carried into it
+   * when that report could not go, or when Shift+Enter asked for the form.
+   * It opens over Settings as well as over the drawing.
+   */
+  const [report, setReport] = useState<{ initial?: Partial<ReportDraft> } | null>(null)
+  const openReport = useCallback((initial?: Partial<ReportDraft>) => {
+    setPaletteOpen(false)
+    setReport(initial === undefined ? {} : { initial })
+  }, [])
+  /** The drawing as it is on screen, for the report's picture. */
+  const captureView = useCallback(
+    () => (rasterRef.current === null ? null : captureStage([rasterRef.current, overlayRef.current])),
+    [],
+  )
 
   /*
    * THERE ARE NO DIALOGS. The palette is the only overlay this app has.
@@ -2800,7 +2822,7 @@ export default function Workspace({
   // question still waiting for an answer — a length, a region's scale, a
   // selection's scale — because a letter typed at one of those is an answer,
   // not a tool.
-  dialogOpenRef.current = settingsOpen || paletteOpen
+  dialogOpenRef.current = settingsOpen || paletteOpen || report !== null
     || pendingCal !== null || pendingRegion !== null || scaleTarget !== null
 
   /*
@@ -5796,6 +5818,46 @@ export default function Workspace({
     const allPages = Array.from({ length: pageCount }, (_, i) => i)
     const scaledPages = allPages.filter((i) => scaleOfPage(i) !== null).length
     const stuck = (why: string | undefined) => (why === undefined ? {} : { unavailable: why })
+    /*
+     * Report a bug without leaving the prompt: what kind, then the sentence,
+     * then Enter sends it. A report that cannot go is not lost — the refusal
+     * offers the form with the sentence already in it.
+     */
+    const reportWhere = whereLine([
+      projectName, activeDoc === undefined ? null : (activeDoc.displayName || activeDoc.relativePath.split('/').pop()),
+      activeDoc === undefined ? null : sheetLabelFor(pageIndex),
+    ])
+    const sendQuickReport = async (kind: ReportKind, text: string): Promise<Outcome> => {
+      const result = await sendReport(buildPayload({ ...EMPTY_DRAFT, kind, summary: text }, await gatherContext(reportWhere)))
+      if (result.ok) { setStatus(`report sent · #${result.id.slice(0, 8)} · thank you`); return undefined }
+      return {
+        reason: result.reason,
+        alternative: {
+          id: 'report-bug-retry', kind: 'command', title: 'Open it in the report form', icon: Bug,
+          run: () => openReport({ kind, summary: text }),
+        },
+      }
+    }
+    const reportCommand: Command = {
+      id: 'report-bug', kind: 'command', title: 'Report a bug…', icon: Bug,
+      detail: 'Tell the people who maintain REDBEAM what went wrong',
+      keywords: ['bug', 'feedback', 'problem', 'issue', 'broken', 'wrong', 'support', 'help'],
+      alt: { label: 'Open the report form', run: () => openReport() },
+      step: {
+        kind: 'choose', label: 'Report a bug', note: 'what kind of problem',
+        options: () => REPORT_KINDS.map((k): Command => ({
+          id: `report-kind-${k.value}`, kind: 'command', title: k.label, detail: k.hint, icon: Bug,
+          alt: { label: 'Open the report form', run: () => openReport({ kind: k.value }) },
+          step: {
+            kind: 'text', label: k.label, placeholder: k.placeholder,
+            rule: 'one sentence; Shift+Enter on the command opens the form for more',
+            validate: (t) => (t.trim() === '' ? 'say what happened' : t.trim().length > SUMMARY_MAX ? `under ${SUMMARY_MAX} characters` : null),
+            describe: (t) => `Send “${t.trim()}” with REDBEAM ${APP_VERSION}${reportWhere === '' ? '' : ` and ${reportWhere}`}`,
+            run: (t) => sendQuickReport(k.value, t.trim()),
+          },
+        })),
+      },
+    }
     const nameTaken = (name: string, among: readonly string[]) =>
       among.some((n) => n.trim().toLowerCase() === name.trim().toLowerCase())
     const roundNameRule = (text: string): string | null =>
@@ -6223,6 +6285,13 @@ export default function Workspace({
         keywords: ['rescan', 'folder', 'reload', 'files', 'documents'], run: () => void refreshFiles(),
       },
       { id: 'settings', kind: 'command', title: 'Settings', detail: 'Application preferences', keywords: ['preferences', 'options'], run: openSettings },
+      reportCommand,
+      {
+        id: 'report-bug-form', kind: 'command', title: 'Report a bug with a picture…', icon: Bug,
+        detail: 'The full form: details, a capture of the drawing, or a pasted screenshot',
+        keywords: ['bug', 'feedback', 'screenshot', 'problem', 'issue', 'support'],
+        run: () => openReport(),
+      },
       {
         id: 'context-window', kind: 'command', title: 'New context window', detail: 'A second view on this project',
         keywords: ['window', 'second'], run: inContext(activeDoc?.relativePath),
@@ -6810,7 +6879,7 @@ export default function Workspace({
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
     pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
-    openSearch, openSettings, refreshFiles, convertSheetAnnotations, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
+    openSearch, openSettings, openReport, refreshFiles, convertSheetAnnotations, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
     regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
@@ -7005,6 +7074,7 @@ export default function Workspace({
           <SettingsPanel
             store={settings}
             onClose={() => setSettingsOpen(false)}
+            onReportBug={() => openReport()}
             {...(settingsTarget !== null ? { initialSettingId: settingsTarget } : {})}
           />
         </div>
@@ -7403,6 +7473,15 @@ export default function Workspace({
             </>
           )
         })()}
+
+        {report !== null && (
+          <ReportDialog
+            onClose={() => setReport(null)}
+            where={whereLine([projectName, activeDoc === null ? null : nameOf(activeDoc), activeDoc === null ? null : sheetLabelFor(pageIndex)])}
+            {...(activeDoc === null ? {} : { captureView })}
+            initial={report.initial}
+          />
+        )}
 
         {asideAsk && (
           <div className="nesting" role="presentation">

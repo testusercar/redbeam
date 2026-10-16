@@ -33,7 +33,7 @@ import { DiagnosticsRow } from '../update/DiagnosticsRow.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import { ChevronDown, ChevronUp, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
+import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
 import './settings.css'
 
 interface Props {
@@ -44,6 +44,8 @@ interface Props {
    * row's Shift+Enter is "show me where it lives".
    */
   initialSettingId?: string
+  /** Open the bug report card over this page. Absent where nothing can send one. */
+  onReportBug?: () => void
 }
 
 /** The page's runs: every root descriptor under its section, in registry order. */
@@ -59,7 +61,7 @@ function runs(): Array<{ title: string; roots: SettingDescriptor[] }> {
   return out
 }
 
-export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
+export function SettingsPanel({ store, onClose, initialSettingId, onReportBug }: Props) {
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
   const [values, setValues] = useState(() => store.all())
@@ -132,6 +134,11 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
                 <b>{changed} changed</b> · Reset all
               </button>
             )}
+            {onReportBug !== undefined && (
+              <button type="button" className="prefs-report" title="Tell the people who maintain REDBEAM what went wrong" onClick={onReportBug}>
+                <Glyph icon={Bug} role="row" /> Report a bug
+              </button>
+            )}
             <button className="prefs-close" aria-label="Back to the drawing" title="Back to the drawing (Esc)" onClick={onClose}>
               <Glyph icon={X} role="inline" />
             </button>
@@ -174,7 +181,7 @@ export function SettingsPanel({ store, onClose, initialSettingId }: Props) {
             </section>
           ))}
 
-          {q === '' && <AboutRun />}
+          {q === '' && <AboutRun {...(onReportBug === undefined ? {} : { onReportBug })} />}
         </div>
       </div>
     </div>
@@ -326,11 +333,24 @@ function AccentRow() {
  * whether it can update, what it recorded when it broke, and what it is
  * built on. Rows without switches — nothing here is a preference.
  */
-function AboutRun() {
+function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
   return (
     <section className="prefs-run prefs-about" aria-label="About REDBEAM">
       <h3 className="prefs-runtitle"><Glyph icon={Info} role="row" /> About REDBEAM <span className="prefs-version">{APP_VERSION}</span></h3>
       <div className="prefs-group">
+        {onReportBug !== undefined && (
+          <button type="button" className="prefs-card prefs-reportcard" onClick={onReportBug}>
+            <span className="prefs-cardicon accent"><Glyph icon={Bug} role="card" /></span>
+            <span className="prefs-cardtext">
+              <span className="prefs-cardtitle">Report a bug</span>
+              <span className="prefs-cardnote">
+                A wrong quantity, a sheet that drew badly, anything that got in the way. Sent with
+                this copy’s version, and a picture of the drawing if you add one.
+              </span>
+            </span>
+            <Glyph icon={ChevronRight} role="small" />
+          </button>
+        )}
         <UpdateRow desktop={isTauri()} />
         <DiagnosticsRow desktop={isTauri()} />
         <AccentRow />

@@ -12,14 +12,17 @@ import { assertReleaseVersion } from '../assert-version.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 
+// Whatever the tree is at today, so a version bump does not fail this suite.
+const current: string = JSON.parse(readFileSync(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')).version
+
 describe('assertReleaseVersion', () => {
   it('accepts the version the tree already has, with or without a v', () => {
-    expect(assertReleaseVersion('v0.3.0', root)).toBe('0.3.0')
-    expect(assertReleaseVersion('0.3.0', root)).toBe('0.3.0')
+    expect(assertReleaseVersion(`v${current}`, root)).toBe(current)
+    expect(assertReleaseVersion(current, root)).toBe(current)
   })
 
   it('rejects a tag the tree was not bumped to', () => {
-    expect(() => assertReleaseVersion('0.9.9', root)).toThrow(/0\.3\.0/)
+    expect(() => assertReleaseVersion('0.9.9', root)).toThrow(current)
   })
 
   it('rejects anything that is not MAJOR.MINOR.PATCH', () => {

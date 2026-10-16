@@ -225,3 +225,28 @@
 .prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
 .prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }
 .prefs-reportmsg { color: var(--rb-ink-2); }
+
+/* ------------------------------------------------------- report a bug -- */
+/* In the header, beside Reset all: a quiet text button with the bug glyph. */
+.prefs-report {
+  display: inline-flex; align-items: center; gap: var(--ads-sp-1);
+  height: 28px; padding: 0 var(--ads-sp-2);
+  border: 1px solid var(--rb-line-2); border-radius: 4px;
+  background: var(--rb-raised); color: var(--rb-ink-2);
+  font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap;
+}
+.prefs-report:hover { background: var(--rb-hover); color: var(--rb-ink); }
+.prefs-report > svg { color: var(--rb-accent); }
+/* The first row of About is a card you can press: the whole row is the button. */
+.prefs-reportcard {
+  width: 100%; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.prefs-reportcard:hover { background: var(--rb-hover); }
+.prefs-reportcard > svg { flex: none; color: var(--rb-ink-3); }
+.prefs-cardicon.accent {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-accent) 18%, transparent);
+  color: var(--rb-accent);
+}

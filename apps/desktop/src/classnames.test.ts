@@ -24,7 +24,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 
 const SHEETS = [
   'styles.css', 'shell/shell.css', 'palette/palette.css', 'settings/settings.css',
-  'ads/primitives.css', 'theme/redbeam.css',
+  'ads/primitives.css', 'theme/redbeam.css', 'report/report.css',
 ]
 
 /**

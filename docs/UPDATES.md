@@ -69,6 +69,7 @@ into GitHub for you. Confirm the Actions secrets exist on the repository
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions. Also already on cloud agents. | API token that can write the `redbeam-updates` R2 bucket and deploy the Worker. |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions. Also already on cloud agents. | The Cloudflare account that owns the bucket. Wrangler will not prompt for it. |
 | `TAURI_SIGNING_PRIVATE_KEY` | GitHub Actions only. **Not** on cloud agents. | The entire updater private key file, including its comment lines. Not a path. |
+| `NOTION_TOKEN` | GitHub Actions, optional. | A Notion internal integration secret with access to the REDBEAM reports database. Without it, bug reports are kept in R2 only. |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | GitHub Actions, only if that key was created with a password. | Leave it unset when the password is empty. The workflow passes the secret through, and an unset secret is an empty string, which is what Tauri wants for an unencrypted key. |
 
 Nothing in the repo is that private key. Do not commit it. Do not put it in a
@@ -98,6 +99,8 @@ installer.
 | `.github/workflows/release.yml` | Tag or dispatch → Windows NSIS build, sign, draft GitHub Release, R2 publish, then publish that release. |
 | `workers/updater/src/index.ts` | The worker. Manifest check, and a proxy for installer files. |
 | `workers/updater/src/manifest.ts` | Version compare and manifest parsing. Tested. No Cloudflare types. |
+| `workers/updater/src/reports.ts` | Bug reports: parsing, the R2 keys, and the Notion row. Tested. No Cloudflare types. |
+| `.github/workflows/worker.yml` | Deploys the Worker on a change to `workers/updater` on main; copies `NOTION_TOKEN` in when that secret exists. |
 | `workers/updater/wrangler.toml` | Worker name `redbeam-updates`, R2 binding `UPDATES`. No account id, no token. |
 | `workers/updater/manifest.example.json` | The shape to upload as `manifest.json`. Not uploaded by itself. |
 | `workers/updater/publish.ps1` | Upload the signed installers and `.sig` files, then `manifest.json` last. Every put uses `--remote`. Refuses to upload outside GitHub Actions. |
@@ -167,6 +170,45 @@ Routes:
 | `GET /windows/x86_64/0.3.0` | `200` and the manifest when `0.3.0` is older. `204` when it is current or newer. `503` when `manifest.json` is missing (`no manifest published`), invalid (`manifest is not valid`), or the bucket cannot be read — never `204`, which the app would read as up to date. |
 | `GET /manifest` | The manifest, even for a current client. For the person publishing. The same `503` errors as a version check when there is nothing valid to show. |
 | `GET /files/REDBEAM_…` | The object from R2. Names that are not `REDBEAM_` plus a safe filename are `404`. |
+
+## Bug reports
+
+The same Worker takes bug reports from the app: **Report a bug** in
+Settings (the header and the first row of About), and *Report a bug…* in the
+prompt. The app posts JSON to `POST /reports` on the update host, so moving
+the Worker moves both.
+
+| Request | Response |
+| --- | --- |
+| `POST /reports` | `200` `{"ok":true,"id":"<uuid>","filed":"notion"\|"kept"}` once the report is in R2. `400` with the reason when a field is wrong, `413` over 6 MB, `503` when R2 will not take it. Answers CORS (`OPTIONS` is `204`). |
+| `GET /shots/<uuid>.png` or `.jpg` | A report's picture, by the random name the Worker gave it. |
+
+Each report is `reports/<yyyy-mm-dd>/<uuid>.json` in the `redbeam-updates`
+bucket, and its picture is `reports/shots/<uuid>.<ext>`. That is the record:
+read it in the Cloudflare dashboard (R2 → redbeam-updates → reports/). Report
+JSON is never served by the Worker; `/files/` only serves `REDBEAM_` names.
+
+When the Worker has a `NOTION_TOKEN` secret, each report is also filed as a
+row in the **REDBEAM reports** database in Notion (`NOTION_DATABASE_ID` in
+`wrangler.toml`): Report, Note, Status (New), Machine, Version, and the picture
+in Screenshot. A Notion failure does not fail the report; it is already kept.
+To turn it on:
+
+1. Create an internal integration at notion.so/profile/integrations and copy
+   its secret.
+2. Open the REDBEAM reports database → ••• → Connections → add that integration.
+3. Save the secret as the GitHub Actions secret `NOTION_TOKEN` and run the
+   **Worker** workflow (Actions → Worker → Run workflow). It copies the secret
+   into the Worker with `wrangler secret put`.
+
+`.github/workflows/worker.yml` deploys the Worker whenever `workers/updater`
+changes on main, with the same Cloudflare secrets as the release. Deploying
+does not touch the channel: only `release.yml` writes `manifest.json` and the
+installers.
+
+A report is a few kilobytes and its picture a few hundred; the free tier
+below does not notice them. Delete `reports/` objects in the dashboard if the
+bucket ever nears the cap.
 
 ## Free tier
 
