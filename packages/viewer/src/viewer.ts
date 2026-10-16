@@ -159,6 +159,9 @@ export class Viewer {
   private tiles: TileCache<ImageBitmap>
   private thumbs: TileCache<ImageBitmap>
   private pending = new Map<string, PendingTile>()
+  /** Annotation indexes hidden on a page. The token is part of the tile key. */
+  private hiddenByPage = new Map<number, readonly number[]>()
+  private hiddenTokens = new Map<number, string>()
   private pendingThumbs = new Map<string, number>()
   private page: PageInfo = { width: 0, height: 0 }
   private activeIndex = -1
@@ -426,6 +429,29 @@ export class Viewer {
    * Queue any visible tiles that are neither cached nor already in flight, then
    * top up the neighbour-page prefetch.
    */
+  /**
+   * Hide PDF annotations on one page. The file is not written; the next tiles
+   * are rasterized with those annotations flagged hidden. Returns whether the
+   * visible tiles were dropped and need to be asked for again.
+   */
+  setHiddenAnnotations(page: number, indices: readonly number[]): boolean {
+    const sorted: number[] = []
+    const seen = new Set<number>()
+    for (const n of indices) {
+      if (!Number.isInteger(n) || n < 0 || seen.has(n)) continue
+      seen.add(n)
+      sorted.push(n)
+    }
+    sorted.sort((a, b) => a - b)
+    const token = sorted.join(',')
+    const prev = this.hiddenTokens.get(page) ?? ''
+    this.hiddenByPage.set(page, sorted)
+    this.hiddenTokens.set(page, token)
+    if (token === prev) return false
+    this.dropPage(page)
+    return true
+  }
+
   requestVisible(cssView: Viewport) {
     if (this.page.width === 0 || this.activeIndex < 0) return
     const v = toDevice(cssView, this.deviceScale())
@@ -449,8 +475,14 @@ export class Viewer {
     return rc === null ? 1 : deviceScale(rc)
   }
 
+  private tileIdentity(page: number, zoom: number, tx: number, ty: number): string {
+    const hidden = this.hiddenByPage.get(page) ?? []
+    return tileKey(page, zoom, tx, ty, hidden.length > 0 ? hidden.join(',') : '')
+  }
+
   private requestTile(page: number, zoom: number, tx: number, ty: number, priority: number, tile: number): boolean {
-    const key = tileKey(page, zoom, tx, ty)
+    const hidden = this.hiddenByPage.get(page) ?? []
+    const key = this.tileIdentity(page, zoom, tx, ty)
     if (this.tiles.has(key)) return false
     const inflight = this.pending.get(key)
     if (inflight) {
@@ -458,12 +490,18 @@ export class Viewer {
       // the worker's queue does the same on its side.
       if (priority < inflight.priority) {
         inflight.priority = priority
-        this.send({ type: 'tile', key, page, tx, ty, tile, zoom, priority })
+        this.send({
+          type: 'tile', key, page, tx, ty, tile, zoom, priority,
+          ...(hidden.length > 0 ? { hidden: [...hidden] } : {}),
+        })
       }
       return false
     }
     this.pending.set(key, { page, zoom, priority })
-    this.send({ type: 'tile', key, page, tx, ty, tile, zoom, priority })
+    this.send({
+      type: 'tile', key, page, tx, ty, tile, zoom, priority,
+      ...(hidden.length > 0 ? { hidden: [...hidden] } : {}),
+    })
     return true
   }
 
@@ -826,7 +864,7 @@ export class Viewer {
       const fresh: Array<[ImageBitmap, number, number]> = []
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
-          const bmp = this.tiles.get(tileKey(this.activeIndex, snapped.zoom, tx, ty))
+          const bmp = this.tiles.get(this.tileIdentity(this.activeIndex, snapped.zoom, tx, ty))
           if (bmp) fresh.push([bmp, tx * tile - snapped.ox, ty * tile - snapped.oy])
         }
       }
@@ -912,7 +950,7 @@ export class Viewer {
     let n = 0
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
-        const bmp = this.tiles.get(tileKey(this.activeIndex, from, tx, ty))
+        const bmp = this.tiles.get(this.tileIdentity(this.activeIndex, from, tx, ty))
         if (bmp) {
           // The bitmap's OWN size, scaled — edge tiles are clipped to the page
           // and are smaller than a full tile, so `step` would stretch them.

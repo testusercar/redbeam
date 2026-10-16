@@ -27,7 +27,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { projectBridge, type ProjectBridge } from './bridge.js'
-import type { DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, RecentProject } from './types.js'
+import type { DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, ProjectNesting, RecentProject } from './types.js'
+
+/** A parent project the user still has to choose about. */
+export interface NestingPrompt {
+  asked: string
+  parent: string
+  parentName: string
+}
 
 export interface UseProjectOptions {
   /** Override for tests, or to point at a traced bridge. */
@@ -49,12 +56,16 @@ export interface UseProjectState {
   /** Path being opened, for per-row feedback in the recents list. */
   busyPath: string | null
   error: string | null
+  /** A parent project the user still has to choose about. */
+  nesting: NestingPrompt | null
+  chooseNesting: (which: 'parent' | 'own') => void
+  dismissNesting: () => void
   /** True when the Rust core is reachable. */
   desktop: boolean
   /** True until the first recents load settles. */
   loading: boolean
 
-  open: (path: string, options?: { create?: boolean }) => Promise<void>
+  open: (path: string, options?: { create?: boolean; own?: boolean }) => Promise<void>
   openRecent: (project: RecentProject) => Promise<void>
   browse: () => Promise<PickOutcome>
   /** Open a PDF; the project is the folder it lives in. */
@@ -85,6 +96,7 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
   const [recents, setRecents] = useState<RecentProject[]>([])
   const [busyPath, setBusyPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [nesting, setNesting] = useState<NestingPrompt | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Kept in a ref so `open` does not change identity every time the caller
@@ -113,17 +125,42 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
   }, [bridge])
 
   const open = useCallback(
-    async (path: string, options: { create?: boolean } = {}) => {
+    async (path: string, options: { create?: boolean; own?: boolean } = {}) => {
       setBusyPath(path)
       setError(null)
       try {
-        const info = await bridge.openProject(path, { create: options.create ?? false })
+        // Ask before a nested folder is silently rewritten to its parent.
+        // Creating a folder, or an explicit "open this one", skips the question.
+        // A failed check falls through to the redirect, which is the old behaviour.
+        if (options.own !== true && options.create !== true) {
+          let nest: ProjectNesting | null = null
+          try {
+            nest = await bridge.projectNesting(path)
+          } catch (err) {
+            console.warn('[project] could not check for a parent project:', err)
+          }
+          if (nest?.parent) {
+            if (aliveRef.current) {
+              setNesting({
+                asked: path.trim(),
+                parent: nest.parent,
+                parentName: nest.parentName ?? nest.parent,
+              })
+            }
+            return
+          }
+        }
+        const info = await bridge.openProject(path, {
+          create: options.create ?? false,
+          ...(options.own === true ? { own: true } : {}),
+        })
         // Announce to the integrator BEFORE marking the project open, so a
         // failure here never leaves the UI showing a project whose database
         // did not actually come up.
         await onOpenedRef.current?.(info)
         if (!aliveRef.current) return
         setProject(info)
+        setNesting(null)
         await refreshRecents()
       } catch (err) {
         if (aliveRef.current) {
@@ -258,12 +295,23 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
     }
   }, [bridge])
 
+  const chooseNesting = useCallback((which: 'parent' | 'own') => {
+    const choice = nesting
+    setNesting(null)
+    if (choice === null) return
+    if (which === 'parent') void open(choice.parent)
+    else void open(choice.asked, { own: true })
+  }, [nesting, open])
+
+  const dismissNesting = useCallback(() => setNesting(null), [])
+
   const close = useCallback(() => {
     // Only the UI's view of the project. The core keeps its connection until
     // the next db_open replaces it — closing it here would break any context
     // window still reading through it.
     setProject(null)
     setError(null)
+    setNesting(null)
   }, [])
 
   const dismissError = useCallback(() => setError(null), [])
@@ -284,6 +332,9 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
     busy: busyPath !== null,
     busyPath,
     error,
+    nesting,
+    chooseNesting,
+    dismissNesting,
     desktop: bridge.desktop,
     loading,
     open,

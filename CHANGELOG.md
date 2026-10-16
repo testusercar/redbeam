@@ -4,6 +4,35 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.2 — 2026-10-16
+
+### Report a bug
+
+- **From Settings or the prompt.** Settings has *Report a bug* in its header
+  and as the first row of About. In the prompt, *Report a bug…* asks what
+  kind and then for one sentence, and Enter sends it without leaving the
+  prompt; Shift+Enter, or *Report a bug with a picture…*, opens the form.
+- **The form** is one small card over the drawing: five kinds (something
+  broke, a quantity is wrong, something looks wrong, it is slow, something
+  else), what happened in a sentence, optional details, and a picture —
+  *Capture the drawing* in one click, or paste or drop a screenshot.
+- **What goes with it is shown, not described**: the version and the
+  machine as chips, and the exact "where you were" line (project · drawing ·
+  sheet) with a tick to leave it out. Nothing else about the project is sent.
+- **Nothing is lost.** A report that cannot be sent keeps every word in the
+  card, says why, and offers to copy it instead. Closing the card keeps the
+  draft for next time.
+- Reports go to the update channel's Worker, which keeps each one in R2 and,
+  once it has a Notion token, files it in the REDBEAM reports database. See
+  `docs/UPDATES.md`.
+
+### Release path
+
+- The publish job laid the installers out with a one-argument `Join-Path`,
+  which throws; no workflow publish had got past that step. Fixed.
+- CI runs `npm run verify` on every pull request, and the Worker deploys
+  from Actions when it changes.
+
 ## 0.3.0 — 2026-09-18
 
 The control surface, the surfaces Aaron approved from boards, Windows'

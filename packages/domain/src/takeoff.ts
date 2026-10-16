@@ -23,7 +23,7 @@ import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type 
 import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
 import {
-  directionGroupKey, resolvePatternDirection, type PageSize,
+  directionGroupKey, pointInRegion, resolvePatternDirection, type PageSize,
   type NormalizedDirection,
 } from './pattern.js'
 import { layoutPanels, scopeDefaultGridLine, type PanelCell, type PanelLayoutGroup } from './panels.js'
@@ -113,6 +113,12 @@ export interface PieceOptions {
   scaleRegions?: ReadonlyMap<string, readonly ScaleRegion[]>
   /** A direction stated for one area, by markup id. Beats everything. */
   areaDirections?: ReadonlyMap<string, NormalizedDirection>
+  /**
+   * A pattern origin stated for one area, by markup id, in normalized page
+   * space. The layout uses it instead of the automatic grid seed. An origin
+   * that does not fall inside its area is ignored.
+   */
+  areaOrigins?: ReadonlyMap<string, Point>
   scopeDirection?: NormalizedDirection | null
   /** Page box used for any page not listed in `pageSizes`. */
   pageSize: PageSize
@@ -177,6 +183,8 @@ export function scopeDefaultDirectionFrom(specs: Specifications): NormalizedDire
 /** Where the per-sheet and per-area directions live in a scope's specs. */
 export const PAGE_DIRECTIONS_KEY = 'pageDirections'
 export const AREA_DIRECTIONS_KEY = 'areaDirections'
+/** A placed pattern origin per area, `{ x, y }` in normalized page space. */
+export const AREA_ORIGINS_KEY = 'areaOrigins'
 
 function directionMap(specs: Specifications, key: string): Map<string, NormalizedDirection> {
   const out = new Map<string, NormalizedDirection>()
@@ -199,6 +207,27 @@ export function areaDirectionsFrom(specs: Specifications): Map<string, Normalize
   return directionMap(specs, AREA_DIRECTIONS_KEY)
 }
 
+/** A normalized point stored the way an area origin is. Null when it is not one. */
+export function areaOriginPoint(raw: unknown): Point | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const d = raw as Record<string, unknown>
+  if (typeof d.x !== 'number' || typeof d.y !== 'number') return null
+  if (!Number.isFinite(d.x) || !Number.isFinite(d.y)) return null
+  return { x: d.x, y: d.y }
+}
+
+/** Pattern origins stated for one area, by markup id. */
+export function areaOriginsFrom(specs: Specifications): Map<string, Point> {
+  const out = new Map<string, Point>()
+  const raw = specs[AREA_ORIGINS_KEY]
+  if (raw === null || typeof raw !== 'object') return out
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const point = areaOriginPoint(value)
+    if (point !== null) out.set(id, point)
+  }
+  return out
+}
+
 /**
  * Build the layout groups for a scope's markups on one calibration.
  *
@@ -216,6 +245,7 @@ export function layoutGroupsFor(
     region: g.region,
     directionLine: g.directionLine,
     feetPerPoint: g.calibration.feetPerPoint,
+    ...(g.origin !== undefined ? { origin: g.origin } : {}),
   }))
 }
 
@@ -237,6 +267,7 @@ export function runGroupsFor(
     region: g.region,
     direction: { x: g.directionLine.b.x - g.directionLine.a.x, y: g.directionLine.b.y - g.directionLine.a.y },
     feetPerPoint: g.calibration.feetPerPoint,
+    ...(g.origin !== undefined ? { origin: g.origin } : {}),
   }))
 }
 
@@ -247,6 +278,8 @@ interface GroupedRegion {
   calibration: Calibration
   /** The grid seed, in this page's own PDF points. */
   directionLine: Segment
+  /** A placed pattern origin in PDF points. Absent means the automatic seed. */
+  origin?: Point
 }
 
 /**
@@ -269,6 +302,7 @@ function groupRegions(
   const scopeDirection = opts.scopeDirection ?? null
   const pageDirections = opts.pageDirections
   const areaDirections = opts.areaDirections
+  const areaOrigins = opts.areaOrigins
   // Any of the three is enough to lay something out. A scope with no default
   // but a direction stated on this sheet is not blocked.
   if (!scopeDirection && (pageDirections?.size ?? 0) === 0 && (areaDirections?.size ?? 0) === 0) {
@@ -382,9 +416,16 @@ function groupRegions(
     const key = `${m.pageId}|${directionGroupKey(resolution, m.id)}`
 
     const rings = m.rings.map((ring) => ringToPoints(ring, pageCal))
+    const placed = areaOrigins?.get(m.id)
+    const origin = placed !== undefined && pointInRegion(placed, m.rings)
+      ? { x: placed.x * pageCal.pageWidth, y: placed.y * pageCal.pageHeight }
+      : undefined
     const existing = byKey.get(key)
     if (existing) existing.region.push(...rings)
-    else byKey.set(key, { pageId: m.pageId, region: rings, calibration: pageCal, directionLine })
+    else byKey.set(key, {
+      pageId: m.pageId, region: rings, calibration: pageCal, directionLine,
+      ...(origin !== undefined ? { origin } : {}),
+    })
   }
 
   for (const c of cutouts) {
@@ -522,6 +563,7 @@ export function calculatePieces(
    */
   const pageDirections = opts.pageDirections ?? pageDirectionsFrom(specs)
   const areaDirections = opts.areaDirections ?? areaDirectionsFrom(specs)
+  const areaOrigins = opts.areaOrigins ?? areaOriginsFrom(specs)
   if (opts.scopeDirection == null && pageDirections.size === 0 && areaDirections.size === 0) {
     return {
       productType: product,
@@ -533,7 +575,7 @@ export function calculatePieces(
   }
   // Read from the scope when the caller did not pass them: they are stored on
   // the scope, so a caller should not have to take them apart to be correct.
-  const withDirections: PieceOptions = { ...opts, pageDirections, areaDirections }
+  const withDirections: PieceOptions = { ...opts, pageDirections, areaDirections, areaOrigins }
 
   if (product === 'panels') {
     const width = measureToFeet(specs, { valueKey: 'panelWidth', unitKey: 'panelWidthUnit', label: 'Panel W' })
@@ -562,6 +604,7 @@ export function calculatePieces(
         { itemKey: 'panel_count', label: 'Panels', quantity: result.panelCount, unit: 'EA' },
         { itemKey: 'panel_full', label: 'Full panels', quantity: result.fullPieceCount, unit: 'EA' },
         { itemKey: 'panel_half', label: 'Half panels', quantity: result.halfPieceCount, unit: 'EA' },
+        { itemKey: 'panel_quarter', label: 'Quarter panels', quantity: result.quarterPieceCount ?? 0, unit: 'EA' },
         /*
          * A panel order is panels AND trim (Aaron, 2026-09-18). Trim is cut
          * per edge of each area — every edge divided by the scope's Trim Len

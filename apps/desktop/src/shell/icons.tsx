@@ -173,6 +173,14 @@ export const Close = family('Dismiss', 12, 16, 20, 24)
 export const Home = family('Home', 12, 16, 20, 24)
 export const Pin = family('Pin', 12, 16, 20, 24)
 export const TextField = family('TextField', 16, 20, 24)
+// the bug report
+export const Send = family('Send', 16, 20, 24)
+export const ImageIcon = family('Image', 16, 20, 24)
+export const Camera = family('Camera', 16, 20, 24)
+export const ClipboardPaste = family('ClipboardPaste', 16, 20, 24)
+export const ErrorCircle = family('ErrorCircle', 12, 16, 20, 24)
+export const Clock = family('Clock', 12, 16, 20, 24)
+export const MoreCircle = family('MoreCircle', 16, 20, 24)
 
 /* ---------------------------------------------------------------- roles -- */
 

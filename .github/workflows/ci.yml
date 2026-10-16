@@ -1,0 +1,28 @@
+# The checks a contributor runs locally, on every pull request and on main:
+# domain purity, typecheck, the vitest suite (app, packages and the update
+# Worker), the MCP tests and the golden fixtures. `npm run verify` is the
+# whole list; this only runs it somewhere other than one PC.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run verify

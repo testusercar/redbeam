@@ -27,10 +27,22 @@ export interface ProjectInfo {
   hasDatabase: boolean
   /**
    * The folder that was asked for, when the project opened is an ancestor of
-   * it instead. A folder inside an existing project IS that project — see
-   * `outermost_project_root` in project.rs. Absent when nothing was redirected.
+   * it instead. The UI asks before this happens; the redirect remains the
+   * safety net when that question is skipped. Absent when nothing was redirected.
    */
   redirectedFrom?: string
+}
+
+/**
+ * A parent project above the folder the user named.
+ *
+ * `parent` is null when the folder is not inside another project's database.
+ * Asking does not open anything.
+ */
+export interface ProjectNesting {
+  asked: string
+  parent: string | null
+  parentName: string | null
 }
 
 /** One entry in the recent-projects list. */

@@ -26,6 +26,8 @@ describe('tileKey', () => {
   it('is stable and round-trips', () => {
     expect(tileKey(7, 0.25, 3, 4)).toBe('p7/0.250/3/4')
     expect(parseTileKey(tileKey(7, 0.25, 3, 4))).toEqual({ page: 7, zoom: 0.25, tx: 3, ty: 4 })
+    expect(tileKey(7, 0.25, 3, 4, '1,4')).toBe('p7/0.250/3/4!1,4')
+    expect(parseTileKey(tileKey(7, 0.25, 3, 4, '1,4'))).toEqual({ page: 7, zoom: 0.25, tx: 3, ty: 4 })
   })
 
   it('quantizes zoom the same way it always did', () => {

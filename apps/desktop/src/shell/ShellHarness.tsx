@@ -53,6 +53,7 @@ import { Dock, DocumentPill, ToolPill } from './Dock.js'
 import { EstimatesPanel } from './RightWorkspace.js'
 import { StatusToast } from './StatusToast.js'
 import { PageStrip } from '../pages/PageStrip.js'
+import { ReportDialog } from '../report/ReportDialog.js'
 import { SettingsPanel } from '../settings/SettingsPanel.js'
 import { SettingsStore, memoryStorage } from '../settings/store.js'
 import { CommandPalette } from '../palette/CommandPalette.js'
@@ -283,7 +284,7 @@ const fakeSearch = (query: string): Promise<SearchReport> => new Promise((resolv
   }), 300)
 })
 
-type Show = 'settings' | 'palette' | 'bom' | 'scopes' | 'calibration' | 'regions' | 'search' | 'scalepicker' | 'crash'
+type Show = 'settings' | 'palette' | 'bom' | 'scopes' | 'calibration' | 'regions' | 'search' | 'scalepicker' | 'crash' | 'report'
 /*
  * `noscopes` is a round with nothing in it — what every new project shows
  * first, now that nothing is seeded. It is the state the scope onboarding
@@ -325,6 +326,7 @@ export function ShellHarness() {
   const [takeoff, setTakeoff] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(show === 'settings')
   const [paletteOpen, setPaletteOpen] = useState(show === 'palette')
+  const [reportOpen, setReportOpen] = useState(show === 'report')
   const [scopePage, setScopePage] = useState<ScopePage>(show === 'bom' ? 'parts' : show === 'scopes' ? 'parts' : 'setup')
   /*
    * The two half-finished gestures, as the workspace would hold them: a line
@@ -557,9 +559,17 @@ export function ShellHarness() {
         </>)}
       </Sidebar>
 
+      {reportOpen && (
+        <ReportDialog
+          onClose={() => setReportOpen(false)}
+          where="Barclays 28019 · PKG A ARCH · A-101"
+          captureView={() => null}
+        />
+      )}
+
       {settingsOpen && (
         <div className="settingsview">
-          <SettingsPanel store={settings} onClose={() => setSettingsOpen(false)} />
+          <SettingsPanel store={settings} onClose={() => setSettingsOpen(false)} onReportBug={() => setReportOpen(true)} />
         </div>
       )}
 

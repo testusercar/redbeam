@@ -157,11 +157,49 @@ function readAllPageSizes(count: number): PageInfo[] {
  * drops sharply as you zoom in. (Poppler does not do this — its per-tile cost
  * is flat at ~1.7-2.6s on the same page regardless of output size.)
  */
+/** Pages whose annotation flags this worker has rewritten. Cleared when none stay hidden. */
+const flaggedPages = new Set<number>()
+
+/**
+ * Show or hide the page's own annotations without writing the PDF.
+ *
+ * FPDF_ANNOT_FLAG_HIDDEN is 2. Other flags are left alone. Returns false when
+ * this PDFium build cannot set flags, so the caller can drop annotations from
+ * the bitmap entirely rather than leave a "hidden" markup on screen.
+ */
+function applyHiddenFlags(handle: number, page: number, hidden: readonly number[]): boolean {
+  const setFlags = pdfium?.FPDFAnnot_SetFlags
+  const getFlags = pdfium?.FPDFAnnot_GetFlags
+  const getCount = pdfium?.FPDFPage_GetAnnotCount
+  const getAnnot = pdfium?.FPDFPage_GetAnnot
+  if (typeof setFlags !== 'function' || typeof getFlags !== 'function'
+      || typeof getCount !== 'function' || typeof getAnnot !== 'function') {
+    return false
+  }
+  if (hidden.length === 0 && !flaggedPages.has(page)) return true
+  const hide = new Set(hidden)
+  const count = getCount(handle) as number
+  for (let i = 0; i < count; i++) {
+    const annot = getAnnot(handle, i) as number
+    if (!annot) continue
+    try {
+      const flags = (getFlags(annot) as number) >>> 0
+      const next = hide.has(i) ? (flags | 2) : (flags & ~2)
+      if (next !== flags) setFlags(annot, next)
+    } finally {
+      if (typeof pdfium.FPDFPage_CloseAnnot === 'function') pdfium.FPDFPage_CloseAnnot(annot)
+    }
+  }
+  if (hidden.length === 0) flaggedPages.delete(page)
+  else flaggedPages.add(page)
+  return true
+}
+
 function renderTile(
   handle: number,
   pw: number,
   ph: number,
-  job: { tx: number; ty: number; tile: number; zoom: number },
+  job: { page: number; tx: number; ty: number; tile: number; zoom: number; hidden?: number[] },
 ): ImageData {
   const { tx, ty, tile, zoom } = job
   const fullW = Math.round(pw * zoom)
@@ -182,7 +220,12 @@ function renderTile(
    * edge tile is simply smaller.
    */
   const { bw, bh } = tileExtent(fullW, fullH, tile, tx, ty)
-  return renderInto(handle, bw, bh, -tx * tile, -ty * tile, fullW, fullH)
+  const hidden = job.hidden ?? []
+  const flagsOk = applyHiddenFlags(handle, job.page, hidden)
+  // 0x01 draws annotations. When flags cannot be set and something should be
+  // hidden, omit them all — a hide-all fallback rather than a no-op.
+  const annot = flagsOk || hidden.length === 0 ? 0x01 : 0
+  return renderInto(handle, bw, bh, -tx * tile, -ty * tile, fullW, fullH, annot | 0x10)
 }
 
 function renderInto(
@@ -193,6 +236,7 @@ function renderInto(
   oy: number,
   fullW: number,
   fullH: number,
+  flags = 0x01 | 0x10,
 ): ImageData {
   const bmp = pdfium.FPDFBitmap_Create(bw, bh, 4 /* BGRA */)
   try {
@@ -205,7 +249,7 @@ function renderInto(
     // that already carries markups — anything round-tripped through Bluebeam,
     // which is most of a real bid set — renders with those markups MISSING,
     // and an estimator cannot tell that from a drawing that never had them.
-    pdfium.FPDF_RenderPageBitmap(bmp, handle, ox, oy, fullW, fullH, 0, 0x01 | 0x10)
+    pdfium.FPDF_RenderPageBitmap(bmp, handle, ox, oy, fullW, fullH, 0, flags)
 
     const bufPtr = pdfium.FPDFBitmap_GetBuffer(bmp)
     const stride = pdfium.FPDFBitmap_GetStride(bmp)
@@ -599,6 +643,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           ty: m.ty,
           tile: m.tile,
           zoom: m.zoom,
+          ...(m.hidden !== undefined && m.hidden.length > 0 ? { hidden: m.hidden } : {}),
         })
         break
 

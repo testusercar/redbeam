@@ -20,7 +20,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { isTauri } from '../tauri/window.js'
 import type {
-  DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, RecentProject, ScanResult,
+  DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, ProjectNesting, RecentProject, ScanResult,
 } from './types.js'
 
 /** The shape of `invoke` this module needs. Injectable so tests need no runtime. */
@@ -70,7 +70,13 @@ export interface ProjectBridge {
   pickFile(): Promise<FilePickOutcome>
   /** The same for a path that arrived without a dialog — a drawing dropped on the window. */
   locateFile(path: string): Promise<FilePickOutcome>
-  openProject(path: string, options?: { create?: boolean }): Promise<ProjectInfo>
+  /**
+   * Whether `path` sits inside a project that already has a database.
+   * Does not open it. In the browser there is no folder to look above, so
+   * `parent` is always null.
+   */
+  projectNesting(path: string): Promise<ProjectNesting>
+  openProject(path: string, options?: { create?: boolean; own?: boolean }): Promise<ProjectInfo>
   listRecents(): Promise<RecentProject[]>
   forgetRecent(path: string): Promise<RecentProject[]>
   /** Name a recent project; an empty name goes back to the folder name. */
@@ -137,6 +143,17 @@ function toProjectInfo(raw: unknown): ProjectInfo {
     dbPath: str(r.db_path),
     created: bool(r.created),
     hasDatabase: bool(r.has_database),
+  }
+}
+
+function toNesting(raw: unknown, fallback: string): ProjectNesting {
+  const r = asRecord(raw)
+  const parent = nullableStr(r.parent)
+  const parentName = nullableStr(r.parent_name ?? r.parentName)
+  return {
+    asked: str(r.asked) || fallback,
+    parent,
+    parentName: parentName ?? (parent === null ? null : projectNameFromPath(parent)),
   }
 }
 
@@ -282,6 +299,13 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       return toFilePick(await invoke<unknown>('project_locate_file', { path }))
     },
 
+    async projectNesting(path): Promise<ProjectNesting> {
+      const trimmed = path.trim()
+      if (trimmed === '') throw new Error('no project folder was given')
+      if (!desktop) return { asked: trimmed, parent: null, parentName: null }
+      return toNesting(await invoke<unknown>('project_nesting', { path: trimmed }), trimmed)
+    },
+
     async openProject(path, options = {}): Promise<ProjectInfo> {
       const trimmed = path.trim()
       if (trimmed === '') throw new Error('no project folder was given')
@@ -318,6 +342,7 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
         await invoke<unknown>('project_open', {
           path: trimmed,
           create: options.create ?? false,
+          ...(options.own === true ? { own: true } : {}),
         }),
       )
     },

@@ -66,19 +66,22 @@ import { toPagePoints, type PageSize, type Segment, type NormalizedDirection } f
 
 /**
  * redbeamAllowedPieceFractions lives in pieces.ts as `allowedPieceFractions`.
- * It is the YIELD ladder — half / quarter / third / full — and it belongs to
- * the run-based products. Panels do not use it: a panel is cut in two axes, not
- * along one run, so its granularity is the binary rule below and its ordering
- * rule is orderStockPieceCount(). Do not wire the yield ladder into panels.
+ * It is the YIELD ladder — half / quarter / third / full — and the run products
+ * read it directly. Panels are cut in two axes rather than along one run, so
+ * they do not share that list, but they do share the words the editor stores:
+ * `full`, `half`, and `quarter`. Quarter used to fall through to full, which
+ * is why a scope set to quarter ordered a whole panel for a quarter piece.
  */
 
-/** Panel granularity is BINARY, unlike yield granularity: 0 = full, 1 = half. */
-export function panelGranularityIndex(panelGranularity: string): 0 | 1 {
+/** 0 = full, 1 = half, 2 = quarter. Anything else is full. */
+export function panelGranularityIndex(panelGranularity: string): 0 | 1 | 2 {
   const n = panelGranularity.trim().toLowerCase()
+  if (n === 'quarter') return 2
   return n === 'half' || n === 'halflength' || n === 'halfwidth' ? 1 : 0
 }
 
-export function panelGranularityForIndex(index: number): 'full' | 'half' {
+export function panelGranularityForIndex(index: number): 'full' | 'half' | 'quarter' {
+  if (index === 2) return 'quarter'
   return index === 1 ? 'half' : 'full'
 }
 
@@ -205,12 +208,19 @@ export interface PanelLocalBounds {
   valid: boolean
 }
 
-export type PanelStockKind = 'full' | 'half-length' | 'half-width'
+export type PanelStockKind =
+  | 'full'
+  | 'half-length'
+  | 'half-width'
+  | 'quarter-length'
+  | 'quarter-width'
+  /** Half the length and half the width: a corner of the panel, still a quarter of its area. */
+  | 'quarter'
 
 export interface PanelStockSelection {
   /** Stock rectangle in PDF points, four corners. */
   path: Point[]
-  /** Fraction of one stock panel this cell consumes: 1 or 0.5. */
+  /** Fraction of one stock panel this cell consumes: 1, 0.5, or 0.25. */
   fraction: number
   kind: PanelStockKind
   requiredLengthFraction: number
@@ -624,9 +634,115 @@ interface StockSelectionInput {
 }
 
 /**
- * Full vs half stock for one cell.
+ * The smallest quarter rectangle that contains the installed span.
  *
- * Port of redbeamPanelStockSelectionForCell. The rule is a STRICT BINARY span
+ * Three cuts, all a quarter of the panel's area, tried in the same spirit as
+ * the half rule: the bounding SPAN has to fit, not the area. A quarter along
+ * the run, a quarter across it, or a corner (half by half). The one whose cut
+ * axis is most filled wins; the others are waste of the same area in a worse
+ * shape. None fitting means the cell is at least a half, and the caller says so.
+ */
+function pickQuarterStock(input: {
+  panelLength: number
+  panelWidth: number
+  requiredAlongSpan: number
+  requiredOffsetSpan: number
+  eps: number
+  clippedBounds: PanelLocalBounds
+  startAlong: number
+  endAlong: number
+  startOffset: number
+  endOffset: number
+  origin: Point
+  direction: Point
+  normal: Point
+  coveredBy: (a0: number, a1: number, o0: number, o1: number) => number
+}): { path: Point[]; kind: PanelStockKind; reason: string } | null {
+  const {
+    panelLength, panelWidth, requiredAlongSpan, requiredOffsetSpan, eps,
+    clippedBounds, startAlong, endAlong, startOffset, endOffset,
+    origin, direction, normal, coveredBy,
+  } = input
+  const qLen = panelLength * 0.25
+  const qWid = panelWidth * 0.25
+  const hLen = panelLength * 0.5
+  const hWid = panelWidth * 0.5
+
+  interface Cand { kind: PanelStockKind; utilization: number; overage: number; path: Point[] }
+  const cands: Cand[] = []
+  const consider = (
+    kind: PanelStockKind,
+    fit: boolean,
+    utilization: number,
+    place: () => { path: Point[]; covered: number; stockArea: number },
+  ) => {
+    if (!fit) return
+    const placed = place()
+    cands.push({
+      kind,
+      utilization,
+      overage: Math.max(0, placed.stockArea - placed.covered),
+      path: placed.path,
+    })
+  }
+
+  consider(
+    'quarter-length',
+    requiredAlongSpan <= qLen + eps && requiredOffsetSpan <= panelWidth + eps,
+    qLen > 0 ? clamp(0, requiredAlongSpan / qLen, 2) : 0,
+    () => {
+      const start = clampedStockStart(clippedBounds.minAlong, clippedBounds.maxAlong, startAlong, endAlong, qLen)
+      return {
+        path: panelCellPath(origin, direction, normal, start, start + qLen, startOffset, endOffset),
+        covered: coveredBy(start, start + qLen, startOffset, endOffset),
+        stockArea: qLen * panelWidth,
+      }
+    },
+  )
+  consider(
+    'quarter-width',
+    requiredAlongSpan <= panelLength + eps && requiredOffsetSpan <= qWid + eps,
+    qWid > 0 ? clamp(0, requiredOffsetSpan / qWid, 2) : 0,
+    () => {
+      const start = clampedStockStart(clippedBounds.minOffset, clippedBounds.maxOffset, startOffset, endOffset, qWid)
+      return {
+        path: panelCellPath(origin, direction, normal, startAlong, endAlong, start, start + qWid),
+        covered: coveredBy(startAlong, endAlong, start, start + qWid),
+        stockArea: panelLength * qWid,
+      }
+    },
+  )
+  consider(
+    'quarter',
+    requiredAlongSpan <= hLen + eps && requiredOffsetSpan <= hWid + eps,
+    hLen > 0 && hWid > 0
+      ? Math.min(clamp(0, requiredAlongSpan / hLen, 2), clamp(0, requiredOffsetSpan / hWid, 2))
+      : 0,
+    () => {
+      const along = clampedStockStart(clippedBounds.minAlong, clippedBounds.maxAlong, startAlong, endAlong, hLen)
+      const offset = clampedStockStart(clippedBounds.minOffset, clippedBounds.maxOffset, startOffset, endOffset, hWid)
+      return {
+        path: panelCellPath(origin, direction, normal, along, along + hLen, offset, offset + hWid),
+        covered: coveredBy(along, along + hLen, offset, offset + hWid),
+        stockArea: hLen * hWid,
+      }
+    },
+  )
+  if (cands.length === 0) return null
+  const order = ['quarter-length', 'quarter-width', 'quarter']
+  cands.sort((a, b) => {
+    if (Math.abs(a.utilization - b.utilization) > eps) return b.utilization - a.utilization
+    if (Math.abs(a.overage - b.overage) > 1e-6) return a.overage - b.overage
+    return order.indexOf(a.kind) - order.indexOf(b.kind)
+  })
+  const best = cands[0]!
+  return { path: best.path, kind: best.kind, reason: `${best.kind}-strict-span-fit` }
+}
+
+/**
+ * Full vs half stock for one cell, and a quarter when the scope asks for one.
+ *
+ * Port of redbeamPanelStockSelectionForCell. The half rule is a STRICT span
  * test, carried over verbatim from the C++ comment:
  *
  *   FULL        = [0,L]     x [0,W]
@@ -791,6 +907,28 @@ export function panelStockSelectionForCell(input: StockSelectionInput): PanelSto
     halfWidthScore: halfWidthCandidate.score,
     halfLengthReason: halfLengthCandidate.reason,
     halfWidthReason: halfWidthCandidate.reason,
+  }
+
+  /*
+   * Quarter yield cuts a quarter piece when the installed span fits in one,
+   * and otherwise falls through to the half rule below. Four quarter pieces
+   * order one panel — that pairing lives in orderStockPieceCount, which only
+   * sees the 0.25 this returns. A half scope never enters here, so its cells
+   * stay halves.
+   */
+  if (panelGranularityIndex(input.granularity) === 2) {
+    const quarter = pickQuarterStock({
+      panelLength, panelWidth, requiredAlongSpan, requiredOffsetSpan, eps,
+      clippedBounds, startAlong, endAlong, startOffset, endOffset,
+      origin, direction, normal, coveredBy,
+    })
+    if (quarter) {
+      selection.path = quarter.path
+      selection.fraction = 0.25
+      selection.kind = quarter.kind
+      selection.selectionReason = quarter.reason
+      return selection
+    }
   }
 
   let best: CandidateHalf | null = null
@@ -973,6 +1111,12 @@ export interface PanelPieceSummary {
   partialPanelCount: number
   fullPieceCount: number
   halfPieceCount: number
+  /**
+   * Quarter pieces placed. Optional so a caller that only knows the half-era
+   * summary still typechecks; `summarizePanelCells` always sets it.
+   * Four of these order one panel.
+   */
+  quarterPieceCount?: number
   /** Cells placed, before any production nesting. */
   placedCellCount: number
 }
@@ -988,16 +1132,23 @@ export function summarizePanelCells(cells: readonly PanelCell[]): PanelPieceSumm
   const stockFractions: number[] = []
   let fullPieceCount = 0
   let halfPieceCount = 0
+  let quarterPieceCount = 0
   let fullPanelCount = 0
   let partialPanelCount = 0
 
   for (const cell of cells) {
     const stockFraction = cell.stockFraction > 0 ? cell.stockFraction : 1
     stockFractions.push(stockFraction)
-    const isHalf =
+    const isQuarter =
+      cell.stockKind === 'quarter' || cell.stockKind === 'quarter-length' || cell.stockKind === 'quarter-width' ||
+      fractionApproximately(stockFraction, 0.25)
+    const isHalf = !isQuarter && (
       cell.stockKind === 'half-length' || cell.stockKind === 'half-width' ||
-      fractionApproximately(stockFraction, 0.5)
-    if (isHalf) {
+      fractionApproximately(stockFraction, 0.5))
+    if (isQuarter) {
+      quarterPieceCount++
+      partialPanelCount++
+    } else if (isHalf) {
       halfPieceCount++
       partialPanelCount++
     } else {
@@ -1013,6 +1164,7 @@ export function summarizePanelCells(cells: readonly PanelCell[]): PanelPieceSumm
     partialPanelCount,
     fullPieceCount,
     halfPieceCount,
+    quarterPieceCount,
     placedCellCount: cells.length,
   }
 }
@@ -1049,7 +1201,7 @@ export interface PanelLayoutOptions {
   panelWidthFeet: number
   panelLengthFeet: number
   feetPerPoint: number
-  /** "half" or "full"; anything else reads as full. */
+  /** "full", "half", or "quarter". Anything else reads as full. */
   panelGranularity: string
   /**
    * Lay each area out on its own grid rather than one shared with the sheet.

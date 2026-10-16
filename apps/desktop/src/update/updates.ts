@@ -6,13 +6,15 @@
  * That happens once, politely, and then stops happening while the fixes pile
  * up and the copy they are bidding from drifts further from the one that works.
  *
- * THE STATE THIS FILE EXISTS FOR is `unconfigured`. The updater needs an
- * endpoint serving a manifest, and REDBEAM does not have one yet — nobody has
- * decided where it lives. The tempting thing is to let a check against no
- * endpoint fail quietly and show "you're up to date", which is the most
- * dangerous sentence available: it is what a working updater says, so nobody
- * would ever find out the mechanism was dead. An app with no update channel
- * has to say that plainly.
+ * THE STATE THIS FILE EXISTS FOR is `unconfigured`. The shipping build has an
+ * endpoint, and an automatic check uses it (see `session.ts`). An empty
+ * endpoint list is still a different fact from "you are up to date". The
+ * tempting thing is to let a check against no endpoint fail quietly and show
+ * the healthy sentence, which is how a dead channel hides. An app with no
+ * update channel has to say that plainly.
+ *
+ * A check is not an install. `windows.installMode` stays `passive`, and
+ * nothing here downloads an installer until someone presses the button.
  */
 import conf from '../../src-tauri/tauri.conf.json'
 
@@ -96,4 +98,41 @@ export function updateNeedsAttention(state: UpdateState): boolean {
     || state.kind === 'available'
     || state.kind === 'ready'
     || state.kind === 'failed'
+}
+
+/**
+ * How often a running copy looks again, without anyone opening Settings.
+ *
+ * Startup covers the morning launch. The interval covers a copy left open
+ * across a publish. Focus covers coming back to the window after lunch,
+ * without hitting the worker on every alt-tab.
+ */
+export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+export const UPDATE_FOCUS_MIN_GAP_MS = 30 * 60 * 1000
+
+export type UpdatePollReason = 'startup' | 'interval' | 'focus'
+
+/**
+ * Whether an automatic check should run.
+ *
+ * Downloading and ready are left alone: a poll must not replace an install
+ * that is already in progress, and it must not clear "restart to finish".
+ * The button still calls the check directly; this is only the unattended path.
+ */
+export function shouldPollUpdate(
+  state: UpdateState,
+  lastCheckedAt: number,
+  now: number,
+  reason: UpdatePollReason,
+): boolean {
+  if (!UPDATES_CONFIGURED) return false
+  if (
+    state.kind === 'unconfigured'
+    || state.kind === 'checking'
+    || state.kind === 'downloading'
+    || state.kind === 'ready'
+  ) return false
+  if (reason === 'startup') return lastCheckedAt === 0
+  const gap = reason === 'interval' ? UPDATE_CHECK_INTERVAL_MS : UPDATE_FOCUS_MIN_GAP_MS
+  return now - lastCheckedAt >= gap
 }

@@ -868,6 +868,16 @@ pub fn recents_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// ambiguous which one last won. The caller takes [`ProjectInfo::db_path`] and
 /// passes it to `db_open`.
 pub fn resolve_project(path: &str, create: bool) -> Result<ProjectInfo, String> {
+    resolve_project_choosing(path, create, false)
+}
+
+/// Resolve a folder, optionally keeping it even when a parent already holds
+/// `redbeam.db`.
+///
+/// `own` is the answer to the question the UI asks: open this folder on its
+/// own. Without it, a nested folder still resolves to the outermost project,
+/// which is the safety net when the UI never got to ask.
+pub fn resolve_project_choosing(path: &str, create: bool, own: bool) -> Result<ProjectInfo, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("no project folder was given".to_string());
@@ -894,8 +904,12 @@ pub fn resolve_project(path: &str, create: bool) -> Result<ProjectInfo, String> 
     if !asked.is_dir() {
         return Err(format!("{} is a file, not a project folder", asked.display()));
     }
-    let root = outermost_project_root(&asked);
-    let redirected_from = if root == asked {
+    let root = if own {
+        asked.clone()
+    } else {
+        outermost_project_root(&asked)
+    };
+    let redirected_from = if own || root == asked {
         None
     } else {
         Some(asked.display().to_string())
@@ -933,13 +947,65 @@ pub fn resolve_project(path: &str, create: bool) -> Result<ProjectInfo, String> 
 /// than nearest so that three nested databases resolve to one answer rather
 /// than to whichever was asked for.
 pub fn outermost_project_root(folder: &Path) -> PathBuf {
-    let mut root = folder.to_path_buf();
+    enclosing_project_root(folder).unwrap_or_else(|| folder.to_path_buf())
+}
+
+/// The outermost ancestor that already carries a `redbeam.db`, if any.
+///
+/// The folder itself is not considered: asking about a project returns no
+/// parent, which is how the UI decides there is nothing to ask.
+pub fn enclosing_project_root(folder: &Path) -> Option<PathBuf> {
+    let mut found: Option<PathBuf> = None;
     for ancestor in folder.ancestors().skip(1) {
         if ancestor.join(crate::store::db::DB_FILE_NAME).is_file() {
-            root = ancestor.to_path_buf();
+            found = Some(ancestor.to_path_buf());
         }
     }
-    root
+    found
+}
+
+/// Whether the folder the user named sits inside a project, without opening it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectNesting {
+    pub asked: String,
+    /// Outermost ancestor that already has a database. None when the folder
+    /// is a project of its own, or has none above it.
+    pub parent: Option<String>,
+    pub parent_name: Option<String>,
+}
+
+/// Report a parent project. Does not create a folder, open a database, or
+/// touch the recents list — the UI asks, then [`project_open`] does the rest.
+#[tauri::command]
+pub async fn project_nesting(path: String) -> Result<ProjectNesting, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("no project folder was given".to_string());
+    }
+    let requested = PathBuf::from(trimmed);
+    if !requested.is_absolute() {
+        return Err(format!(
+            "{trimmed} is not an absolute path — a project folder must be addressed absolutely"
+        ));
+    }
+    if !requested.exists() {
+        return Err(format!("{trimmed} does not exist"));
+    }
+    let asked = canonical_project_root(&requested);
+    if !asked.is_dir() {
+        return Err(format!("{} is a file, not a project folder", asked.display()));
+    }
+    let parent = enclosing_project_root(&asked);
+    let parent_name = parent.as_ref().and_then(|p| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+    });
+    Ok(ProjectNesting {
+        asked: asked.display().to_string(),
+        parent: parent.as_ref().map(|p| p.display().to_string()),
+        parent_name,
+    })
 }
 
 // -------------------------------------------------------------- commands --
@@ -1205,8 +1271,9 @@ pub async fn project_open(
     app: AppHandle,
     path: String,
     create: Option<bool>,
+    own: Option<bool>,
 ) -> Result<ProjectInfo, String> {
-    let info = resolve_project(&path, create.unwrap_or(false))?;
+    let info = resolve_project_choosing(&path, create.unwrap_or(false), own.unwrap_or(false))?;
     // So a crash report can say which project was open (TH.8). It is the first
     // question asked of one, and a report that cannot answer it usually cannot
     // be acted on.
@@ -1662,6 +1729,17 @@ mod tests {
         // Asking for the outer folder itself is not a redirect.
         let direct = resolve_project(&outer.display().to_string(), false).unwrap();
         assert_eq!(direct.redirected_from, None);
+
+        // Choosing the subfolder keeps it, which is the other answer to the
+        // question the UI asks.
+        let own = resolve_project_choosing(&inner.display().to_string(), false, true).unwrap();
+        assert_eq!(own.path, canonical_project_root(&inner).display().to_string());
+        assert_eq!(own.redirected_from, None);
+        assert_eq!(own.name, "Drawings");
+
+        let nesting = enclosing_project_root(&canonical_project_root(&inner)).unwrap();
+        assert_eq!(nesting, canonical_project_root(&outer));
+        assert!(enclosing_project_root(&canonical_project_root(&outer)).is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 

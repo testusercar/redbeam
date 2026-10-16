@@ -51,15 +51,8 @@ const KNOWN = new Map<string, string>([
     + 'the tool is already in place — MarkupKind carries \'callout\' and '
     + '\'highlight\', and both are excluded from every quantity path — so what '
     + 'is missing is only the Tool union entry and the draft handling.'],
-  ['apps/desktop/src/tools/pattern.ts',
-    'Pattern origin, direction and direction zones, ported from the Qt tools. '
-    + 'MOSTLY SUPERSEDED, not missing: Workspace\'s `directionFromEdge` sets a '
-    + 'direction by picking an edge of an area already drawn (this area, or the '
-    + 'whole sheet), which beats carrying a separate tool, and it writes the '
-    + 'same pageDirections/areaDirections specs the layout reads. What has no '
-    + 'equivalent is the direction ZONE — an arbitrary polygon with its own '
-    + 'direction, independent of any area. Delete the rest when someone decides '
-    + 'zones are not wanted.'],
+  // pattern.ts left this list on 2026-09-23: a right-click on an area
+  // offers "Start the pattern here" and Workspace paints the origin.
   ['packages/store/src/review.ts',
     'The agent review gate. Deliberate: markups.review_state has defaulted to '
     + 'accepted since the first migration, so nothing proposes yet. Wiring it '

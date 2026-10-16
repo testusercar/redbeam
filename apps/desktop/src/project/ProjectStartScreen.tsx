@@ -168,6 +168,24 @@ export function ProjectStartScreen({
     return () => window.removeEventListener('keydown', onKey)
   }, [onBrowse, onOpenPath, busy])
 
+  useEffect(() => {
+    if (onRemoveData === undefined) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const target = e.target instanceof HTMLElement ? e.target : null
+      const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+      if (typing && target !== filterRef.current) return
+      if (query !== '') return
+      if (renaming !== null || confirming !== null) return
+      const p = rows[at]
+      if (p === undefined) return
+      e.preventDefault()
+      setConfirming(p.path)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onRemoveData, query, renaming, confirming, rows, at])
+
   const togglePin = useCallback((path: string) => {
     setPins((p) => { const next = p.includes(path) ? p.filter((x) => x !== path) : [...p, path]; writePins(next); return next })
   }, [])
@@ -268,7 +286,7 @@ export function ProjectStartScreen({
                   key={p.path}
                   role="option"
                   aria-selected={i === at}
-                  className={`st-row${i === at ? ' armed' : ''}${p.missing ? ' missing' : ''}${isBusy ? ' busy' : ''}`}
+                  className={`st-row${onRemoveData !== undefined ? ' has-trash' : ''}${i === at ? ' armed' : ''}${p.missing ? ' missing' : ''}${isBusy ? ' busy' : ''}`}
                   title={p.path}
                   onMouseEnter={() => setArmed(i)}
                   onClick={() => open(p)}
@@ -283,6 +301,14 @@ export function ProjectStartScreen({
                   {p.missing && onLocateRecent !== undefined
                     ? <button className="st-link" onClick={(e) => { e.stopPropagation(); onLocateRecent(p) }}>Locate…</button>
                     : <span className="st-when">{isBusy ? 'opening…' : formatLastOpened(p.lastOpenedAt, timestamp)}</span>}
+                  {onRemoveData !== undefined && (
+                    <button
+                      className="st-pin st-trash"
+                      title="Set REDBEAM data aside"
+                      aria-label={`Set REDBEAM data for ${shownName(p)} aside`}
+                      onClick={(e) => { e.stopPropagation(); setConfirming(p.path) }}
+                    ><Glyph icon={Trash2} role="inline" /></button>
+                  )}
                   <button
                     className={`st-pin${pinned ? ' on' : ''}`}
                     title={pinned ? 'Unpin' : 'Pin to top'}

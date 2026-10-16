@@ -19,18 +19,19 @@ import { ringToPoints, type Calibration } from './scope.js'
 // ---------------------------------------------------------------------------
 
 describe('panel granularity', () => {
-  it('is binary, unlike yield granularity', () => {
+  it('reads full, half, and quarter — and nothing else', () => {
     expect(panelGranularityIndex('half')).toBe(1)
     expect(panelGranularityIndex('halfLength')).toBe(1)
     expect(panelGranularityIndex('halfWidth')).toBe(1)
     expect(panelGranularityIndex('full')).toBe(0)
-    // "quarter" is a legal YIELD granularity but there is no quarter panel.
-    expect(panelGranularityIndex('quarter')).toBe(0)
+    expect(panelGranularityIndex('quarter')).toBe(2)
+    expect(panelGranularityIndex('third')).toBe(0)
   })
 
-  it('round-trips through the index the way the Qt build normalises it', () => {
+  it('round-trips through the index', () => {
     expect(panelGranularityForIndex(panelGranularityIndex('halfWidth'))).toBe('half')
-    expect(panelGranularityForIndex(panelGranularityIndex('quarter'))).toBe('full')
+    expect(panelGranularityForIndex(panelGranularityIndex('quarter'))).toBe('quarter')
+    expect(panelGranularityForIndex(panelGranularityIndex('full'))).toBe('full')
   })
 })
 
@@ -256,6 +257,44 @@ describe('buildPanelCells', () => {
     const cells = buildPanelCells(square(0, 0, 10, 2.5), { x: 0, y: 0 }, X_AXIS, 5, 10, 'half')
     expect(cells.length).toBe(1)
     expect(cells[0]!.stockKind).toBe('half-width')
+  })
+
+  it('cuts a quarter piece when the span fits a quarter, and four of them order one panel', () => {
+    // Panel is 10 along by 5 across. 2.5 along is a quarter of the length.
+    const one = buildPanelCells(square(0, 0, 2.5, 5), { x: 0, y: 0 }, X_AXIS, 5, 10, 'quarter')
+    expect(one).toHaveLength(1)
+    expect(one[0]!.stockKind).toBe('quarter-length')
+    expect(one[0]!.stockFraction).toBe(0.25)
+
+    const across = buildPanelCells(square(0, 0, 10, 1.25), { x: 0, y: 0 }, X_AXIS, 5, 10, 'quarter')
+    expect(across[0]!.stockKind).toBe('quarter-width')
+    expect(across[0]!.stockFraction).toBe(0.25)
+
+    // A corner that fits in half-by-half but in neither strip is still a quarter.
+    const corner = buildPanelCells(square(0, 0, 4, 2), { x: 0, y: 0 }, X_AXIS, 5, 10, 'quarter')
+    expect(corner[0]!.stockKind).toBe('quarter')
+    expect(corner[0]!.stockFraction).toBe(0.25)
+
+    // Four separate quarter cells. The order is the nested count, not the placed count.
+    const four = [0, 10, 20, 30].flatMap((x) =>
+      buildPanelCells(square(x, 0, x + 2.5, 5), { x: 0, y: 0 }, X_AXIS, 5, 10, 'quarter'))
+    expect(four).toHaveLength(4)
+    expect(four.every((c) => c.stockFraction === 0.25)).toBe(true)
+    const summary = summarizePanelCells(four)
+    expect(summary.quarterPieceCount).toBe(4)
+    expect(summary.panelCount).toBe(1)
+  })
+
+  it('does not cut quarters unless the scope asked for them', () => {
+    const cells = buildPanelCells(square(0, 0, 2.5, 5), { x: 0, y: 0 }, X_AXIS, 5, 10, 'half')
+    expect(cells[0]!.stockFraction).toBe(0.5)
+    expect(cells[0]!.stockKind).toBe('half-length')
+  })
+
+  it('falls through to a half when a quarter will not hold the span', () => {
+    const cells = buildPanelCells(square(0, 0, 5, 5), { x: 0, y: 0 }, X_AXIS, 5, 10, 'quarter')
+    expect(cells[0]!.stockKind).toBe('half-length')
+    expect(cells[0]!.stockFraction).toBe(0.5)
   })
 
   it('orders a FULL panel for an L that spans the cell, however little material', () => {

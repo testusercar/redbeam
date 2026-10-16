@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import mark from './mark.png'
 import {
   Bookmark, ChevronDown, Ellipsis, ExternalLink, FileText, Files, Folder, FolderOpen, Glyph,
-  Grid2x2, Home, ListTree, PanelRight, Rename, Search, SearchText, Settings2, WindowNew, X, Plus, ExternalLink as PopOut,
-  SlidersHorizontal, Info,
+  Grid2x2, Home, ListTree, PanelRight, Rename,   Search, SearchText, Settings2, WindowNew, X, Plus, ExternalLink as PopOut,
+  SlidersHorizontal, Info, Trash2,
 } from './icons.js'
 import { formatLastOpened } from '../project/recents.js'
 import type { Icon } from './icons.js'
@@ -67,6 +67,8 @@ export interface AppMenuActions {
   onContextWindow?: () => void
   onPalette?: () => void
   onSettings?: () => void
+  /** Move this project's database aside. Drawings stay. */
+  onSetAside?: () => void
   onCloseProject?: () => void
 }
 
@@ -232,6 +234,7 @@ export function TitleBar({
             {item('Command palette', <Glyph icon={Search} role="row" />, appMenu.onPalette, 'Ctrl+K')}
             {item('Settings', <Glyph icon={SlidersHorizontal} role="row" />, appMenu.onSettings, 'Ctrl+,')}
             <div className="menusep" />
+            {item('Set this project’s data aside', <Glyph icon={Trash2} role="row" />, appMenu.onSetAside)}
             {item('Close project', <Glyph icon={X} role="row" />, appMenu.onCloseProject)}
           </div>
         )}
