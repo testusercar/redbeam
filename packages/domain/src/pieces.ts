@@ -735,6 +735,13 @@ export interface RegionLayoutOptions extends RunLayoutOptions {
    */
   origin?: Point | null
   /**
+   * Profile or plank width, in PDF points. With a drawn origin, the first run
+   * is laid with its EDGE on the origin rather than its centreline: an
+   * estimator places the origin on the corner of the first baffle or plank.
+   * See edgeAlignedLineOrigin. 0 or absent keeps the centreline on the origin.
+   */
+  componentWidthPoints?: number | undefined
+  /**
    * Planks only. Rails run PERPENDICULAR to the planks. Both of these must be
    * positive or no rails are generated; the Qt call site gates on exactly that
    * pair (`railSpacingPdfPoints > 0 && railLengthPdfPoints > 0`).
@@ -751,6 +758,34 @@ export interface RegionLayout {
   /** Perpendicular rail runs. Empty for everything but planks with rail specs. */
   railSegments: Segment[]
   railPieces: Piece[]
+}
+
+/**
+ * Where the run centrelines are phased from, for an origin placed on the
+ * corner of the first item.
+ *
+ * generateLayoutSegments puts a CENTRELINE through its origin, so a baffle
+ * started at the area's corner overhung the wall by half its width and the
+ * last one stopped half a width short. The team places the origin where the
+ * product's corner is (feedback 2026-10-16), so the line grid is moved half a
+ * component width along the normal, toward the area, and the first item's
+ * edge sits on the origin. Seam phase is measured ALONG the run, so this
+ * shift leaves it untouched.
+ */
+export function edgeAlignedLineOrigin(
+  region: Region,
+  origin: Point,
+  direction: Point,
+  componentWidthPoints: number,
+): Point {
+  const half = componentWidthPoints / 2
+  const dir = unitVector(direction)
+  const bounds = regionBounds(region)
+  if (!(half > 0) || !dir || !bounds) return origin
+  const normal = leftNormal(dir)
+  const centre = { x: (bounds.left + bounds.right) / 2, y: (bounds.top + bounds.bottom) / 2 }
+  const side = dot(sub(centre, origin), normal) < 0 ? -1 : 1
+  return along(origin, normal, side * half)
 }
 
 /**
@@ -780,7 +815,8 @@ export function buildRunLayout(
   const drawnOrigin = options.origin ?? null
   if (drawnOrigin) {
     origin = drawnOrigin
-    segments = generateLayoutSegments(region, origin, dir, options.spacingPoints)
+    const lineOrigin = edgeAlignedLineOrigin(region, origin, dir, options.componentWidthPoints ?? 0)
+    segments = generateLayoutSegments(region, lineOrigin, dir, options.spacingPoints)
     pieces = buildPieces(segments, {
       stockLengthPoints: options.stockLengthPoints,
       yieldGranularity: options.yieldGranularity,

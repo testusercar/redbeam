@@ -12,6 +12,7 @@ import {
   patternDirectionLine,
   patternOriginPoint,
   patternStartPoint,
+  pointInOrOnRegion,
   pointInRegion,
   resolveDirectionZone,
   resolvePatternDirection,
@@ -320,6 +321,27 @@ describe('patternStartPoint', () => {
 
   it('refuses a click that cannot be pulled into the area', () => {
     expect(patternStartPoint({ x: 0.9, y: 0.9 }, area)).toBeNull()
+  })
+
+  // 1000 px per normalized unit: one unit of `radius` is a screen pixel.
+  const snap = { scaleX: 1000, scaleY: 1000, radius: 10 }
+
+  it('lands exactly on a corner clicked a few pixels off it', () => {
+    expect(patternStartPoint({ x: 0.205, y: 0.196 }, area, snap)).toEqual({ x: 0.2, y: 0.2 })
+  })
+
+  it('lands exactly on an edge clicked near it, away from any corner', () => {
+    expect(patternStartPoint({ x: 0.4, y: 0.594 }, area, snap)).toEqual({ x: 0.4, y: 0.6 })
+  })
+
+  it('leaves a click well inside the area alone when snapping', () => {
+    expect(patternStartPoint({ x: 0.3, y: 0.4 }, area, snap)).toEqual({ x: 0.3, y: 0.4 })
+  })
+
+  it('counts a corner origin as the area\'s own', () => {
+    expect(pointInOrOnRegion({ x: 0.2, y: 0.2 }, area)).toBe(true)
+    expect(pointInOrOnRegion({ x: 0.4, y: 0.6 }, area)).toBe(true)
+    expect(pointInOrOnRegion({ x: 0.19, y: 0.2 }, area)).toBe(false)
   })
 })
 

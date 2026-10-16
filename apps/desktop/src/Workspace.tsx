@@ -78,7 +78,7 @@ import type { Command, Outcome, Step } from './palette/commands.js'
 import { snapPoint, drawSnapIndicator, DEFAULT_SNAP, type SnapResult } from './snap.js'
 import {
   hitTest, drawAnnotationSelection, drawSelection, drawMarquee, markupsInRect, insertVertexAt, removeVertexAt,
-  isAxisAlignedRect, resizeRectVertex, resizeRectEdge, type Hit,
+  isAxisAlignedRect, resizeRectVertex, resizeRectEdge, VERTEX_GRAB_PX, type Hit,
 } from './hit.js'
 import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.js'
 import { normalizedToScreen } from './draw.js'
@@ -120,6 +120,8 @@ import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighte
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
+/** Deepest zoom, 1000%: enough to pick a baffle's corner on a 1/8" plan. */
+const MAX_ZOOM = 10
 const VW = 1180
 const VH = 780
 /**
@@ -3284,7 +3286,7 @@ export default function Workspace({
         const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y)
         const v = viewerRef.current
         if (v && dist > 0) {
-          const next = Math.min(8, Math.max(0.05, pinch.startZoom * (dist / pinch.startDist)))
+          const next = Math.min(MAX_ZOOM, Math.max(0.05, pinch.startZoom * (dist / pinch.startDist)))
           // Anchor on the midpoint between the fingers, which is where the
           // gesture visually pivots.
           viewRef.current = clampViewport(
@@ -3949,7 +3951,12 @@ export default function Workspace({
       setStatus('start the pattern on an area')
       return
     }
-    const placed = patternStartPoint(click, markup.rings)
+    // Snap to the area's corner or edge within a grip's reach, so "the
+    // corner" is the corner and not a few pixels inside it.
+    const v = viewRef.current
+    const placed = patternStartPoint(click, markup.rings, {
+      scaleX: page.width * v.zoom, scaleY: page.height * v.zoom, radius: VERTEX_GRAB_PX + 3,
+    })
     if (placed === null) {
       setStatus('that point is outside the area, so the pattern start is unchanged')
       return
@@ -3965,7 +3972,7 @@ export default function Workspace({
     })
     setStatus('the pattern starts there for this area')
     requestPaint()
-  }, [saveScope, requestPaint])
+  }, [saveScope, requestPaint, page])
 
   const clearPatternOrigin = useCallback(async (markup: Markup) => {
     if (markup.scopeId === null) return
@@ -4964,7 +4971,7 @@ export default function Workspace({
       const step = pinchGesture
         ? Math.exp(-dy / 180)
         : (dy < 0 ? 1.15 : 1 / 1.15)
-      const next = Math.min(8, Math.max(0.05, viewRef.current.zoom * step))
+      const next = Math.min(MAX_ZOOM, Math.max(0.05, viewRef.current.zoom * step))
       // With slack, so the point under the cursor stays there at the page's edge.
       viewRef.current = clampViewport(
         zoomAbout(viewRef.current, next, e.clientX - rect.left, e.clientY - rect.top),
@@ -5535,7 +5542,7 @@ export default function Workspace({
     // position, and anchoring on the last cursor location would make the
     // drawing jump to wherever the mouse happened to be.
     viewRef.current = clampViewport(
-      zoomAbout(viewRef.current, Math.min(8, Math.max(0.05, z)), stage.width / 2, stage.height / 2),
+      zoomAbout(viewRef.current, Math.min(MAX_ZOOM, Math.max(0.05, z)), stage.width / 2, stage.height / 2),
       v.pageInfo,
     )
     v.requestVisible(viewRef.current)
