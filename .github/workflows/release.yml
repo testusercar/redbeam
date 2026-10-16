@@ -250,6 +250,8 @@ jobs:
           [IO.File]::WriteAllText((Join-Path (Get-Location) 'release-notes.txt'), $notes, $utf8)
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8NoBOM
           Write-Host "Change notes for $tag ($($notes.Length) characters)."
+          # A missing tag left git's exit code in $LASTEXITCODE, and the runner exits with it.
+          exit 0
 
       # Draft first. gh (not a second softprops upload) because the release
       # API's get-by-tag endpoint does not return drafts, so a later step
