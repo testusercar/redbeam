@@ -245,6 +245,28 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       + 'already optimise per area either way.',
   },
   {
+    id: 'takeoff.patternStart',
+    category: 'takeoff',
+    parent: 'takeoff.layoutPreview',
+    type: 'enum',
+    // Top-left. Aaron, 2026-10-16: an estimator starts a ceiling at the
+    // product's corner, and the leftmost one by habit. An area's own
+    // "Start the pattern here" still beats this.
+    default: 'top-left',
+    choices: [
+      { value: 'top-left', label: 'top-left corner' },
+      { value: 'top-right', label: 'top-right corner' },
+      { value: 'bottom-left', label: 'bottom-left corner' },
+      { value: 'bottom-right', label: 'bottom-right corner' },
+      { value: 'automatic', label: 'automatic' },
+    ],
+    label: 'Start each area’s pattern at its',
+    description:
+      'Where the first baffle, plank or panel sits in an area you have not '
+      + 'started by hand. Automatic is the Qt build’s start: the shared sheet '
+      + 'grid for panels, the fewest pieces for runs — a different total.',
+  },
+  {
     id: 'takeoff.layoutOverflow',
     category: 'takeoff',
     parent: 'takeoff.layoutPreview',

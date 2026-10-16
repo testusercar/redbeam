@@ -49,6 +49,7 @@ import {
   regionArea,
   signedPolygonArea,
   type Point,
+  type Polygon,
   type Region,
 } from './geometry.js'
 
@@ -475,6 +476,65 @@ export function pointInOrOnRegion(p: Point, rings: Region | undefined | null, ep
     }
   }
   return false
+}
+
+/** A corner of an area, as the sheet is read: y runs down the page. */
+export type AreaCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+export const AREA_CORNERS: readonly AreaCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+
+export function isAreaCorner(value: unknown): value is AreaCorner {
+  return typeof value === 'string' && (AREA_CORNERS as readonly string[]).includes(value)
+}
+
+/**
+ * The area's own corner nearest one corner of its bounding rect.
+ *
+ * Always one of the area's vertices, so an L-shaped or skewed ceiling starts
+ * at a corner that exists rather than at a bounding-box corner in mid-air.
+ * Distance is measured in `page` units because normalized x and y are
+ * different lengths on a real sheet. Ties go to the first vertex drawn.
+ */
+export function areaCornerPoint(
+  rings: Region,
+  corner: AreaCorner,
+  page: PageSize = { width: 1, height: 1 },
+): Point | null {
+  const rect = normalizedBoundingRect(rings)
+  if (!rect) return null
+  const target = {
+    x: corner.endsWith('left') ? rect.left : rect.right,
+    y: corner.startsWith('top') ? rect.top : rect.bottom,
+  }
+  return nearestAreaVertex(rings, target, page)
+}
+
+/**
+ * The area's vertex nearest `p` — "start at the nearest corner".
+ *
+ * Holes are skipped: a ceiling starts at its own edge, not at a cutout's.
+ */
+export function nearestAreaVertex(
+  rings: Region,
+  p: Point,
+  page: PageSize = { width: 1, height: 1 },
+): Point | null {
+  let best: Point | null = null
+  let bestDist = Infinity
+  for (const ring of outerRings(rings)) {
+    for (const v of ring) {
+      const d = Math.hypot((v.x - p.x) * page.width, (v.y - p.y) * page.height)
+      if (d < bestDist) { best = v; bestDist = d }
+    }
+  }
+  return best ? { x: best.x, y: best.y } : null
+}
+
+/** Rings that are not inside another ring of the same region. */
+function outerRings(rings: Region): Polygon[] {
+  const usable = rings.filter((r) => r.length >= 3)
+  return usable.filter((ring, i) =>
+    !usable.some((other, j) => j !== i && pointInRegion(ring[0]!, [other])))
 }
 
 // ---------------------------------------------------------------------------

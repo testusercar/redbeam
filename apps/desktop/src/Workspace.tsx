@@ -13,7 +13,7 @@ import {
   type MarkupKind, type PieceResult, type ScalePreset,
   type Calibration, type Markup, type Scope, type ScopeType, type QuantityResult,
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
-  areaOriginsFrom, patternStartPoint,
+  areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
 } from '@redbeam/domain'
 import {
@@ -2022,6 +2022,9 @@ export default function Workspace({
         pageDirections: pageDirectionsFrom(s.specifications),
         areaDirections: areaDirectionsFrom(s.specifications),
         perAreaOrigin: prefs['takeoff.perAreaOrigin'] === true,
+        defaultPatternCorner: isAreaCorner(prefs['takeoff.patternStart'])
+          ? prefs['takeoff.patternStart']
+          : prefs['takeoff.patternStart'] === 'automatic' ? null : 'top-left',
         pageSize,
         calibrations,
         pageSizes: pageBoxes,
@@ -3946,7 +3949,12 @@ export default function Workspace({
    * that has not been told otherwise. A right-click stores a point on this
    * area only, in the same specifications the direction already lives in.
    */
-  const startPatternHere = useCallback(async (markup: Markup, click: { x: number; y: number }) => {
+  const startPatternHere = useCallback(async (
+    markup: Markup,
+    click: { x: number; y: number },
+    /** Take the area's corner nearest the click, however far away it is. */
+    atCorner = false,
+  ) => {
     if (markup.kind !== 'area' || markup.scopeId === null) {
       setStatus('start the pattern on an area')
       return
@@ -3954,9 +3962,11 @@ export default function Workspace({
     // Snap to the area's corner or edge within a grip's reach, so "the
     // corner" is the corner and not a few pixels inside it.
     const v = viewRef.current
-    const placed = patternStartPoint(click, markup.rings, {
-      scaleX: page.width * v.zoom, scaleY: page.height * v.zoom, radius: VERTEX_GRAB_PX + 3,
-    })
+    const placed = atCorner
+      ? nearestAreaVertex(markup.rings, click, page)
+      : patternStartPoint(click, markup.rings, {
+        scaleX: page.width * v.zoom, scaleY: page.height * v.zoom, radius: VERTEX_GRAB_PX + 3,
+      })
     if (placed === null) {
       setStatus('that point is outside the area, so the pattern start is unchanged')
       return
@@ -3970,7 +3980,9 @@ export default function Workspace({
       ...sc,
       specifications: { ...specs, [AREA_ORIGINS_KEY]: areas },
     })
-    setStatus('the pattern starts there for this area')
+    setStatus(atCorner
+      ? 'the pattern starts at that corner for this area'
+      : 'the pattern starts there for this area')
     requestPaint()
   }, [saveScope, requestPaint, page])
 
@@ -3985,7 +3997,7 @@ export default function Workspace({
       ...sc,
       specifications: { ...specs, [AREA_ORIGINS_KEY]: areas },
     })
-    setStatus('this area uses the automatic pattern start')
+    setStatus('this area uses the default pattern start (Settings)')
     requestPaint()
   }, [saveScope, requestPaint])
 
@@ -7364,13 +7376,29 @@ export default function Workspace({
                         <Glyph icon={Crosshair} role="row" />
                         <span className="grow">Start the pattern here</span>
                       </button>
+                      {/*
+                        A right-click is rarely within a grip of the corner,
+                        and "here" then meant a few inches into the ceiling.
+                        This takes the corner the click is nearest, so any
+                        corner is one right-click near it away.
+                      */}
+                      <button
+                        className="menuitem" role="menuitem"
+                        onClick={() => {
+                          void startPatternHere(m, { x: markupMenu.nx, y: markupMenu.ny }, true)
+                          setMarkupMenu(null)
+                        }}
+                      >
+                        <Glyph icon={Crosshair} role="row" />
+                        <span className="grow">Start the pattern at the nearest corner</span>
+                      </button>
                       {placed && (
                         <button
                           className="menuitem" role="menuitem"
                           onClick={() => { void clearPatternOrigin(m); setMarkupMenu(null) }}
                         >
                           <Glyph icon={Compass} role="row" />
-                          <span className="grow">Use the automatic pattern start</span>
+                          <span className="grow">Use the default pattern start</span>
                         </button>
                       )}
                     </>

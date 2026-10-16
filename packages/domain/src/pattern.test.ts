@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  areaCornerPoint,
   axisAngleDegrees,
   compareZonePrecedence,
   directionGroupKey,
@@ -8,6 +9,7 @@ import {
   normalizeAxisDegrees,
   normalizedBoundingRect,
   normalizedDirectionAngle,
+  nearestAreaVertex,
   normalizedDirectionFromAngle,
   patternDirectionLine,
   patternOriginPoint,
@@ -539,5 +541,34 @@ describe('directionGroupKey', () => {
     const zones = [zone('z1', [rect(0, 0, 1, 1)], EAST)]
     const r = resolvePatternDirection({ x: 0.5, y: 0.5 }, { page: PAGE, zones })!
     expect(directionGroupKey(r, 'areaA')).toBe('zone:z1:area:areaA')
+  })
+})
+
+describe('areaCornerPoint', () => {
+  it('takes each corner of a rectangle', () => {
+    const r = [rect(0.1, 0.2, 0.5, 0.6)]
+    expect(areaCornerPoint(r, 'top-left')).toEqual({ x: 0.1, y: 0.2 })
+    expect(areaCornerPoint(r, 'top-right')).toEqual({ x: 0.5, y: 0.2 })
+    expect(areaCornerPoint(r, 'bottom-left')).toEqual({ x: 0.1, y: 0.6 })
+    expect(areaCornerPoint(r, 'bottom-right')).toEqual({ x: 0.5, y: 0.6 })
+  })
+
+  it('lands on a real vertex of an L, never the empty bounding-box corner', () => {
+    // An L missing its top-left quarter: (0,0) is outside the area.
+    const ell = [[
+      { x: 0.5, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }, { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 },
+    ]]
+    const p = areaCornerPoint(ell, 'top-left')!
+    expect(pointInOrOnRegion(p, ell)).toBe(true)
+    expect([{ x: 0.5, y: 0 }, { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }]).toContainEqual(p)
+  })
+
+  it('ignores a hole', () => {
+    const r = [rect(0, 0, 1, 1), rect(0.01, 0.01, 0.2, 0.2)]
+    expect(nearestAreaVertex(r, { x: 0.02, y: 0.02 })).toEqual({ x: 0, y: 0 })
+  })
+
+  it('is null for an empty area', () => {
+    expect(areaCornerPoint([], 'top-left')).toBeNull()
   })
 })

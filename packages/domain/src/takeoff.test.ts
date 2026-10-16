@@ -335,6 +335,34 @@ describe('layoutGroupsFor', () => {
     expect(groups[0]!.origin).toBeUndefined()
   })
 
+  it('starts an unplaced area at the default corner when one is given', () => {
+    const groups = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))],
+      cal,
+      { scopeDirection: dir, pageSize: page, defaultPatternCorner: 'top-left' },
+    )
+    expect(groups[0]!.origin).toEqual({ x: 100, y: 100 })
+  })
+
+  it('lets a placed origin beat the default corner', () => {
+    const groups = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))],
+      cal,
+      {
+        scopeDirection: dir, pageSize: page, defaultPatternCorner: 'bottom-right',
+        areaOrigins: new Map([['a', { x: 0.15, y: 0.2 }]]),
+      },
+    )
+    expect(groups[0]!.origin).toEqual({ x: 150, y: 200 })
+  })
+
+  it('keeps the automatic seed when no default corner is given', () => {
+    const groups = layoutGroupsFor(
+      [mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))], cal, { scopeDirection: dir, pageSize: page },
+    )
+    expect(groups[0]!.origin).toBeUndefined()
+  })
+
   it('returns nothing without a direction, rather than an ungridded group', () => {
     expect(layoutGroupsFor([mk('a', 'area', rect(0.1, 0.1, 0.2, 0.2))], cal,
       { scopeDirection: null, pageSize: page })).toEqual([])

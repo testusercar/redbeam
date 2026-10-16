@@ -23,8 +23,8 @@ import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type 
 import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
 import {
-  directionGroupKey, pointInOrOnRegion, resolvePatternDirection, type PageSize,
-  type NormalizedDirection,
+  areaCornerPoint, directionGroupKey, pointInOrOnRegion, resolvePatternDirection, type PageSize,
+  type AreaCorner, type NormalizedDirection,
 } from './pattern.js'
 import { layoutPanels, scopeDefaultGridLine, type PanelCell, type PanelLayoutGroup } from './panels.js'
 import {
@@ -119,6 +119,17 @@ export interface PieceOptions {
    * that does not fall inside its area is ignored.
    */
   areaOrigins?: ReadonlyMap<string, Point>
+  /**
+   * Where an area with no placed origin starts: one of its own corners, or
+   * null/absent for the automatic seed (sheet grid for panels, the
+   * fewest-pieces phase for runs).
+   *
+   * Absent here because the automatic seed is what the Qt build does and what
+   * the golden fixtures capture. The app passes the user's setting, which is
+   * top-left by default: an estimator starts a ceiling at a corner (Aaron,
+   * 2026-10-16), and that is a different total, so it is stated, not implied.
+   */
+  defaultPatternCorner?: AreaCorner | null
   scopeDirection?: NormalizedDirection | null
   /** Page box used for any page not listed in `pageSizes`. */
   pageSize: PageSize
@@ -303,6 +314,7 @@ function groupRegions(
   const pageDirections = opts.pageDirections
   const areaDirections = opts.areaDirections
   const areaOrigins = opts.areaOrigins
+  const defaultCorner = opts.defaultPatternCorner ?? null
   // Any of the three is enough to lay something out. A scope with no default
   // but a direction stated on this sheet is not blocked.
   if (!scopeDirection && (pageDirections?.size ?? 0) === 0 && (areaDirections?.size ?? 0) === 0) {
@@ -417,8 +429,13 @@ function groupRegions(
 
     const rings = m.rings.map((ring) => ringToPoints(ring, pageCal))
     const placed = areaOrigins?.get(m.id)
-    const origin = placed !== undefined && pointInOrOnRegion(placed, m.rings)
-      ? { x: placed.x * pageCal.pageWidth, y: placed.y * pageCal.pageHeight }
+    const start = placed !== undefined && pointInOrOnRegion(placed, m.rings)
+      ? placed
+      : defaultCorner !== null
+        ? areaCornerPoint(m.rings, defaultCorner, { width: pageCal.pageWidth, height: pageCal.pageHeight })
+        : null
+    const origin = start !== null
+      ? { x: start.x * pageCal.pageWidth, y: start.y * pageCal.pageHeight }
       : undefined
     const existing = byKey.get(key)
     if (existing) existing.region.push(...rings)
