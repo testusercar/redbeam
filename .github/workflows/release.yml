@@ -176,7 +176,8 @@ jobs:
           foreach ($name in $map.Keys) {
             $src = Join-Path 'nsis-artifacts' $name
             if (-not (Test-Path -LiteralPath $src)) { throw "Missing artifact $name. Both architectures are required." }
-            $dest = Join-Path "apps/desktop/src-tauri/target/$($map[$name])/release/bundle/nsis"
+            # A plain string: Join-Path with one argument has no ChildPath and throws.
+            $dest = "apps/desktop/src-tauri/target/$($map[$name])/release/bundle/nsis"
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
             Copy-Item -Path (Join-Path $src '*') -Destination $dest
             $exe = @(Get-ChildItem -LiteralPath $dest -Filter '*-setup.exe' -File)
