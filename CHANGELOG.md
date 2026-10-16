@@ -4,6 +4,22 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.4 — 2026-10-16
+
+### Patterns start at a corner by default
+
+- **Every area starts at its top-left corner** unless you start it somewhere
+  else. The first baffle, plank or panel sits on the area's own corner. Before,
+  an area you had not started by hand began from the middle of its bounding
+  box. This changes totals for those areas.
+- **Pick the corner in Settings.** *Start each area's pattern at its* offers
+  each of the four corners, or *automatic* for the old start (the shared sheet
+  grid for panels, the fewest pieces for runs).
+- **Start the pattern at the nearest corner.** A new item in an area's
+  right-click menu takes whichever of its corners the click is closest to,
+  however far into the area you clicked. *Start the pattern here* still places
+  it at the click.
+
 ## 0.3.3 — 2026-10-16
 
 ### Pattern origin starts at the product's corner
