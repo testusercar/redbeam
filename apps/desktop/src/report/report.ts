@@ -8,8 +8,8 @@
  * none of them throw.
  *
  * A report goes to the update channel's Worker (`POST /reports`), the one
- * host every installed copy already talks to, which keeps it in R2 and files
- * it in the REDBEAM reports database in Notion. Nothing about the project
+ * host every installed copy already talks to, which keeps it in R2. A
+ * workflow then opens a GitHub issue for it. Nothing about the project
  * goes unless the person leaves "where you were" ticked, and the dialog
  * shows exactly what that line says before it is sent.
  *

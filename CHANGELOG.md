@@ -36,9 +36,10 @@ SmartScreen will ask once.
 - **Nothing is lost.** A report that cannot be sent keeps every word in the
   card, says why, and offers to copy it instead. Closing the card keeps the
   draft for next time.
-- Reports go to the update channel's Worker, which keeps each one in R2 and,
-  once it has a Notion token, files it in the REDBEAM reports database. See
-  `docs/UPDATES.md`.
+- Reports go to the update channel's Worker, which keeps each one in R2, and
+  a workflow opens a GitHub issue for each, labelled *bug report*. The issue
+  has what was typed and the build; the picture, the project and the name
+  stay private. See `docs/UPDATES.md`.
 
 ### Release path
 

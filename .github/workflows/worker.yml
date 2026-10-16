@@ -2,10 +2,10 @@
 #
 # The Worker serves the update channel and takes bug reports (POST /reports).
 # Deploying it is `wrangler deploy` with the same CLOUDFLARE_API_TOKEN and
-# CLOUDFLARE_ACCOUNT_ID secrets the release workflow uploads with. If the
-# NOTION_TOKEN secret is set, it is copied into the Worker so each report is
-# also filed in the REDBEAM reports database; without it reports are kept in
-# R2 under reports/ and nothing else changes.
+# CLOUDFLARE_ACCOUNT_ID secrets the release workflow uploads with. It also
+# sets the Worker's SYNC_KEY, the key reports.yml uses to read the report
+# inbox. Both workflows derive it from CLOUDFLARE_API_TOKEN, so there is no
+# separate secret to add, and rotating the API token rotates it.
 #
 # Deploying does not touch the channel: manifest.json and the installers are
 # R2 objects, and only release.yml writes those.
@@ -34,7 +34,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,16 +57,28 @@ jobs:
         working-directory: workers/updater
         run: npx --yes wrangler@4 deploy
 
-      - name: Give the Worker the Notion token
-        if: env.NOTION_TOKEN != ''
+      # Same derivation as reports.yml. Keep the two in step.
+      - name: Give the Worker its report inbox key
         working-directory: workers/updater
-        run: printf '%s' "$NOTION_TOKEN" | npx --yes wrangler@4 secret put NOTION_TOKEN
+        run: |
+          key=$(printf 'redbeam-report-sync:%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | cut -c1-64)
+          echo "::add-mask::$key"
+          printf '%s' "$key" | npx --yes wrangler@4 secret put SYNC_KEY
 
+      # A new version takes a few seconds to reach every edge; ask again before failing.
       - name: Check the channel still answers
         run: |
-          health=$(curl -fsS https://redbeam-updates.trackchairking.workers.dev/health)
-          echo "$health"
-          case "$health" in *'"ok":true'*) ;; *) echo "Worker /health is not ok after deploy." >&2; exit 1 ;; esac
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS https://redbeam-updates.trackchairking.workers.dev/reports)
-          echo "OPTIONS /reports -> $code"
-          [ "$code" = "204" ] || { echo "The deployed Worker does not take reports." >&2; exit 1; }
+          host=https://redbeam-updates.trackchairking.workers.dev
+          key=$(printf 'redbeam-report-sync:%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | cut -c1-64)
+          echo "::add-mask::$key"
+          for attempt in 1 2 3 4 5 6; do
+            health=$(curl -fsS "$host/health" || true)
+            preflight=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "$host/reports")
+            inbox=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $key" "$host/reports/inbox")
+            echo "try $attempt: health $health, OPTIONS /reports $preflight, GET /reports/inbox $inbox"
+            case "$health" in *'"ok":true'*) ok=1 ;; *) ok=0 ;; esac
+            [ "$ok" = 1 ] && [ "$preflight" = 204 ] && [ "$inbox" = 200 ] && exit 0
+            sleep 10
+          done
+          echo "The deployed Worker is not serving updates, reports and the report inbox." >&2
+          exit 1
