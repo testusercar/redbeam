@@ -100,7 +100,7 @@ installer.
 | `workers/updater/src/manifest.ts` | Version compare and manifest parsing. Tested. No Cloudflare types. |
 | `workers/updater/src/reports.ts` | Bug reports: parsing and the R2 keys. Tested. No Cloudflare types. |
 | `.github/workflows/worker.yml` | Deploys the Worker on a change to `workers/updater` on main and sets its `SYNC_KEY`. |
-| `.github/workflows/reports.yml` | Every ten minutes, opens a GitHub issue for each new bug report. |
+| `.github/workflows/reports.yml` | Every hour, opens a GitHub issue for each new bug report. |
 | `workers/updater/file-reports.mjs` | What reports.yml runs: the issue text, and what stays private. Tested. |
 | `workers/updater/wrangler.toml` | Worker name `redbeam-updates`, R2 binding `UPDATES`. No account id, no token. |
 | `workers/updater/manifest.example.json` | The shape to upload as `manifest.json`. Not uploaded by itself. |
@@ -193,8 +193,8 @@ JSON is never served by the Worker; `/files/` only serves `REDBEAM_` names.
 
 ### Reports become GitHub issues
 
-Each new report also gets a copy at `reports/inbox/<uuid>.json`. Every ten
-minutes `.github/workflows/reports.yml` (Actions → Reports, or *Run workflow*
+Each new report also gets a copy at `reports/inbox/<uuid>.json`. Every hour
+`.github/workflows/reports.yml` (Actions → Reports, or *Run workflow*
 to do it now) reads the inbox and opens an issue per report in this repo,
 labelled **bug report**, using the run's own `GITHUB_TOKEN`. It then deletes
 the inbox copy; the dated report stays. A report that GitHub refuses stays in

@@ -1,7 +1,7 @@
 # Open a GitHub issue for each bug report sent from the app.
 #
 # The app posts reports to the update Worker (POST /reports), which keeps
-# them in R2 and holds no GitHub credential. Every ten minutes this reads the
+# them in R2 and holds no GitHub credential. Every hour this reads the
 # Worker's report inbox and opens an issue per report with this run's own
 # GITHUB_TOKEN, labelled "bug report". See workers/updater/file-reports.mjs
 # for what an issue says and what stays private.
@@ -13,7 +13,9 @@ name: Reports
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Hourly, not more: on a private repo every run bills at least a minute
+    # of Actions time, and every ten minutes would be ~4,300 a month.
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
