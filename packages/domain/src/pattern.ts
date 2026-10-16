@@ -375,25 +375,70 @@ export function resolvePatternOrigin(
 }
 
 /**
- * Where "start the pattern here" lands.
+ * How close a click has to be to an area's corner or edge to land on it.
  *
- * The click is used when it is inside the area. A grip can sit a few pixels
- * outside the ring, and an origin outside the region is ignored by
- * `resolvePatternOrigin`, so that click is walked toward the area's centre
- * until it is inside. A click that cannot be pulled in — a hole, an empty
- * ring — is null, and the caller says so rather than storing a point the
- * layout will skip.
+ * `scaleX`/`scaleY` turn a normalized delta into the units `radius` is in —
+ * screen pixels per normalized unit, for a caller snapping at the pointer.
+ * Normalized x and y are different lengths on a real sheet, so the distance is
+ * measured after scaling, never on raw normalized deltas.
  */
+export interface PatternStartSnap {
+  scaleX: number
+  scaleY: number
+  radius: number
+}
+
+/** Closest point to `p` on segment ab. */
+function closestOnSegment(p: Point, a: Point, b: Point, sx: number, sy: number): Point {
+  const ax = a.x * sx, ay = a.y * sy
+  const dx = b.x * sx - ax, dy = b.y * sy - ay
+  const len2 = dx * dx + dy * dy
+  if (!(len2 > 0)) return a
+  const t = Math.min(1, Math.max(0, ((p.x * sx - ax) * dx + (p.y * sy - ay) * dy) / len2))
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+}
+
 /**
  * Where a right-click should start the pattern.
  *
- * A click inside the area is used as-is. A click a hair outside — an edge
- * grip — is walked toward the bounding-rect centre, but only across a short
- * slack, and only if that walk lands inside the area. A click elsewhere on
- * the sheet, or one whose centre sits in a hole, returns null so the caller
- * leaves the automatic origin alone.
+ * An estimator starts a ceiling from a CORNER of the area — where the first
+ * baffle, plank or panel sits — so a click near a corner lands exactly on it,
+ * and a click near an edge lands exactly on the edge. Within `snap.radius`, a
+ * corner beats an edge. Without that, a click "on" the corner was a few
+ * pixels off it and the whole grid was phased by that error.
+ *
+ * Otherwise a click inside the area is used as-is. A click a hair outside —
+ * an edge grip — is walked toward the bounding-rect centre, but only across a
+ * short slack, and only if that walk lands inside the area. A click elsewhere
+ * on the sheet, or one whose centre sits in a hole, returns null so the
+ * caller leaves the automatic origin alone.
  */
-export function patternStartPoint(click: Point, rings: Region): Point | null {
+export function patternStartPoint(
+  click: Point,
+  rings: Region,
+  snap?: PatternStartSnap,
+): Point | null {
+  if (snap && snap.radius > 0 && snap.scaleX > 0 && snap.scaleY > 0) {
+    const dist = (a: Point, b: Point) => Math.hypot((a.x - b.x) * snap.scaleX, (a.y - b.y) * snap.scaleY)
+    let corner: Point | null = null
+    let cornerDist = snap.radius
+    let edge: Point | null = null
+    let edgeDist = snap.radius
+    for (const ring of rings) {
+      if (ring.length < 3) continue
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i]!
+        const b = ring[(i + 1) % ring.length]!
+        const dv = dist(click, a)
+        if (dv <= cornerDist) { corner = a; cornerDist = dv }
+        const q = closestOnSegment(click, a, b, snap.scaleX, snap.scaleY)
+        const de = dist(click, q)
+        if (de <= edgeDist) { edge = q; edgeDist = de }
+      }
+    }
+    if (corner) return { x: corner.x, y: corner.y }
+    if (edge) return edge
+  }
   if (pointInRegion(click, rings)) return click
   const rect = normalizedBoundingRect(rings)
   if (!rect) return null
@@ -411,6 +456,25 @@ export function patternStartPoint(click: Point, rings: Region): Point | null {
     if (pointInRegion(p, rings)) return p
   }
   return null
+}
+
+/**
+ * Inside the region, or on its boundary.
+ *
+ * A pattern origin snapped to an area's corner sits exactly ON the ring, where
+ * even/odd containment is a coin toss. An origin there is the most deliberate
+ * one an estimator can place, so it counts as the area's.
+ */
+export function pointInOrOnRegion(p: Point, rings: Region | undefined | null, epsilon = 1e-9): boolean {
+  if (pointInRegion(p, rings)) return true
+  for (const ring of rings ?? []) {
+    if (ring.length < 3) continue
+    for (let i = 0; i < ring.length; i++) {
+      const q = closestOnSegment(p, ring[i]!, ring[(i + 1) % ring.length]!, 1, 1)
+      if (Math.hypot(q.x - p.x, q.y - p.y) <= epsilon) return true
+    }
+  }
+  return false
 }
 
 // ---------------------------------------------------------------------------

@@ -579,6 +579,24 @@ describe('buildRunLayout', () => {
     expect(result!.segments).toEqual(generateLayoutSegments(SQUARE, drawn, EAST, 25))
   })
 
+  it('puts the first run\'s edge, not its centreline, on a drawn corner origin', () => {
+    // Origin on the top-left corner, baffles 4 pt wide running east. y grows
+    // down and the left normal of EAST is +y, which is into the square.
+    const corner: Point = { x: 0, y: 0 }
+    const result = buildRunLayout(SQUARE, EAST, { ...base, origin: corner, componentWidthPoints: 4 })
+    expect(result!.origin).toEqual(corner)
+    const ys = [...new Set(result!.segments.map((s) => s.a.y))].sort((a, b) => a - b)
+    expect(ys[0]).toBeCloseTo(2)
+    expect(ys[1]).toBeCloseTo(27)
+  })
+
+  it('shifts toward the area from the far corner too', () => {
+    const corner: Point = { x: 100, y: 100 }
+    const result = buildRunLayout(SQUARE, EAST, { ...base, origin: corner, componentWidthPoints: 4 })
+    const ys = [...new Set(result!.segments.map((s) => s.a.y))].sort((a, b) => b - a)
+    expect(ys[0]).toBeCloseTo(98)
+  })
+
   it('falls back to the automatic origin when none is drawn', () => {
     const result = buildRunLayout(SQUARE, EAST, base)
     expect(result).not.toBeNull()

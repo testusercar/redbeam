@@ -4,6 +4,20 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.3 — 2026-10-16
+
+### Pattern origin starts at the product's corner
+
+- **The first baffle or plank starts at the origin, not on it.** A placed
+  origin used to be the CENTRELINE of the first run, so a baffle started at
+  an area's corner hung half its width past the wall. The run grid now moves
+  half the profile or plank width into the area, so the first item's edge
+  sits on the origin. Panels and cassettes already put a cell corner there.
+- **Start the pattern here snaps.** Right-clicking within a few pixels of an
+  area's corner lands exactly on that corner; near an edge, exactly on the
+  edge. An origin on the boundary counts as inside its area.
+- **Zoom goes to 1000%** (was 800%), for picking a corner on a 1/8" plan.
+
 ## 0.3.2 — 2026-10-16
 
 ### Report a bug

@@ -46,7 +46,10 @@ export interface RunInputs {
   spacingFeet: number
   stockLengthFeet: number
   maxConnectorSpacingFeet: number
-  /** Profile or plank width. Presentation only today; carried for parity. */
+  /**
+   * Profile or plank width. Draws the preview, and puts a drawn origin on the
+   * first item's edge rather than its centreline (see edgeAlignedLineOrigin).
+   */
   componentWidthFeet: number
   /** Length of one stick of perimeter trim. 0 means trim is not being counted. */
   perimeterTrimLengthFeet: number
@@ -399,6 +402,7 @@ export function layoutRuns(
       alignSeams: inputs.alignSeams,
       maxConnectorSpacingPoints: toPoints(inputs.maxConnectorSpacingFeet),
       origin: group.origin ?? null,
+      componentWidthPoints: toPoints(inputs.componentWidthFeet),
       // Rails need BOTH specs; the Qt call site gates on exactly this pair.
       ...(inputs.railSpacingFeet > 0 && inputs.railLengthFeet > 0
         ? {

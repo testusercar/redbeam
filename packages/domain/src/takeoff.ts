@@ -23,7 +23,7 @@ import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type 
 import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
 import {
-  directionGroupKey, pointInRegion, resolvePatternDirection, type PageSize,
+  directionGroupKey, pointInOrOnRegion, resolvePatternDirection, type PageSize,
   type NormalizedDirection,
 } from './pattern.js'
 import { layoutPanels, scopeDefaultGridLine, type PanelCell, type PanelLayoutGroup } from './panels.js'
@@ -417,7 +417,7 @@ function groupRegions(
 
     const rings = m.rings.map((ring) => ringToPoints(ring, pageCal))
     const placed = areaOrigins?.get(m.id)
-    const origin = placed !== undefined && pointInRegion(placed, m.rings)
+    const origin = placed !== undefined && pointInOrOnRegion(placed, m.rings)
       ? { x: placed.x * pageCal.pageWidth, y: placed.y * pageCal.pageHeight }
       : undefined
     const existing = byKey.get(key)
