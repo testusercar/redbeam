@@ -54,6 +54,20 @@ describe('the issue', () => {
     expect(body).toContain('`````text\n')
   })
 
+  it('carries everything once the repo is private', () => {
+    const body = issueFor(STORED, { full: true }).body
+    const inFence = body.split('```text\n')[1]?.split('\n```')[0] ?? ''
+    expect(inFence).toContain('Where: Barclays · PKG A ARCH · A-101')
+    expect(inFence).toContain('From: Kenneth')
+    expect(body).toContain(`![Screenshot](${STORED.screenshot})`)
+    expect(body).not.toContain('kept privately')
+  })
+
+  it('shows only a picture the Worker named', () => {
+    const body = issueFor({ ...STORED, screenshot: 'https://evil.example/x.png' }, { full: true }).body
+    expect(body).not.toContain('![Screenshot]')
+  })
+
   it('is found again by its marker', () => {
     expect(filedIds([{ body: issue.body }, { body: null }, { body: 'unrelated' }])).toEqual(new Set([STORED.id]))
   })
@@ -61,7 +75,7 @@ describe('the issue', () => {
 
 type Call = { url: string; method: string; body?: unknown }
 
-function fakeServices(inbox: unknown[], existing: unknown[] = [], failCreate = false) {
+function fakeServices(inbox: unknown[], existing: unknown[] = [], failCreate = false, isPrivate = false) {
   const calls: Call[] = []
   const left = [...inbox]
   const fetchImpl = (async (url: string, init: RequestInit = {}) => {
@@ -71,6 +85,7 @@ function fakeServices(inbox: unknown[], existing: unknown[] = [], failCreate = f
     if (url.includes('/reports/inbox/')) return new Response(null, { status: 204 })
     if (url.endsWith('/labels')) return new Response('{}', { status: 422 })
     if (url.includes('/issues?')) return new Response(JSON.stringify(existing))
+    if (url === 'https://api.github.com/repos/o/r') return new Response(JSON.stringify({ private: isPrivate }))
     if (url.endsWith('/issues')) {
       return failCreate
         ? new Response('{}', { status: 403 })
@@ -90,6 +105,16 @@ describe('filing', () => {
     const created = calls.find((c) => c.method === 'POST' && c.url.endsWith('/issues'))
     expect(created?.url).toBe('https://api.github.com/repos/o/r/issues')
     expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: `https://updates.example/reports/inbox/${STORED.id}` })
+  })
+
+  it('puts the project and the picture in only when the repo is private', async () => {
+    const created = async (isPrivate: boolean) => {
+      const { calls, fetchImpl } = fakeServices([STORED], [], false, isPrivate)
+      await fileReports({ ...OPTS, fetchImpl })
+      return String((calls.find((c) => c.method === 'POST' && c.url.endsWith('/issues'))?.body as { body: string }).body)
+    }
+    expect(await created(false)).not.toContain('Barclays')
+    expect(await created(true)).toContain('Barclays')
   })
 
   it('does not open a second issue for a report already filed', async () => {

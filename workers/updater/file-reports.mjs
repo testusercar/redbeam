@@ -6,10 +6,12 @@
  * GITHUB_TOKEN: read GET /reports/inbox, open one issue per report, then
  * DELETE /reports/inbox/<id> so it is not filed twice.
  *
- * The repo is public, so an issue carries what the person typed and which
- * build they were on, and nothing else. The screenshot, where they were (a
+ * How much goes in follows the repo's visibility, read on every run. While
+ * the repo is public an issue carries what the person typed and which build
+ * they were on, and nothing else: the screenshot, where they were (a
  * client's project and sheet names) and their name stay in R2, under the
- * report's dated key, and the issue says which of those were sent.
+ * report's dated key, and the issue says which of those were sent. Once the
+ * repo is private the issue carries all of it, the screenshot shown inline.
  *
  * What the person typed goes inside a fenced block. Outside one, an
  * "@name" would notify a stranger and "#12" would link an unrelated issue.
@@ -28,7 +30,7 @@ export function fence(text) {
 }
 
 /** The issue for one stored report (the JSON the Worker keeps). */
-export function issueFor(report) {
+export function issueFor(report, { full = false } = {}) {
   const kind = report.kind_label || 'Bug report'
   const machine = [report.machine, report.os].filter((p) => p).join(' · ')
   const received = String(report.received_at ?? '')
@@ -37,9 +39,15 @@ export function issueFor(report) {
     ...(report.details ? ['', report.details] : []),
     '',
     `REDBEAM ${report.version}${machine === '' ? '' : ` · ${machine}`}`,
+    ...(full && report.where ? [`Where: ${report.where}`] : []),
+    ...(full && report.contact ? [`From: ${report.contact}`] : []),
   ].join('\n')
   const f = fence(said)
-  const kept = [
+  // The Worker names the picture itself (…/shots/<uuid>.<ext>); anything else is not shown.
+  const shot = typeof report.screenshot === 'string' && /^https:\/\/[^\s()]+\/shots\/[0-9a-f-]{36}\.(png|jpg)$/.test(report.screenshot)
+    ? report.screenshot
+    : null
+  const kept = full ? [] : [
     ...(report.screenshot ? ['a screenshot'] : []),
     ...(report.where ? ['where they were in the app'] : []),
     ...(report.contact ? ['their name'] : []),
@@ -53,6 +61,7 @@ export function issueFor(report) {
     said,
     f,
     '',
+    ...(full && shot !== null ? [`![Screenshot](${shot})`, ''] : []),
     kept.length === 0
       ? `Report \`${report.id}\`.`
       : `Report \`${report.id}\`. It also came with ${joinWords(kept)}, kept privately in the \`redbeam-updates\` bucket at \`reports/${day}/${report.id}.json\`.`,
@@ -109,6 +118,10 @@ export async function fileReports({ endpoint, syncKey, repo, token, fetchImpl = 
   if (!existing.ok) throw new Error(`listing issues answered ${existing.status}`)
   const already = filedIds(await existing.json())
 
+  // Full detail only in a private repo; anything unclear counts as public.
+  const about = await fetchImpl(api, { headers: github })
+  const full = about.ok && (await about.json()).private === true
+
   let filed = 0
   let failed = 0
   for (const report of reports) {
@@ -118,7 +131,7 @@ export async function fileReports({ endpoint, syncKey, repo, token, fetchImpl = 
       const made = await fetchImpl(`${api}/issues`, {
         method: 'POST',
         headers: { ...github, 'content-type': 'application/json' },
-        body: JSON.stringify(issueFor(report)),
+        body: JSON.stringify(issueFor(report, { full })),
       })
       if (!made.ok) {
         log(`report ${id}: GitHub answered ${made.status}`)
