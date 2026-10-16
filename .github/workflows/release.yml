@@ -335,8 +335,10 @@ jobs:
           if ($env:DRY_RUN -ne 'true' -and [string]::IsNullOrWhiteSpace($notes)) {
             throw "release-notes.txt is empty. Refusing to upload."
           }
-          $publishArgs = @('-Version', $version, '-Notes', $notes, '-Yes')
-          if ($env:DRY_RUN -eq 'true') { $publishArgs += '-DryRun' }
+          # A hashtable, not an array: an array splatted into a script binds
+          # '-Version' as a positional string, and the call never starts.
+          $publishArgs = @{ Version = $version; Notes = $notes; Yes = $true }
+          if ($env:DRY_RUN -eq 'true') { $publishArgs['DryRun'] = $true }
           & .\workers\updater\publish.ps1 @publishArgs
           if ($LASTEXITCODE -ne 0) { throw "publish.ps1 failed" }
 
