@@ -201,11 +201,12 @@ the inbox copy; the dated report stays. A report that GitHub refuses stays in
 the inbox for the next run, and a hidden marker in each issue body stops one
 report from being filed twice.
 
-The repo is public, so the issue holds only what the person typed and which
-build and machine they were on, inside a code block so an `@name` notifies
-no one. The screenshot, the "where you were" line (client project and sheet
-names) and their name stay in R2, and the issue says which of those came
-with it and the key to read them at.
+What an issue holds follows the repo's visibility, checked on every run.
+While the repo is public, it is only what the person typed and which build
+and machine they were on, inside a code block so an `@name` notifies no one.
+The screenshot, the "where you were" line (client project and sheet names)
+and their name stay in R2, and the issue says which came with it. Once the
+repo is private, the issue carries all of it, with the screenshot inline.
 
 The inbox key is the Worker secret `SYNC_KEY`. Nobody types it:
 `worker.yml` derives it from `CLOUDFLARE_API_TOKEN` and sets it on every
