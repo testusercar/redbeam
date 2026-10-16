@@ -99,8 +99,10 @@ describe('the release workflow', () => {
     expect(workflow).toContain('gh release delete')
     expect(workflow).toContain('--draft=false')
     expect(workflow).toContain('release-notes.txt')
-    expect(workflow).toContain("'-Notes'")
-    expect(workflow).toContain("'-DryRun'")
+    // Splatted as a hashtable: an array binds '-Version' as a positional string.
+    expect(workflow).toContain('$publishArgs = @{ Version = $version; Notes = $notes; Yes = $true }')
+    expect(workflow).toContain("$publishArgs['DryRun'] = $true")
+    expect(workflow).not.toMatch(/\$publishArgs = @\(/)
     expect(workflow).toContain('"channel":"published"')
     const create = workflow.indexOf('gh release create')
     const upload = workflow.indexOf('publish.ps1 @publishArgs')
