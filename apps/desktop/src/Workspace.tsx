@@ -91,6 +91,9 @@ import { projectCommands } from './palette/projects.js'
 import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
+import { embedDrawing, embedStatus, importSlice, openingStatus } from './export/drawingEmbed.js'
+import { projectDrawingFile } from './export/drawingSync.js'
+import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
   buildEstimateExport, estimateToCsv, estimateToTsv, exportFileName, type EstimateExport,
@@ -816,6 +819,12 @@ export default function Workspace({
   const annotsRef = useRef<PageAnnotation[]>([])
   /** PDF annotation indexes hidden for the open document. Session only; the file is never written. */
   const hiddenAnnotsRef = useRef<Set<number>>(new Set())
+  /**
+   * The open page's annotations that are REDBEAM's own copies, embedded for
+   * Bluebeam. Always hidden: the live markups are drawn from redbeam.db, and
+   * showing the file's copy too would draw every markup twice.
+   */
+  const ownAnnotsRef = useRef<Set<number>>(new Set())
   const [hiddenAnnotCount, setHiddenAnnotCount] = useState(0)
   const [asideAsk, setAsideAsk] = useState(false)
   const closeDbRef = useRef<(() => Promise<void>) | null>(null)
@@ -1797,13 +1806,22 @@ export default function Workspace({
           stored = hiddenOnPage(book, info.index)
         } catch { stored = [] }
         hiddenAnnotsRef.current = new Set(stored)
+        ownAnnotsRef.current = new Set()
         setHiddenAnnotCount(stored.length)
         if (viewer.setHiddenAnnotations(info.index, stored)) viewer.requestVisible(viewRef.current)
         // The sheet's own markups, for the Select tool: asked of THIS viewer,
         // for the page it has just shown, so a document switch cannot serve
         // the previous document's list.
         void viewer.requestAnnotations(info.index)
-          .then((list) => { if (viewerRef.current === viewer) annotsRef.current = list.filter((a) => a.shape !== 'other') })
+          .then((list) => {
+            if (viewerRef.current !== viewer) return
+            const own = list.filter((a) => isRedbeamNm(a.name)).map((a) => a.index)
+            ownAnnotsRef.current = new Set(own)
+            if (own.length > 0 && viewer.setHiddenAnnotations(info.index, [...stored, ...own])) {
+              viewer.requestVisible(viewRef.current)
+            }
+            annotsRef.current = list.filter((a) => a.shape !== 'other' && !isRedbeamNm(a.name))
+          })
           .catch(() => { /* a sheet with no readable annotations has none to select */ })
         /*
          * Keep the page-size TABLE current, not just the active page.
@@ -3625,7 +3643,7 @@ export default function Workspace({
     if (v !== null) {
       try { all = await v.requestAnnotations(pageIndexRef.current) } catch { all = [] }
     }
-    const convertible = all.filter((a) => a.shape !== 'other')
+    const convertible = all.filter((a) => a.shape !== 'other' && !isRedbeamNm(a.name))
     const visible = visibleAnnotations(convertible, hiddenAnnotsRef.current)
     const slack = 0.002
     const under = visible.filter((a) =>
@@ -3648,7 +3666,9 @@ export default function Workspace({
       } catch { /* the view still changes */ }
     }
     const viewer = viewerRef.current
-    if (viewer !== null && viewer.setHiddenAnnotations(page, next)) viewer.requestVisible(viewRef.current)
+    if (viewer !== null && viewer.setHiddenAnnotations(page, [...next, ...ownAnnotsRef.current])) {
+      viewer.requestVisible(viewRef.current)
+    }
     requestPaint()
   }, [requestPaint])
 
@@ -4207,6 +4227,75 @@ export default function Workspace({
       return next
     })
   }, [])
+
+  /**
+   * Save a drawing's takeoff into the PDF itself, so it travels with the file.
+   *
+   * Bluebeam sees each markup as a native measurement with the scope as its
+   * label and the net quantity; REDBEAM's own detail (layouts, counts, scope
+   * specs) rides along privately. Appended as an incremental update, refused
+   * if the file changed since it was read, and skipped when nothing changed.
+   * One write per drawing at a time.
+   */
+  const embedChainRef = useRef(new Map<string, Promise<void>>())
+  const saveTakeoffIntoDrawing = useCallback((docId: string): Promise<void> => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === docId)
+    if (!db || !doc || !projectBridge.desktop) return Promise.resolve()
+    const name = doc.displayName || doc.relativePath
+    const run = async () => {
+      const out = await embedDrawing({
+        db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
+        file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
+      })
+      const text = embedStatus(out, name)
+      if (text !== null) setStatus(text)
+    }
+    const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
+    embedChainRef.current.set(docId, next)
+    return next
+  }, [documents, projectPath, setStatus])
+
+  /** Leaving a drawing (another tab, or closing it) saves its takeoff into it. */
+  const leftDocRef = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = leftDocRef.current
+    leftDocRef.current = activeDocId
+    if (prev !== null && prev !== activeDocId) void saveTakeoffIntoDrawing(prev)
+  }, [activeDocId, saveTakeoffIntoDrawing])
+
+  const closeProjectSavingTakeoff = useCallback(() => {
+    const id = leftDocRef.current
+    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(() => onCloseProject())
+  }, [onCloseProject, saveTakeoffIntoDrawing])
+
+  /**
+   * Opening a drawing reads what it carries. A takeoff embedded elsewhere comes
+   * into a project that has nothing on that drawing yet; redbeam.db stays the
+   * record otherwise. Each drawing is read once per session.
+   */
+  const embedCheckedRef = useRef(new Set<string>())
+  useEffect(() => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === activeDocId)
+    if (!db || !doc || !projectBridge.desktop || embedCheckedRef.current.has(doc.id)) return
+    embedCheckedRef.current.add(doc.id)
+    void (async () => {
+      try {
+        const reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
+        if (reading.slice === null && !reading.privateDataLost) return
+        const imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+        if (imported !== null && imported.markups > 0) {
+          await syncMarkups()
+          await refreshScopes()
+        }
+        const text = openingStatus(reading, imported, doc.displayName || doc.relativePath)
+        if (text !== null) setStatus(text)
+      } catch {
+        // A drawing that cannot be read here is the viewer's to report.
+      }
+    })()
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus])
 
   /** Live markup counts per scope, for the shelf and the archive warning. */
   /**
@@ -6315,7 +6404,7 @@ export default function Workspace({
         id: 'context-window', kind: 'command', title: 'New context window', detail: 'A second view on this project',
         keywords: ['window', 'second'], run: inContext(activeDoc?.relativePath),
       },
-      { id: 'close-project', kind: 'command', title: 'Close project', detail: 'Back to the start page', keywords: ['exit', 'start'], run: onCloseProject },
+      { id: 'close-project', kind: 'command', title: 'Close project', detail: 'Back to the start page', keywords: ['exit', 'start'], run: closeProjectSavingTakeoff },
       {
         id: 'set-project-aside', kind: 'command', title: 'Set this project’s REDBEAM data aside',
         detail: 'Moves redbeam.db into .redbeam/removed. The drawings stay, and the takeoff can be put back.',
@@ -6476,6 +6565,16 @@ export default function Workspace({
         run: async () => {
           if (await copyBillTsv(buildBom(pieces))) { setStatus('bill copied as TSV'); return undefined }
           return 'The clipboard refused the bill.'
+        },
+      },
+      {
+        id: 'save-takeoff', kind: 'command', title: 'Save takeoff into this drawing',
+        detail: 'Bluebeam then shows each markup with its scope and quantity',
+        keywords: ['bluebeam', 'embed', 'pdf', 'markup', 'revu'],
+        ...stuck(noSheet ?? (activeDocId === null ? 'no drawing is open' : undefined)),
+        run: async () => {
+          if (activeDocId !== null) await saveTakeoffIntoDrawing(activeDocId)
+          return undefined
         },
       },
       {
@@ -6898,7 +6997,7 @@ export default function Workspace({
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
     pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
-    openSearch, openSettings, openReport, refreshFiles, convertSheetAnnotations, onCloseProject, undoState, doUndo, doRedo, cal, applyPreset,
+    openSearch, openSettings, openReport, refreshFiles, convertSheetAnnotations, closeProjectSavingTakeoff, saveTakeoffIntoDrawing, activeDocId, undoState, doUndo, doRedo, cal, applyPreset,
     regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
@@ -6928,7 +7027,7 @@ export default function Workspace({
           onPalette: openPalette,
           onSettings: openSettings,
           ...(projectBridge.desktop ? { onSetAside: () => setAsideAsk(true) } : {}),
-          onCloseProject,
+          onCloseProject: closeProjectSavingTakeoff,
         }}
         {...(recentProjects !== undefined && onOpenProject !== undefined
           ? {
@@ -6947,7 +7046,7 @@ export default function Workspace({
                 ...(onRenameProject !== undefined ? { onRename: onRenameProject } : {}),
                 ...(onRevealProject !== undefined ? { onReveal: onRevealProject } : {}),
                 onContextWindow: () => { void openContextWindow(identity.projectId ?? projectPath, activeDoc?.relativePath) },
-                onStartPage: onCloseProject,
+                onStartPage: closeProjectSavingTakeoff,
               },
             }
           : {})}

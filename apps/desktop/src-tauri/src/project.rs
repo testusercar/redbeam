@@ -1420,6 +1420,89 @@ pub async fn project_read_document(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// What [`project_write_document`] did.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum DocumentWrite {
+    /// Written; `fingerprint` is the new file's SHA-256.
+    Written { fingerprint: String },
+    /// The file on disk is not the one the bytes were built from (someone
+    /// saved it in Bluebeam, or sync replaced it), so nothing was written.
+    Changed,
+    /// Another program holds the file open, so it could not be replaced.
+    Busy { message: String },
+}
+
+/// Replace a drawing inside the project with new bytes, but only if the file is
+/// still the one they were built from.
+///
+/// REDBEAM appends its markups to a drawing as a PDF incremental update, so the
+/// new bytes are the old file plus a tail. Writing them over a file that changed
+/// in the meantime would throw away whatever the other program saved, so the
+/// current file's SHA-256 must equal `expected_sha256`. The write goes to a
+/// temporary file in the same folder and is renamed over the original, so a
+/// crash or a full disk leaves the old drawing whole rather than half written.
+#[tauri::command]
+pub async fn project_write_document(
+    path: String,
+    relative_path: String,
+    bytes: Vec<u8>,
+    expected_sha256: String,
+) -> Result<DocumentWrite, String> {
+    let root = canonical_project_root(Path::new(&path));
+    let target = resolve_inside(&root, &relative_path)?;
+    write_document_if_unchanged(&target, &bytes, &expected_sha256)
+        .map_err(|e| format!("{relative_path}: {e}"))
+}
+
+fn write_document_if_unchanged(
+    target: &Path,
+    bytes: &[u8],
+    expected_sha256: &str,
+) -> Result<DocumentWrite, String> {
+    if !target.is_file() {
+        return Err("not a file".into());
+    }
+    match fingerprint_file(target) {
+        Some(current) if current.eq_ignore_ascii_case(expected_sha256) => {}
+        Some(_) => return Ok(DocumentWrite::Changed),
+        None => {
+            return Ok(DocumentWrite::Busy {
+                message: "could not read the file to check it is unchanged".into(),
+            })
+        }
+    }
+
+    let dir = target.parent().ok_or("has no parent folder")?;
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp = dir.join(format!(".{name}.redbeam-{nonce}.tmp"));
+
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("could not write a temporary copy: {e}"));
+    }
+    if let Err(e) = fs::rename(&temp, target) {
+        let _ = fs::remove_file(&temp);
+        // On Windows a drawing open in Bluebeam is locked against replacement.
+        return Ok(DocumentWrite::Busy { message: e.to_string() });
+    }
+    Ok(DocumentWrite::Written { fingerprint: sha256_hex(bytes) })
+}
+
 /// Cap on [`project_read_document`]. A drawing set's individual sheets are
 /// single-digit megabytes; anything past this wants the asset protocol.
 pub const MAX_DOCUMENT_READ_BYTES: u64 = 256 * 1024 * 1024;
@@ -2225,6 +2308,37 @@ mod tests {
             Some("2024-02-29T00:00:00.000Z")
         );
     }
+    // ------------------------------------------------------ write document --
+
+    #[test]
+    fn write_document_replaces_an_unchanged_file() {
+        let root = temp_dir("write-ok");
+        write_file(&root, "A.pdf", b"old");
+        let target = root.join("A.pdf");
+        let out = write_document_if_unchanged(&target, b"old+tail", &sha256_hex(b"old")).unwrap();
+        assert_eq!(out, DocumentWrite::Written { fingerprint: sha256_hex(b"old+tail") });
+        assert_eq!(fs::read(&target).unwrap(), b"old+tail");
+        let leftovers: Vec<_> = fs::read_dir(&root).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+        assert!(leftovers.is_empty());
+    }
+
+    #[test]
+    fn write_document_refuses_a_file_changed_since_it_was_read() {
+        let root = temp_dir("write-changed");
+        write_file(&root, "A.pdf", b"saved in bluebeam");
+        let target = root.join("A.pdf");
+        let out = write_document_if_unchanged(&target, b"old+tail", &sha256_hex(b"old")).unwrap();
+        assert_eq!(out, DocumentWrite::Changed);
+        assert_eq!(fs::read(&target).unwrap(), b"saved in bluebeam");
+    }
+
+    #[test]
+    fn write_document_stays_inside_the_project() {
+        let root = temp_dir("write-escape");
+        assert!(resolve_inside(&canonical_project_root(&root), "../x.pdf").is_err());
+    }
+
 }
 
 

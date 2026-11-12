@@ -4,6 +4,30 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.7 — 2026-11-12
+
+### Takeoffs travel inside the drawing, and Bluebeam can read them
+
+- **Bluebeam shows REDBEAM's markups natively.** When you leave a drawing,
+  close it or close the project, REDBEAM saves its takeoff into the PDF. Revu
+  shows each area and length as its own measurement markup, with the scope as
+  its subject and label, the net quantity in its comments ("2,211.84 sf",
+  "115.20 ft"), and the sheet's scale ("1 in = 8 ft"). Deductions show as plain
+  outlines. Bluebeam sees the scope label and the quantity, nothing else.
+- **The detail stays REDBEAM's.** Layouts, counts and scope specifications ride
+  along inside the PDF where only REDBEAM reads them. Open the drawing in
+  another job folder and its takeoff comes in with it, as long as that project
+  has nothing on the drawing yet. redbeam.db is still the record.
+- **Bluebeam edits are kept.** Markups someone adds in Revu stay when REDBEAM
+  saves again, and so does REDBEAM's own data when Revu saves. Checked by
+  saving in Revu 21 and reopening on both sides. If a REDBEAM markup was moved
+  in Bluebeam, that version is left as Bluebeam saved it.
+- **Safe to write.** REDBEAM appends to the file rather than rewriting it,
+  writes nothing when the takeoff has not changed, and does not write at all
+  if the file changed on disk after REDBEAM read it, for example because it is
+  open and saved in Bluebeam. The status line says when that happens.
+- **Save takeoff into this drawing** in the command palette does it on demand.
+
 ## 0.3.6 — 2026-11-12
 
 ### New job folders index faster

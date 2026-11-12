@@ -97,7 +97,7 @@ describe.each([
       .filter((n) => n < size)
     const doc = await PDFDocument.load(source)
     const pageRefs = new Set(doc.getPages().map((p) => p.ref.objectNumber))
-    const rootRef = (doc.context.trailerInfo.Root as { objectNumber: number }).objectNumber
+    const rootRef = (doc.context.trailerInfo.Root as unknown as { objectNumber: number }).objectNumber
     for (const n of redefined) expect(pageRefs.has(n) || n === rootRef, `object ${n} redefined`).toBe(true)
 
     const reading = await readSheetEmbed(bytes!)
