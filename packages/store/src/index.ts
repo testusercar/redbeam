@@ -11,10 +11,17 @@
  * migration logic stay portable.
  */
 
+import type { SqlStatement } from './batch.js'
+
 export interface SqlDriver {
   exec(sql: string): Promise<void>
   all<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>
   run(sql: string, params?: unknown[]): Promise<void>
+  /**
+   * Run several statements as one transaction, all or none. Optional: a
+   * driver without it gets them one at a time from {@link runBatch}.
+   */
+  batch?(statements: readonly SqlStatement[]): Promise<void>
 }
 
 export interface Migration {
@@ -105,6 +112,7 @@ export function migrationsFromGlob(glob: Record<string, string>): Migration[] {
     .filter((m) => m.version > 0)
     .sort((a, b) => a.version - b.version)
 }
+export * from './batch.js'
 export * from './repo.js'
 export * from './calculations.js'
 export * from './review.js'

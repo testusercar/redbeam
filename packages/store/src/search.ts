@@ -34,6 +34,7 @@
  * those instead of ignoring them.
  */
 import type { SqlDriver } from './index.js'
+import { runBatch, type SqlStatement } from './batch.js'
 
 // ------------------------------------------------------------------ types --
 
@@ -206,9 +207,9 @@ const nowIso = () => new Date().toISOString()
  * table is derived from it. If the FTS write fails after it, the page is
  * searchable in LIKE mode and missing from the index — which is exactly what
  * `SearchReport.ftsPageCount` vs `indexedPageCount` makes visible rather than
- * leaving it to be discovered as a mysteriously absent result. (`SqlDriver` has
- * no transaction primitive; adding one is a change to the driver contract, and
- * therefore not this module's call to make.)
+ * leaving it to be discovered as a mysteriously absent result. The four
+ * statements now go as one batch, which on a driver with `batch` (the desktop
+ * core, sql.js) also makes them one transaction.
  *
  * `pages.native_text_available` is kept in step with what indexing actually
  * found. The Qt build set that flag at page-sync time from `hasTextPage()`,
@@ -216,37 +217,52 @@ const nowIso = () => new Date().toISOString()
  * summaries claimed a searchable set had no native text.
  */
 export async function indexPageText(db: SqlDriver, rec: PageTextRecord): Promise<{ fts: boolean }> {
-  const at = nowIso()
-  const hasText = rec.content.trim().length > 0
-  await db.run(
-    `INSERT INTO page_text(page_id, document_id, content, source, indexed_at)
-     VALUES(?,?,?,?,?)
-     ON CONFLICT(page_id) DO UPDATE SET
-       content=excluded.content, source=excluded.source, indexed_at=excluded.indexed_at`,
-    [rec.pageId, rec.documentId, rec.content, rec.source ?? 'native', at],
-  )
-  await db.run('UPDATE pages SET native_text_available=?, text_indexed_at=?, updated_at=? WHERE id=?', [
-    hasText ? 1 : 0,
-    at,
-    at,
-    rec.pageId,
-  ])
   const fts = await hasFts5(db)
-  if (fts) {
-    await db.run('DELETE FROM page_text_fts WHERE page_id=?', [rec.pageId])
-    await db.run('INSERT INTO page_text_fts(page_id, document_id, content) VALUES(?,?,?)', [
-      rec.pageId,
-      rec.documentId,
-      rec.content,
-    ])
-  }
+  await runBatch(db, pageTextStatements(rec, fts))
   return { fts }
 }
 
-/** Index a batch. Sequential on purpose: the drivers own a single connection. */
+/**
+ * The statements that store one page's text, for a caller batching several
+ * pages into one commit. `fts` is {@link hasFts5}'s answer for this driver.
+ *
+ * In a batch the four are one unit, so the FTS row can no longer go missing
+ * behind a `page_text` row that landed — but `ftsPageCount` is still what
+ * would show it if it did.
+ */
+export function pageTextStatements(rec: PageTextRecord, fts: boolean): SqlStatement[] {
+  const at = nowIso()
+  const hasText = rec.content.trim().length > 0
+  const out: SqlStatement[] = [
+    {
+      sql: `INSERT INTO page_text(page_id, document_id, content, source, indexed_at)
+     VALUES(?,?,?,?,?)
+     ON CONFLICT(page_id) DO UPDATE SET
+       content=excluded.content, source=excluded.source, indexed_at=excluded.indexed_at`,
+      params: [rec.pageId, rec.documentId, rec.content, rec.source ?? 'native', at],
+    },
+    {
+      sql: 'UPDATE pages SET native_text_available=?, text_indexed_at=?, updated_at=? WHERE id=?',
+      params: [hasText ? 1 : 0, at, at, rec.pageId],
+    },
+  ]
+  if (fts) {
+    out.push(
+      { sql: 'DELETE FROM page_text_fts WHERE page_id=?', params: [rec.pageId] },
+      {
+        sql: 'INSERT INTO page_text_fts(page_id, document_id, content) VALUES(?,?,?)',
+        params: [rec.pageId, rec.documentId, rec.content],
+      },
+    )
+  }
+  return out
+}
+
+/** Index several pages in one commit. */
 export async function indexPageTexts(db: SqlDriver, recs: readonly PageTextRecord[]): Promise<{ fts: boolean }> {
-  for (const r of recs) await indexPageText(db, r)
-  return { fts: await hasFts5(db) }
+  const fts = await hasFts5(db)
+  await runBatch(db, recs.flatMap((r) => pageTextStatements(r, fts)))
+  return { fts }
 }
 
 export async function getPageText(db: SqlDriver, pageId: string): Promise<string | null> {

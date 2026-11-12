@@ -25,6 +25,7 @@
  */
 import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core'
 import type { SqlDriver } from './index.js'
+import type { SqlStatement } from './batch.js'
 
 /** The shape of `invoke` this driver needs. Injectable so tests need no runtime. */
 export type TauriInvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
@@ -320,4 +321,19 @@ export class TauriSqlDriver implements SqlDriver {
       throw wrapIpcError('db_run', sql, err)
     }
   }
+
+  /** One IPC call, one transaction: see `Store::batch` in the core. */
+  async batch(statements: readonly SqlStatement[]): Promise<void> {
+    if (statements.length === 0) return
+    const payload = statements.map((s) => ({
+      sql: s.sql,
+      params: (s.params ?? []).map((p, i) => toIpcParam(p, i, s.sql)),
+    }))
+    try {
+      await this.invoke<void>('db_batch', { projectPath: this.forProject(), statements: payload })
+    } catch (err) {
+      throw wrapIpcError('db_batch', statements[0]!.sql, err)
+    }
+  }
+
 }

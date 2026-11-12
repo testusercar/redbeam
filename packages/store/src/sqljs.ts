@@ -12,6 +12,7 @@
  */
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js'
 import type { SqlDriver } from './index.js'
+import type { SqlStatement } from './batch.js'
 
 let SQL: SqlJsStatic | null = null
 
@@ -62,6 +63,27 @@ export class SqlJsDriver implements SqlDriver {
     } finally {
       stmt.free()
     }
+  }
+
+  /** All or none, under a savepoint so it nests inside an open transaction. */
+  async batch(statements: readonly SqlStatement[]): Promise<void> {
+    if (statements.length === 0) return
+    this.db.run('SAVEPOINT redbeam_batch')
+    try {
+      for (const s of statements) {
+        const stmt = this.db.prepare(s.sql)
+        try {
+          stmt.run((s.params ?? []) as never)
+        } finally {
+          stmt.free()
+        }
+      }
+    } catch (err) {
+      this.db.run('ROLLBACK TO redbeam_batch')
+      this.db.run('RELEASE redbeam_batch')
+      throw err
+    }
+    this.db.run('RELEASE redbeam_batch')
   }
 
   /** Serialize the whole database. Caller persists these bytes. */

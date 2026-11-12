@@ -21,7 +21,8 @@
  * exercised with a fake database and a fake worker.
  */
 import {
-  ensureDocumentAndPage, indexPageText, pageIdFor, type DocumentRow, type SqlDriver,
+  ensureDocumentAndPageStatements, hasFts5, pageIdFor, pageTextStatements, runBatch,
+  type DocumentRow, type SqlDriver, type SqlStatement,
 } from '@redbeam/store'
 import type { HeadlessDocument } from '../project/headlessDocument.js'
 
@@ -68,6 +69,18 @@ async function indexedPages(db: SqlDriver, documentId: string): Promise<Set<stri
   return new Set(rows.map((r) => r.page_id))
 }
 
+/**
+ * Pages written per commit.
+ *
+ * Every page used to be six commits of its own — measured at ~13 ms each in a
+ * SharePoint-synced job folder, against ~40 ms to read the page's text — so
+ * most of a new project's indexing time was the disk, not PDFium. Pages are
+ * queued and written together instead. Not a whole document at once: search
+ * coverage should climb while a 300-sheet set is read, and a cancelled run
+ * should keep what it finished.
+ */
+export const PAGES_PER_COMMIT = 16
+
 export async function indexProject(opts: IndexProjectOptions): Promise<IndexOutcome> {
   const { db } = opts
   const cancelled = opts.isCancelled ?? (() => false)
@@ -76,6 +89,7 @@ export async function indexProject(opts: IndexProjectOptions): Promise<IndexOutc
   const report = (done: number, document: string | null) =>
     opts.onProgress?.({ done, total: docs.length, document })
 
+  const fts = await hasFts5(db)
   report(0, null)
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]!
@@ -96,25 +110,34 @@ export async function indexProject(opts: IndexProjectOptions): Promise<IndexOutc
       if (url === null) throw new Error('the file could not be read')
       opened = await opts.openDocument(url)
       let complete = true
+      const pending: SqlStatement[] = []
+      let pendingPages = 0
+      const flush = async () => {
+        await runBatch(db, pending.splice(0))
+        out.indexedPages += pendingPages
+        pendingPages = 0
+      }
       for (let page = 0; page < opened.pageCount; page++) {
         if (cancelled()) { out.cancelled = true; complete = false; break }
         const pageId = pageIdFor(doc.id, page)
         const size = opened.sizes[page]
-        // page_text has a foreign key to pages, so the row has to exist first.
-        // Written for every page, so the sheet index and search coverage know
-        // the document's true length before any page has been viewed.
-        await ensureDocumentAndPage(db, doc, {
+        // page_text has a foreign key to pages, so the row has to exist first
+        // (it does: the batch runs in order). Written for every page, so the
+        // sheet index and search coverage know the document's true length
+        // before any page has been viewed.
+        pending.push(...ensureDocumentAndPageStatements(doc, {
           id: pageId, documentId: doc.id, pageNumber: page,
           width: size?.width ?? 0, height: size?.height ?? 0,
-        })
+        }))
         if (have.has(pageId)) continue
         try {
           const pt = await opened.text(page)
-          await indexPageText(db, {
+          pending.push(...pageTextStatements({
             pageId, documentId: doc.id, content: pt.text,
             source: pt.scanned ? 'ocr-needed' : 'native',
-          })
-          out.indexedPages++
+          }, fts))
+          pendingPages++
+          if (pendingPages >= PAGES_PER_COMMIT) await flush()
         } catch (err) {
           // One unreadable sheet is not a reason to stop reading the rest —
           // nor to call the document done, so it is tried again next open.
@@ -125,6 +148,9 @@ export async function indexProject(opts: IndexProjectOptions): Promise<IndexOutc
           })
         }
       }
+      // What was read is kept even when the run was cancelled partway: those
+      // pages are skipped next time rather than read again.
+      await flush()
       if (complete) opts.completed?.add(doc.id)
     } catch (err) {
       out.failures.push({
