@@ -789,11 +789,60 @@ fn an_open_project_is_in_redbeam_db_not_only_in_the_wal() {
 }
 
 #[test]
-fn close_all_folds_the_wal_in_and_removes_it() {
+fn a_project_open_in_the_app_is_one_file_on_disk() {
+    // SharePoint syncs files, not SQLite's idea of a database. While the app
+    // holds the project open there must be no -wal or -shm beside it.
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state
+        .with_project(&dir.str(), |s| s.exec("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (1);"))
+        .expect("write");
+    assert!(!dir.path().join("redbeam.db-wal").exists(), "a -wal beside an open project");
+    assert!(!dir.path().join("redbeam.db-shm").exists(), "a -shm beside an open project");
+    assert!(!dir.path().join("redbeam.db-journal").exists(), "a journal left after a commit");
+    state.close_all();
+}
+
+#[test]
+fn a_project_left_in_its_wal_by_an_older_build_is_folded_into_redbeam_db() {
+    // What the old build left behind: WAL mode, the data only in the -wal.
+    // Written in one directory and the files copied while still open — a
+    // process that exited without closing — so this process holds no lock on
+    // the copies.
+    let writer = TempDir::new();
+    let old = rusqlite::Connection::open(writer.path().join(DB_FILE_NAME)).unwrap();
+    old.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)).unwrap();
+    old.query_row("PRAGMA wal_autocheckpoint = 0", [], |r| r.get::<_, i64>(0)).unwrap();
+    old.execute_batch("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (7);").unwrap();
+    let dir = TempDir::new();
+    let db = dir.path().join(DB_FILE_NAME);
+    for name in [DB_FILE_NAME, "redbeam.db-wal"] {
+        std::fs::copy(writer.path().join(name), dir.path().join(name)).unwrap();
+    }
+    drop(old);
+    assert_eq!(tables_in_db_file_alone(&dir), 0, "setup: redbeam.db should be the empty shell");
+
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    assert!(!dir.path().join("redbeam.db-wal").exists(), "the -wal was not folded in");
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(&db, &copy).unwrap();
+    let x: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT x FROM probe", [], |r| r.get(0))
+        .expect("the old -wal's data reached redbeam.db");
+    assert_eq!(x, 7);
+    state.close_all();
+}
+
+#[test]
+fn close_all_releases_every_project() {
     let dir = TempDir::new();
     let state = StoreState::new();
     state.open(&dir.str()).expect("open");
     state.close_all();
-    assert!(!dir.path().join("redbeam.db-wal").exists(), "WAL left behind at exit");
+    assert!(state.with(|_| Ok(())).is_err(), "a project stayed open after close_all");
     assert!(tables_in_db_file_alone(&dir) > 1);
 }

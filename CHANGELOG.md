@@ -6,16 +6,18 @@ SmartScreen will ask once.
 
 ## 0.3.5 — 2026-11-12
 
-### A job's data is kept in redbeam.db
+### A job is one redbeam.db that syncs through SharePoint
 
-- **redbeam.db now holds the whole project.** REDBEAM wrote everything into
-  `redbeam.db-wal` and never folded it back, so `redbeam.db` stayed a 4 KB
-  empty file. When a job folder synced, was copied, or opened on another PC
-  without the `-wal` beside it, REDBEAM found an empty database and started
-  the project over. Every save now lands in `redbeam.db` itself, and closing
-  REDBEAM folds in and removes the `-wal`.
+- **redbeam.db now holds the whole project, always.** REDBEAM kept a job's
+  data in `redbeam.db-wal` and `redbeam.db-shm` beside the database and never
+  folded it back, so `redbeam.db` stayed a 4 KB empty file. When a job folder
+  synced through SharePoint, was copied, or opened on another PC without those
+  side files, REDBEAM found an empty database and started the project over.
+  Every save now goes straight into `redbeam.db`, with no side files left
+  beside it, so syncing the one file carries the whole job.
 - **Older projects are repaired on open.** A project whose data is still in
-  its `-wal` has it written into `redbeam.db` the first time 0.3.5 opens it.
+  its `-wal` has it written into `redbeam.db`, and the side files removed, the
+  first time 0.3.5 opens it.
 
 ## 0.3.4 — 2026-10-16
 

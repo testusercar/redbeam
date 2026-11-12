@@ -120,9 +120,6 @@ impl StoreState {
         // Migrating an already-open project is a no-op that reports zero
         // applied, which is what a reopen should say.
         let migrated = store.migrate()?;
-        // A database last written by a build that never checkpointed opens
-        // with its contents still in the WAL; fold them in now.
-        let _ = store.checkpoint();
         let info = OpenInfo {
             schema_version: store.schema_version()?,
             applied: migrated.applied,
@@ -225,15 +222,11 @@ impl StoreState {
     /// the panic was, so the guard is recovered.
     /// Close every open project. Called as the process exits: Tauri ends with
     /// `process::exit`, so managed state is never dropped and, without this,
-    /// no connection is ever closed and no final checkpoint ever runs.
+    /// no project's connection is ever closed. Leaving them open is what kept
+    /// the old WAL-mode projects in their -wal; close them on the way out.
     pub fn close_all(&self) {
         let mut guard = self.lock();
-        for (path, (store, _)) in guard.stores.iter() {
-            if let Err(e) = store.checkpoint() {
-                eprintln!("[store] could not checkpoint {}: {e}", path.display());
-            }
-        }
-        // Dropping each Store closes its connection, which removes the WAL.
+        // Dropping each Store closes its connection and releases the file.
         guard.stores.clear();
         guard.current = None;
     }

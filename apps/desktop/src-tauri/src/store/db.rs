@@ -141,28 +141,28 @@ impl Store {
         // Wait rather than returning SQLITE_BUSY to the UI.
         conn.busy_timeout(Duration::from_secs(5))?;
 
-        // WAL keeps a reader (a second window, or an out-of-process tool
-        // inspecting the project) from blocking the writer. `PRAGMA
-        // journal_mode` returns the resulting mode as a row, and an in-memory
-        // database refuses WAL — neither is an error worth failing an open
-        // over, so the outcome is read and discarded.
-        let _ = conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
+        // ONE FILE, so the project syncs. Job folders live in SharePoint
+        // libraries, and the database used to run in WAL mode: every write
+        // went to `redbeam.db-wal` (plus a `redbeam.db-shm` index), and with
+        // SQLite's 1000-page checkpoint threshold and a connection the app
+        // never closed, the project lived in the -wal indefinitely while
+        // `redbeam.db` stayed a 4 KB empty shell. Anything that carried the
+        // .db without its -wal (a sync, a copy, a colleague's machine) opened
+        // as an empty project and was re-initialised. Found 2026-11-12 in a
+        // client folder: a 4 KB redbeam.db beside 2.7 MB of WAL. Aaron: "make
+        // sure that it can sync through SharePoint."
+        //
+        // The rollback journal keeps every committed write in `redbeam.db`
+        // itself; `redbeam.db-journal` exists only while a transaction is in
+        // flight. Switching an existing WAL database here also folds its -wal
+        // into the main file and deletes the -wal and -shm, which repairs a
+        // project written by an older build the first time it is opened. WAL's
+        // one benefit, readers not blocking the writer, matters little to a
+        // single-process app whose windows share one connection; an outside
+        // reader waits under the busy timeout above. The resulting mode is
+        // read and discarded: an in-memory database reports "memory".
+        let _ = conn.query_row("PRAGMA journal_mode = DELETE", [], |row| {
             row.get::<_, String>(0)
-        });
-
-        // ...but WAL must not be where the project LIVES. With SQLite's default
-        // of checkpointing only once the WAL reaches 1000 pages, and a
-        // connection that is never closed (the app exits without dropping its
-        // managed state), a project's whole contents sat in `redbeam.db-wal`
-        // indefinitely while `redbeam.db` stayed a 4 KB empty shell. Job
-        // folders live on synced SharePoint libraries; anything that carries
-        // the .db without its -wal (a sync, a copy, a colleague's machine)
-        // then opened as an empty project and was re-initialised. Found on
-        // 2026-11-12 in a client folder whose 4 KB redbeam.db had 2.7 MB of
-        // WAL beside it. Checkpointing at every commit keeps the main file
-        // current; the WAL only ever holds the transaction in flight.
-        let _ = conn.query_row("PRAGMA wal_autocheckpoint = 1", [], |row| {
-            row.get::<_, i64>(0)
         });
 
         Ok(Store { conn, db_path })
@@ -179,15 +179,6 @@ impl Store {
 
     pub fn db_path(&self) -> &Path {
         &self.db_path
-    }
-
-    /// Fold the WAL into `redbeam.db` and truncate it, so the database file
-    /// alone is the whole project. Best effort: a reader holding the WAL open
-    /// makes this a partial checkpoint, which is still not an error.
-    pub fn checkpoint(&self) -> Result<(), StoreError> {
-        self.conn
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
-        Ok(())
     }
 
     /// Run one or more statements with no parameters and no result rows.
