@@ -204,6 +204,60 @@ impl Store {
         Ok(out)
     }
 
+    /// Run several parameterized statements as one unit: all of them, or none.
+    ///
+    /// # Why this exists
+    ///
+    /// Since 0.3.5 the project runs with a rollback journal so that it lives in
+    /// `redbeam.db` alone and syncs through SharePoint. The price is that every
+    /// statement run on its own is a transaction of its own: `redbeam.db-journal`
+    /// created, written, flushed, the database flushed, the journal deleted.
+    /// Indexing a sheet's text was six of those, measured at about 13 ms each in
+    /// a SharePoint-synced job folder, and a new project ingested its documents
+    /// one commit apiece. Batched, a document's worth of pages is one commit.
+    ///
+    /// A savepoint rather than `BEGIN`, so a batch is also safe to run inside a
+    /// transaction the caller already opened (it nests instead of failing with
+    /// "cannot start a transaction within a transaction"). Outside one, a
+    /// savepoint behaves exactly like `BEGIN DEFERRED`.
+    ///
+    /// Statements run in the order given. If any fails, every statement of the
+    /// batch is rolled back and the error names which one it was.
+    pub fn batch(&self, statements: &[(String, Vec<Json>)]) -> Result<(), StoreError> {
+        if statements.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute_batch("SAVEPOINT redbeam_batch")?;
+        let outcome = statements
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, (sql, params))| {
+                self.run(sql, params).map_err(|e| match e {
+                    StoreError::Sqlite(inner) => StoreError::Bind(format!(
+                        "statement {index} of the batch failed: {inner}\nSQL: {sql}"
+                    )),
+                    StoreError::Bind(m) => {
+                        StoreError::Bind(format!("statement {index} of the batch: {m}"))
+                    }
+                    other => other,
+                })
+            });
+        match outcome {
+            Ok(()) => {
+                self.conn.execute_batch("RELEASE redbeam_batch")?;
+                Ok(())
+            }
+            Err(err) => {
+                // Undo the batch's work, then drop the savepoint itself. Both
+                // are attempted even if the first fails, and the error the
+                // caller sees is the statement's, which is the one that matters.
+                let _ = self.conn.execute_batch("ROLLBACK TO redbeam_batch");
+                let _ = self.conn.execute_batch("RELEASE redbeam_batch");
+                Err(err)
+            }
+        }
+    }
+
     /// Run a single parameterized statement for its effect.
     ///
     /// Stepped to completion via `query` rather than `execute` so that a

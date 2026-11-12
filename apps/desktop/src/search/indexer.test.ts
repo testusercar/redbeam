@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { migrate, SqlJsDriver, textIndexCoverage, type Migration } from '@redbeam/store'
 import type { HeadlessDocument } from '../project/headlessDocument.js'
-import { indexProject, type IndexProgress } from './indexer.js'
+import { indexProject, PAGES_PER_COMMIT, type IndexProgress } from './indexer.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(here, '..', '..', '..', '..', 'packages', 'store', 'migrations')
@@ -47,7 +47,57 @@ function fakeOpener(texts: Record<string, string[]>) {
 
 const urlOf = (d: { relativePath: string }) => Promise.resolve(`blob:${d.relativePath}`)
 
+/** Counts commits: every batch, and every statement run on its own. */
+function countingCommits(inner: SqlJsDriver) {
+  const counts = { batches: 0, singles: 0 }
+  const driver = {
+    exec: (sql: string) => inner.exec(sql),
+    all: <T,>(sql: string, params?: unknown[]) => inner.all<T>(sql, params),
+    run: (sql: string, params?: unknown[]) => { counts.singles++; return inner.run(sql, params) },
+    batch: (s: Parameters<SqlJsDriver['batch']>[0]) => { counts.batches++; return inner.batch(s) },
+  }
+  return { driver, counts }
+}
+
 describe('indexProject', () => {
+  it('commits pages in groups, not six statements per page', async () => {
+    const pages = Array.from({ length: PAGES_PER_COMMIT * 2 + 3 }, (_, i) => `SHEET ${i}`)
+    const fake = fakeOpener({ 'blob:A-101.pdf': pages })
+    const { driver, counts } = countingCommits(db)
+    const out = await indexProject({
+      db: driver,
+      documents: [doc('d1', 'A-101.pdf')],
+      resolveUrl: urlOf,
+      releaseUrl: () => {},
+      openDocument: fake.openDocument,
+    })
+    expect(out.indexedPages).toBe(pages.length)
+    expect(counts.singles).toBe(0)
+    expect(counts.batches).toBe(3)
+    const coverage = await textIndexCoverage(db)
+    expect(coverage.indexedPageCount).toBe(pages.length)
+    expect(coverage.totalPageCount).toBe(pages.length)
+  })
+
+  it('keeps the pages it read when cancelled partway', async () => {
+    const fake = fakeOpener({ 'blob:A-101.pdf': ['one', 'two', 'three', 'four'] })
+    let reads = 0
+    const out = await indexProject({
+      db,
+      documents: [doc('d1', 'A-101.pdf')],
+      resolveUrl: urlOf,
+      releaseUrl: () => {},
+      openDocument: async (url) => {
+        const d = await fake.openDocument(url)
+        return { ...d, text: async (i) => { reads++; return d.text(i) } }
+      },
+      isCancelled: () => reads >= 2,
+    })
+    expect(out.cancelled).toBe(true)
+    expect(out.indexedPages).toBe(2)
+    expect((await textIndexCoverage(db)).indexedPageCount).toBe(2)
+  })
+
   it('reads every page of every document and records its text', async () => {
     const fake = fakeOpener({
       'blob:A-101.pdf': ['REFLECTED CEILING PLAN C-MT-01', 'LEGEND'],

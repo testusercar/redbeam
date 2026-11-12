@@ -21,6 +21,7 @@
  * of a display string. See docs/PORTING.md.
  */
 import type { SqlDriver } from './index.js'
+import { runBatch, type SqlStatement } from './batch.js'
 
 export type ReviewState = 'accepted' | 'proposed' | 'rejected'
 
@@ -741,8 +742,16 @@ export async function ensureDocumentAndPage(
   doc: { id: string; relativePath: string; displayName: string },
   page: PageSeed,
 ): Promise<void> {
-  await db.run(
-    `INSERT INTO documents(id, relative_path, display_name, kind, status, size_bytes,
+  await runBatch(db, ensureDocumentAndPageStatements(doc, page))
+}
+
+/** {@link ensureDocumentAndPage} as statements, for a caller batching pages. */
+export function ensureDocumentAndPageStatements(
+  doc: { id: string; relativePath: string; displayName: string },
+  page: PageSeed,
+): SqlStatement[] {
+  return [{
+    sql: `INSERT INTO documents(id, relative_path, display_name, kind, status, size_bytes,
                            availability, created_at, updated_at)
      VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
     // Vocabularies here are the Qt build's, not invented. Verified in
@@ -753,14 +762,13 @@ export async function ensureDocumentAndPage(
     //   kind:         drawing | specification | submittal | other
     // `status` could not be confirmed from the Qt source; 'active' is a
     // placeholder and should be pinned once the vocabulary is known.
-    [doc.id, doc.relativePath, doc.displayName, 'drawing', 'active', 0, 'local', nowIso(), nowIso()],
-  )
-  await db.run(
-    `INSERT INTO pages(id, document_id, page_number, width_pdf_points, height_pdf_points,
+    params: [doc.id, doc.relativePath, doc.displayName, 'drawing', 'active', 0, 'local', nowIso(), nowIso()],
+  }, {
+    sql: `INSERT INTO pages(id, document_id, page_number, width_pdf_points, height_pdf_points,
                        created_at, updated_at)
      VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-    [page.id, page.documentId, page.pageNumber, page.width, page.height, nowIso(), nowIso()],
-  )
+    params: [page.id, page.documentId, page.pageNumber, page.width, page.height, nowIso(), nowIso()],
+  }]
 }
 
 export async function getPage(db: SqlDriver, pageId: string): Promise<PageSeed | null> {

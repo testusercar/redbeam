@@ -40,6 +40,7 @@
  * column. Do not add one silently.
  */
 import type { SqlDriver } from './index.js'
+import { runBatch, type SqlStatement } from './batch.js'
 
 // ----------------------------------------------------------------- types --
 
@@ -529,9 +530,19 @@ export async function upsertDocument(
   id: string,
   now: () => string = defaultNow,
 ): Promise<void> {
+  const s = upsertDocumentStatement(doc, id, now)
+  await db.run(s.sql, s.params)
+}
+
+/** {@link upsertDocument} as a statement, for a caller batching several. */
+export function upsertDocumentStatement(
+  doc: IngestDocument,
+  id: string,
+  now: () => string = defaultNow,
+): SqlStatement & { params: unknown[] } {
   const timestamp = now()
-  await db.run(
-    `INSERT INTO documents(id, relative_path, display_name, kind, status, size_bytes,
+  return {
+    sql: `INSERT INTO documents(id, relative_path, display_name, kind, status, size_bytes,
                            modified_at_observed, content_fingerprint,
                            base_content_fingerprint, annotation_fingerprint, issue_date,
                            file_date_hint, availability, preferred_working_copy, missing,
@@ -549,7 +560,7 @@ export async function upsertDocument(
        availability = excluded.availability,
        missing = 0,
        updated_at = excluded.updated_at`,
-    [
+    params: [
       id,
       doc.relativePath,
       doc.displayName ?? basename(doc.relativePath),
@@ -563,7 +574,7 @@ export async function upsertDocument(
       timestamp,
       timestamp,
     ],
-  )
+  }
 }
 
 function basename(relativePath: string): string {
@@ -583,10 +594,15 @@ export async function markDocumentMissing(
   documentId: string,
   now: () => string = defaultNow,
 ): Promise<void> {
-  await db.run(
-    "UPDATE documents SET missing = 1, availability = 'unavailable', updated_at = ? WHERE id = ?",
-    [now(), documentId],
-  )
+  const s = markMissingStatement(documentId, now)
+  await db.run(s.sql, s.params)
+}
+
+function markMissingStatement(documentId: string, now: () => string): SqlStatement & { params: unknown[] } {
+  return {
+    sql: "UPDATE documents SET missing = 1, availability = 'unavailable', updated_at = ? WHERE id = ?",
+    params: [now(), documentId],
+  }
 }
 
 /** The inverse: a document that came back. */
@@ -682,6 +698,16 @@ export async function ingestDocuments(
 
   const scannedPaths = new Set(files.map((f) => f.relativePath))
 
+  /*
+   * Document writes waiting to be committed together. One commit per document
+   * cost a journal file created, flushed and deleted per row in the job folder
+   * (see `runBatch`), and a new project is nothing but new rows.
+   */
+  const pending: SqlStatement[] = []
+  const flush = async () => {
+    await runBatch(db, pending.splice(0))
+  }
+
   const summary: IngestSummary = {
     documents: [],
     created: 0,
@@ -721,10 +747,20 @@ export async function ingestDocuments(
     const created = previous === null
     const restored = previous?.missing === true
 
-    await upsertDocument(db, file, documentId, now)
-
     let pages: PageWriteResult = { inserted: 0, updated: 0, rejected: 0 }
     let specs = file.pages ?? null
+    /*
+     * A document with no pages to write is one statement, and on a new job
+     * folder that is every document: queue it and commit them together.
+     * Anything that writes pages reads the page table first, so it goes
+     * through the old path after whatever is queued has landed.
+     */
+    if (specs === null && !opts.probePages) {
+      pending.push(upsertDocumentStatement(file, documentId, now))
+    } else {
+      await flush()
+      await upsertDocument(db, file, documentId, now)
+    }
     if (specs === null && opts.probePages) {
       specs = await opts.probePages(file, documentId)
     }
@@ -773,10 +809,11 @@ export async function ingestDocuments(
   if (reconcile && !implausible) {
     for (const row of existing) {
       if (row.matched || row.missing) continue
-      await markDocumentMissing(db, row.id, now)
+      pending.push(markMissingStatement(row.id, now))
       summary.markedMissing++
     }
   }
+  await flush()
 
   return summary
 }

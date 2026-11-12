@@ -85,6 +85,31 @@ describe('command shape', () => {
     ])
   })
 
+  it('sends a batch as one db_batch call, with its parameters checked', async () => {
+    const { calls, invoke } = recorder()
+    const db = new TauriSqlDriver({ invoke, projectPath: PROJECT })
+    const when = new Date('2026-11-12T20:00:00.000Z')
+    await db.batch([
+      { sql: 'INSERT INTO t(a) VALUES(?)', params: ['y'] },
+      { sql: 'UPDATE t SET a = ?', params: [when] },
+      { sql: 'DELETE FROM t' },
+    ])
+    await db.batch([])
+    expect(calls).toEqual([{
+      cmd: 'db_batch',
+      args: {
+        projectPath: PROJECT,
+        statements: [
+          { sql: 'INSERT INTO t(a) VALUES(?)', params: ['y'] },
+          { sql: 'UPDATE t SET a = ?', params: ['2026-11-12T20:00:00.000Z'] },
+          { sql: 'DELETE FROM t', params: [] },
+        ],
+      },
+    }])
+    await expect(db.batch([{ sql: 'INSERT INTO t(a) VALUES(?)', params: [{ a: 1 }] }]))
+      .rejects.toThrow(/unsupported type/)
+  })
+
   it('sends an empty params array when the caller omits params', async () => {
     const { calls, invoke } = recorder({ db_all: [] })
     const db = new TauriSqlDriver({ invoke, projectPath: PROJECT })

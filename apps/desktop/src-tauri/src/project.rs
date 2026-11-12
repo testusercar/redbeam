@@ -447,143 +447,36 @@ pub fn availability_for_path(path: &Path) -> &'static str {
 /// SHA-256, so `content_fingerprint` matches the Qt build's `sha256ForFile`
 /// byte for byte.
 ///
-/// Hand-rolled rather than pulled in as a dependency: `Cargo.toml` is owned
-/// elsewhere, the algorithm is fixed by FIPS 180-4 and cannot drift, and it is
-/// pinned here against the standard test vectors. If a hashing crate is ever
-/// added, delete this and keep the tests.
+/// This was hand-rolled, and on a new job folder it was most of the wait: the
+/// release profile builds for size (`opt-level = "s"`), and a portable
+/// SHA-256 compiled that way managed ~190 MB/s, so a 3.7 GB bid package spent
+/// ~20s hashing before the project showed a single document. `sha2` uses the
+/// CPU's SHA extensions where they exist (SHA-NI on x86, the ARMv8 crypto
+/// extensions on the ARM64 builds) and was already in the tree through Tauri,
+/// so it adds no crate to the build. The standard test vectors below still pin
+/// the output.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let mut state: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    let mut hasher = Sha256 {
-        state: &mut state,
-        buffer: [0u8; 64],
-        buffered: 0,
-        length: 0,
-    };
-    hasher.update(bytes);
-    hasher.finish()
+    use sha2::{Digest, Sha256};
+    hex(&Sha256::digest(bytes))
 }
 
-struct Sha256<'a> {
-    state: &'a mut [u32; 8],
-    buffer: [u8; 64],
-    buffered: usize,
-    length: u64,
-}
-
-const K: [u32; 64] = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-];
-
-impl Sha256<'_> {
-    fn update(&mut self, mut bytes: &[u8]) {
-        self.length = self.length.wrapping_add(bytes.len() as u64);
-        while !bytes.is_empty() {
-            let take = (64 - self.buffered).min(bytes.len());
-            self.buffer[self.buffered..self.buffered + take].copy_from_slice(&bytes[..take]);
-            self.buffered += take;
-            bytes = &bytes[take..];
-            if self.buffered == 64 {
-                let block = self.buffer;
-                compress(self.state, &block);
-                self.buffered = 0;
-            }
-        }
+fn hex(digest: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
     }
-
-    fn finish(mut self) -> String {
-        let bit_length = self.length.wrapping_mul(8);
-        self.update(&[0x80]);
-        // `update` counted the padding byte; undo that so the length field is
-        // the message length, not the padded length.
-        self.length = self.length.wrapping_sub(1);
-        while self.buffered != 56 {
-            self.update(&[0x00]);
-            self.length = self.length.wrapping_sub(1);
-        }
-        let block_tail = bit_length.to_be_bytes();
-        self.update(&block_tail);
-
-        let mut out = String::with_capacity(64);
-        for word in self.state.iter() {
-            out.push_str(&format!("{word:08x}"));
-        }
-        out
-    }
-}
-
-fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
-    let mut w = [0u32; 64];
-    for i in 0..16 {
-        w[i] = u32::from_be_bytes([
-            block[i * 4],
-            block[i * 4 + 1],
-            block[i * 4 + 2],
-            block[i * 4 + 3],
-        ]);
-    }
-    for i in 16..64 {
-        let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-        let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-        w[i] = w[i - 16]
-            .wrapping_add(s0)
-            .wrapping_add(w[i - 7])
-            .wrapping_add(s1);
-    }
-
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
-    for i in 0..64 {
-        let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let ch = (e & f) ^ ((!e) & g);
-        let temp1 = h
-            .wrapping_add(s1)
-            .wrapping_add(ch)
-            .wrapping_add(K[i])
-            .wrapping_add(w[i]);
-        let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let maj = (a & b) ^ (a & c) ^ (b & c);
-        let temp2 = s0.wrapping_add(maj);
-
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(temp1);
-        d = c;
-        c = b;
-        b = a;
-        a = temp1.wrapping_add(temp2);
-    }
-
-    for (slot, value) in state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
-        *slot = slot.wrapping_add(value);
-    }
+    out
 }
 
 /// SHA-256 of a file, streamed in 1 MiB chunks so a 128 MB drawing set does not
 /// arrive in memory all at once.
 pub fn fingerprint_file(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
     use std::io::Read;
 
     let mut file = fs::File::open(path).ok()?;
-    let mut state: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    let mut hasher = Sha256 {
-        state: &mut state,
-        buffer: [0u8; 64],
-        buffered: 0,
-        length: 0,
-    };
+    let mut hasher = Sha256::new();
     let mut chunk = vec![0u8; 1024 * 1024];
     loop {
         let read = file.read(&mut chunk).ok()?;
@@ -592,7 +485,7 @@ pub fn fingerprint_file(path: &Path) -> Option<String> {
         }
         hasher.update(&chunk[..read]);
     }
-    Some(hasher.finish())
+    Some(hex(&hasher.finalize()))
 }
 
 // ------------------------------------------------------------ timestamps --
@@ -659,6 +552,9 @@ pub fn scan_project(root: &Path, extensions: &[String]) -> Result<ScanResult, St
         ..Default::default()
     };
 
+    // Walk first, describe after: describing is where the bytes are read, and
+    // that part runs on several threads (see `describe_files`).
+    let mut found: Vec<(PathBuf, String, String)> = Vec::new();
     let mut stack: Vec<(PathBuf, usize)> = vec![(root.clone(), 0)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > MAX_SCAN_DEPTH {
@@ -711,23 +607,85 @@ pub fn scan_project(root: &Path, extensions: &[String]) -> Result<ScanResult, St
                 }
             }
 
-            if result.files.len() >= MAX_SCAN_FILES {
+            if found.len() >= MAX_SCAN_FILES {
                 result.truncated = true;
                 break;
             }
 
-            result.files.push(describe_file(&path, relative_path, name));
+            found.push((path, relative_path, name));
         }
 
-        if result.truncated && result.files.len() >= MAX_SCAN_FILES {
+        if result.truncated && found.len() >= MAX_SCAN_FILES {
             break;
         }
     }
 
+    result.files = describe_files(found);
     result
         .files
         .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     Ok(result)
+}
+
+/// Most threads a scan will hash on. Past this the disk, not the CPU, is what
+/// is being waited on.
+const MAX_SCAN_THREADS: usize = 8;
+
+/// Describe every file the walk found, hashing on several threads at once.
+///
+/// The walk itself is cheap; reading and hashing every byte is not, and it
+/// used to happen one file at a time on one core, so a new job folder of a few
+/// gigabytes sat empty for tens of seconds. Files are handed out one at a
+/// time from a shared counter rather than split into fixed chunks, because one
+/// 120 MB drawing set beside a hundred 200 KB sheets would otherwise leave
+/// every thread but one idle. The caller sorts the result, so the order the
+/// threads finish in does not matter.
+fn describe_files(found: Vec<(PathBuf, String, String)>) -> Vec<ScannedFile> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .clamp(1, MAX_SCAN_THREADS)
+        .min(found.len());
+    if threads <= 1 {
+        return found
+            .into_iter()
+            .map(|(path, relative_path, name)| describe_file(&path, relative_path, name))
+            .collect();
+    }
+
+    let jobs = &found;
+    let next = AtomicUsize::new(0);
+    let mut out = Vec::with_capacity(found.len());
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let next = &next;
+                scope.spawn(move || {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((path, relative_path, name)) = jobs.get(index) else {
+                            break;
+                        };
+                        done.push(describe_file(path, relative_path.clone(), name.clone()));
+                    }
+                    done
+                })
+            })
+            .collect();
+        for worker in workers {
+            // A panic in one worker would lose its files from the scan, and an
+            // incomplete scan must never be mistaken for a complete one: let
+            // it propagate exactly as the single-threaded walk would have.
+            match worker.join() {
+                Ok(done) => out.extend(done),
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        }
+    });
+    out
 }
 
 fn describe_file(path: &Path, relative_path: String, display_name: String) -> ScannedFile {
@@ -1513,9 +1471,10 @@ pub async fn project_scan(
 /// # Why this is not a micro-optimisation
 ///
 /// A scan hashes every file: on the archived Barclays package that is 693 PDFs
-/// and 3.71 GB, which is ~15s in release and ~3 minutes in a debug build. It is
-/// also not cancellable — a `cancelled` flag in a React effect stops the state
-/// update, not the work already running in here.
+/// and 3.71 GB. That was ~15s in release before hashing moved onto every core
+/// and the CPU's SHA instructions (`describe_files`), and is still minutes in
+/// a debug build. It is also not cancellable — a `cancelled` flag in a React
+/// effect stops the state update, not the work already running in here.
 ///
 /// React's `StrictMode` double-invokes effects in development, so opening a
 /// project fired TWO of these concurrently, each hashing the whole tree. That
@@ -2267,3 +2226,5 @@ mod tests {
         );
     }
 }
+
+

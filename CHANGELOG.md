@@ -4,6 +4,20 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.6 — 2026-11-12
+
+### New job folders index faster
+
+- **The folder scan uses every core.** Opening a folder reads every PDF once to
+  recognise it later if it is renamed or moved. That read ran one file at a
+  time with a slow checksum, so a few gigabytes of drawings kept a new project
+  empty for tens of seconds. It now runs on all cores with the processor's
+  built-in SHA instructions: a 1 GB test folder went from 5.0s to 0.6s.
+- **Search indexing writes in groups.** Each sheet's text was saved as six
+  separate disk commits, which in a SharePoint-synced job folder cost more than
+  reading the text did. Sheets are now saved sixteen at a time, and a new
+  folder's document list is saved in one go.
+
 ## 0.3.5 — 2026-11-12
 
 ### A job is one redbeam.db that syncs through SharePoint

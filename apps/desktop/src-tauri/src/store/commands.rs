@@ -1,4 +1,4 @@
-//! The four Tauri commands the TypeScript client calls.
+//! The Tauri commands the TypeScript client calls.
 //!
 //! Deliberately thin: each one takes the lock and hands straight off to a
 //! synchronous method on [`StoreState`], which is where the behaviour — and
@@ -94,5 +94,32 @@ pub async fn db_run(
 ) -> Result<(), String> {
     state
         .with_project(&project_path, |store| store.run(&sql, &params))
+        .map_err(to_message)
+}
+
+/// One statement of a [`db_batch`].
+#[derive(Debug, serde::Deserialize)]
+pub struct BatchStatement {
+    pub sql: String,
+    #[serde(default)]
+    pub params: Vec<Json>,
+}
+
+/// Run several parameterized statements in one transaction: all or none.
+///
+/// One IPC call and one commit for what would otherwise be a call and a commit
+/// per statement. See [`super::db::Store::batch`] for why that matters.
+#[tauri::command]
+pub async fn db_batch(
+    state: State<'_, StoreState>,
+    project_path: String,
+    statements: Vec<BatchStatement>,
+) -> Result<(), String> {
+    let statements: Vec<(String, Vec<Json>)> = statements
+        .into_iter()
+        .map(|s| (s.sql, s.params))
+        .collect();
+    state
+        .with_project(&project_path, |store| store.batch(&statements))
         .map_err(to_message)
 }

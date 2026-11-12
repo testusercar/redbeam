@@ -846,3 +846,90 @@ fn close_all_releases_every_project() {
     assert!(state.with(|_| Ok(())).is_err(), "a project stayed open after close_all");
     assert!(tables_in_db_file_alone(&dir) > 1);
 }
+
+// ------------------------------------------------------------------ batches
+
+fn probe_rows(store: &Store) -> Vec<i64> {
+    store
+        .all("SELECT x FROM probe ORDER BY x", &[])
+        .unwrap()
+        .iter()
+        .map(|r| r["x"].as_i64().unwrap())
+        .collect()
+}
+
+#[test]
+fn a_batch_runs_every_statement_in_order() {
+    let store = migrated();
+    store.exec("CREATE TABLE probe (x INTEGER PRIMARY KEY)").unwrap();
+    store
+        .batch(&[
+            ("INSERT INTO probe VALUES (?)".into(), vec![json!(1)]),
+            ("INSERT INTO probe VALUES (?)".into(), vec![json!(2)]),
+            ("UPDATE probe SET x = ? WHERE x = ?".into(), vec![json!(3), json!(2)]),
+        ])
+        .expect("batch");
+    assert_eq!(probe_rows(&store), vec![1, 3]);
+}
+
+#[test]
+fn a_failed_batch_leaves_nothing_behind() {
+    // All or none: half a document's pages indexed and the rest missing would
+    // be a search that silently misses sheets.
+    let store = migrated();
+    store.exec("CREATE TABLE probe (x INTEGER PRIMARY KEY)").unwrap();
+    store.run("INSERT INTO probe VALUES (?)", &[json!(1)]).unwrap();
+    let err = store
+        .batch(&[
+            ("INSERT INTO probe VALUES (?)".into(), vec![json!(2)]),
+            ("INSERT INTO probe VALUES (?)".into(), vec![json!(1)]),
+        ])
+        .expect_err("the duplicate key must fail the batch");
+    assert!(err.to_string().contains("statement 1"), "{err}");
+    assert_eq!(probe_rows(&store), vec![1], "the batch's first insert survived its failure");
+    // The connection is usable afterwards, outside any transaction.
+    store.run("INSERT INTO probe VALUES (?)", &[json!(5)]).unwrap();
+    assert_eq!(probe_rows(&store), vec![1, 5]);
+}
+
+#[test]
+fn a_batch_nests_inside_an_open_transaction() {
+    let store = migrated();
+    store.exec("CREATE TABLE probe (x INTEGER PRIMARY KEY)").unwrap();
+    store.exec("BEGIN").unwrap();
+    store
+        .batch(&[("INSERT INTO probe VALUES (?)".into(), vec![json!(4)])])
+        .expect("a batch inside BEGIN");
+    store.exec("ROLLBACK").unwrap();
+    assert!(probe_rows(&store).is_empty(), "the outer rollback did not cover the batch");
+}
+
+#[test]
+fn a_batched_project_is_still_one_file_on_disk() {
+    // The batch must commit into redbeam.db exactly as single statements do
+    // since 0.3.5: no -wal, no -shm, no journal left behind.
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state
+        .with_project(&dir.str(), |s| {
+            s.exec("CREATE TABLE probe (x INTEGER)")?;
+            s.batch(&[
+                ("INSERT INTO probe VALUES (?)".into(), vec![json!(8)]),
+                ("INSERT INTO probe VALUES (?)".into(), vec![json!(9)]),
+            ])
+        })
+        .expect("batch");
+    for name in ["redbeam.db-wal", "redbeam.db-shm", "redbeam.db-journal"] {
+        assert!(!dir.path().join(name).exists(), "{name} beside an open project");
+    }
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(dir.path().join(DB_FILE_NAME), &copy).unwrap();
+    let n: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT count(*) FROM probe", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 2, "the batch did not reach redbeam.db");
+    state.close_all();
+}
