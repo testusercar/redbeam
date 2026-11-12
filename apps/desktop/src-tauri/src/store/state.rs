@@ -120,6 +120,9 @@ impl StoreState {
         // Migrating an already-open project is a no-op that reports zero
         // applied, which is what a reopen should say.
         let migrated = store.migrate()?;
+        // A database last written by a build that never checkpointed opens
+        // with its contents still in the WAL; fold them in now.
+        let _ = store.checkpoint();
         let info = OpenInfo {
             schema_version: store.schema_version()?,
             applied: migrated.applied,
@@ -220,6 +223,21 @@ impl StoreState {
     /// no invariant that a panic could leave half-broken, and bricking the
     /// user's project for the rest of the session over it would be worse than
     /// the panic was, so the guard is recovered.
+    /// Close every open project. Called as the process exits: Tauri ends with
+    /// `process::exit`, so managed state is never dropped and, without this,
+    /// no connection is ever closed and no final checkpoint ever runs.
+    pub fn close_all(&self) {
+        let mut guard = self.lock();
+        for (path, (store, _)) in guard.stores.iter() {
+            if let Err(e) = store.checkpoint() {
+                eprintln!("[store] could not checkpoint {}: {e}", path.display());
+            }
+        }
+        // Dropping each Store closes its connection, which removes the WAL.
+        guard.stores.clear();
+        guard.current = None;
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Open> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }

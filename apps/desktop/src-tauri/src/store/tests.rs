@@ -745,3 +745,55 @@ fn a_project_may_be_named_by_its_folder_or_its_db_file() {
         .with_project(&folder, |store| store.all("SELECT 1", &[]))
         .expect("naming the folder is the same project");
 }
+
+// ------------------------------------------------- the .db file is the project
+
+/// Copy `redbeam.db` and NOTHING else — what a sync, a copy or a colleague's
+/// machine sees when the -wal does not travel with it — and count the tables.
+fn tables_in_db_file_alone(dir: &TempDir) -> i64 {
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(dir.path().join(DB_FILE_NAME), &copy).expect("copy redbeam.db");
+    let conn = rusqlite::Connection::open(&copy).expect("open the copy");
+    conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+        [],
+        |row| row.get(0),
+    )
+    .expect("count tables")
+}
+
+#[test]
+fn an_open_project_is_in_redbeam_db_not_only_in_the_wal() {
+    // Found 2026-11-12: a 4 KB redbeam.db holding nothing, its whole project in
+    // a 2.7 MB redbeam.db-wal. The connection is held open (as the app holds
+    // it) and the main file alone must still carry the schema and the writes.
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state
+        .with_project(&dir.str(), |s| {
+            s.exec("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (42);")
+        })
+        .expect("write");
+
+    assert!(tables_in_db_file_alone(&dir) > 1, "redbeam.db alone held no schema");
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(dir.path().join(DB_FILE_NAME), &copy).unwrap();
+    let x: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT x FROM probe", [], |r| r.get(0))
+        .expect("the write reached redbeam.db");
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn close_all_folds_the_wal_in_and_removes_it() {
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state.close_all();
+    assert!(!dir.path().join("redbeam.db-wal").exists(), "WAL left behind at exit");
+    assert!(tables_in_db_file_alone(&dir) > 1);
+}

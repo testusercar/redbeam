@@ -150,6 +150,21 @@ impl Store {
             row.get::<_, String>(0)
         });
 
+        // ...but WAL must not be where the project LIVES. With SQLite's default
+        // of checkpointing only once the WAL reaches 1000 pages, and a
+        // connection that is never closed (the app exits without dropping its
+        // managed state), a project's whole contents sat in `redbeam.db-wal`
+        // indefinitely while `redbeam.db` stayed a 4 KB empty shell. Job
+        // folders live on synced SharePoint libraries; anything that carries
+        // the .db without its -wal (a sync, a copy, a colleague's machine)
+        // then opened as an empty project and was re-initialised. Found on
+        // 2026-11-12 in a client folder whose 4 KB redbeam.db had 2.7 MB of
+        // WAL beside it. Checkpointing at every commit keeps the main file
+        // current; the WAL only ever holds the transaction in flight.
+        let _ = conn.query_row("PRAGMA wal_autocheckpoint = 1", [], |row| {
+            row.get::<_, i64>(0)
+        });
+
         Ok(Store { conn, db_path })
     }
 
@@ -164,6 +179,15 @@ impl Store {
 
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    /// Fold the WAL into `redbeam.db` and truncate it, so the database file
+    /// alone is the whole project. Best effort: a reader holding the WAL open
+    /// makes this a partial checkpoint, which is still not an error.
+    pub fn checkpoint(&self) -> Result<(), StoreError> {
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
     }
 
     /// Run one or more statements with no parameters and no result rows.

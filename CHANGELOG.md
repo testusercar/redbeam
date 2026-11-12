@@ -4,6 +4,19 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.5 — 2026-11-12
+
+### A job's data is kept in redbeam.db
+
+- **redbeam.db now holds the whole project.** REDBEAM wrote everything into
+  `redbeam.db-wal` and never folded it back, so `redbeam.db` stayed a 4 KB
+  empty file. When a job folder synced, was copied, or opened on another PC
+  without the `-wal` beside it, REDBEAM found an empty database and started
+  the project over. Every save now lands in `redbeam.db` itself, and closing
+  REDBEAM folds in and removes the `-wal`.
+- **Older projects are repaired on open.** A project whose data is still in
+  its `-wal` has it written into `redbeam.db` the first time 0.3.5 opens it.
+
 ## 0.3.4 — 2026-10-16
 
 ### Patterns start at a corner by default
