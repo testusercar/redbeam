@@ -78,6 +78,8 @@ export interface PageAnnotation {
   contents: string
   /** /T: the author. */
   author: string
+  /** /NM: the annotation's unique name, '' when it has none. */
+  name: string
   /** Stroke colour as #rrggbb, or null when the annotation states none. */
   color: string | null
 }
@@ -165,6 +167,7 @@ export function extractPageAnnotations(backend: AnnotBackend, page: number, _ind
         subject: backend.stringValue(a, 'Subj'),
         contents: backend.stringValue(a, 'Contents'),
         author: backend.stringValue(a, 'T'),
+        name: backend.stringValue(a, 'NM'),
         color: c === null ? null : `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`,
       })
     } finally {

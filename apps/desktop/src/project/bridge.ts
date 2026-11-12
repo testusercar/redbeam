@@ -99,7 +99,19 @@ export interface ProjectBridge {
    * of the few places where failing is better than degrading.
    */
   readDocument(projectPath: string, relativePath: string): Promise<Uint8Array>
+  /**
+   * Replace a drawing with new bytes, only if its SHA-256 is still
+   * `expectedSha256` (the file the bytes were built from). Written through a
+   * temporary file and a rename. `busy` means another program holds it open.
+   * Rejects in browser mode.
+   */
+  writeDocument(projectPath: string, relativePath: string, bytes: Uint8Array, expectedSha256: string): Promise<DocumentWrite>
 }
+
+export type DocumentWrite =
+  | { outcome: 'written'; fingerprint: string }
+  | { outcome: 'changed' }
+  | { outcome: 'busy'; message: string }
 
 // ------------------------------------------------------------- utilities --
 
@@ -431,6 +443,13 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       if (bytes instanceof Uint8Array) return bytes
       if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes)
       return new Uint8Array(bytes)
+    },
+
+    async writeDocument(projectPath, relativePath, bytes, expectedSha256): Promise<DocumentWrite> {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      return invoke<DocumentWrite>('project_write_document', {
+        path: projectPath, relativePath, bytes: Array.from(bytes), expectedSha256,
+      })
     },
   }
 }

@@ -123,7 +123,7 @@ const f = (n: number): string => (Math.round(n * 1000) / 1000).toString()
  * /CA, because /CA fades the border along with the fill and the border is the
  * part that has to stay legible over a dense drawing.
  */
-function appearanceOps(
+export function appearanceOps(
   pts: readonly WritablePoint[],
   stroke: readonly [number, number, number],
   lineWidth: number,
@@ -158,9 +158,9 @@ function appearanceOps(
 }
 
 /** Radius of a count marker, in points. */
-const COUNT_RADIUS = 6
+export const COUNT_RADIUS = 6
 
-type AnnotShape = 'polygon' | 'polyline' | 'circle'
+export type AnnotShape = 'polygon' | 'polyline' | 'circle'
 
 /**
  * Which PDF annotation a markup kind becomes.
@@ -180,7 +180,7 @@ export function shapeForKind(kind: string): AnnotShape | null {
 }
 
 /** The fewest points that shape can be drawn from. */
-const MIN_POINTS: Record<AnnotShape, number> = { polygon: 3, polyline: 2, circle: 1 }
+export const MIN_POINTS: Record<AnnotShape, number> = { polygon: 3, polyline: 2, circle: 1 }
 
 const SUBTYPE: Record<AnnotShape, string> = {
   polygon: 'Polygon', polyline: 'PolyLine', circle: 'Circle',
@@ -318,7 +318,7 @@ export interface WritableScaleRegion {
 const rectArea = (r: WritableScaleRegion['rect']): number =>
   Math.abs(r.x1 - r.x0) * Math.abs(r.y1 - r.y0)
 
-const centroidOf = (ring: readonly WritablePoint[]): WritablePoint => {
+export const centroidOf = (ring: readonly WritablePoint[]): WritablePoint => {
   let x = 0
   let y = 0
   for (const p of ring) { x += p.x; y += p.y }
@@ -326,7 +326,7 @@ const centroidOf = (ring: readonly WritablePoint[]): WritablePoint => {
 }
 
 /** Smallest containing region, matching `scaleAt` in the domain. */
-function regionAt(
+export function regionAt(
   p: WritablePoint, regions: readonly WritableScaleRegion[],
 ): WritableScaleRegion | null {
   let best: WritableScaleRegion | null = null
