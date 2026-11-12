@@ -142,6 +142,15 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running REDBEAM");
+        .build(tauri::generate_context!())
+        .expect("error while building REDBEAM")
+        .run(|app, event| {
+            // Tauri exits the process without dropping managed state, so the
+            // project connections are closed here or never: an unclosed
+            // connection leaves the newest writes in redbeam.db-wal.
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                app.state::<store::StoreState>().close_all();
+            }
+        });
 }

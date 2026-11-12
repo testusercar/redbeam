@@ -745,3 +745,104 @@ fn a_project_may_be_named_by_its_folder_or_its_db_file() {
         .with_project(&folder, |store| store.all("SELECT 1", &[]))
         .expect("naming the folder is the same project");
 }
+
+// ------------------------------------------------- the .db file is the project
+
+/// Copy `redbeam.db` and NOTHING else — what a sync, a copy or a colleague's
+/// machine sees when the -wal does not travel with it — and count the tables.
+fn tables_in_db_file_alone(dir: &TempDir) -> i64 {
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(dir.path().join(DB_FILE_NAME), &copy).expect("copy redbeam.db");
+    let conn = rusqlite::Connection::open(&copy).expect("open the copy");
+    conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+        [],
+        |row| row.get(0),
+    )
+    .expect("count tables")
+}
+
+#[test]
+fn an_open_project_is_in_redbeam_db_not_only_in_the_wal() {
+    // Found 2026-11-12: a 4 KB redbeam.db holding nothing, its whole project in
+    // a 2.7 MB redbeam.db-wal. The connection is held open (as the app holds
+    // it) and the main file alone must still carry the schema and the writes.
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state
+        .with_project(&dir.str(), |s| {
+            s.exec("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (42);")
+        })
+        .expect("write");
+
+    assert!(tables_in_db_file_alone(&dir) > 1, "redbeam.db alone held no schema");
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(dir.path().join(DB_FILE_NAME), &copy).unwrap();
+    let x: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT x FROM probe", [], |r| r.get(0))
+        .expect("the write reached redbeam.db");
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn a_project_open_in_the_app_is_one_file_on_disk() {
+    // SharePoint syncs files, not SQLite's idea of a database. While the app
+    // holds the project open there must be no -wal or -shm beside it.
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state
+        .with_project(&dir.str(), |s| s.exec("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (1);"))
+        .expect("write");
+    assert!(!dir.path().join("redbeam.db-wal").exists(), "a -wal beside an open project");
+    assert!(!dir.path().join("redbeam.db-shm").exists(), "a -shm beside an open project");
+    assert!(!dir.path().join("redbeam.db-journal").exists(), "a journal left after a commit");
+    state.close_all();
+}
+
+#[test]
+fn a_project_left_in_its_wal_by_an_older_build_is_folded_into_redbeam_db() {
+    // What the old build left behind: WAL mode, the data only in the -wal.
+    // Written in one directory and the files copied while still open — a
+    // process that exited without closing — so this process holds no lock on
+    // the copies.
+    let writer = TempDir::new();
+    let old = rusqlite::Connection::open(writer.path().join(DB_FILE_NAME)).unwrap();
+    old.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)).unwrap();
+    old.query_row("PRAGMA wal_autocheckpoint = 0", [], |r| r.get::<_, i64>(0)).unwrap();
+    old.execute_batch("CREATE TABLE probe (x INTEGER); INSERT INTO probe VALUES (7);").unwrap();
+    let dir = TempDir::new();
+    let db = dir.path().join(DB_FILE_NAME);
+    for name in [DB_FILE_NAME, "redbeam.db-wal"] {
+        std::fs::copy(writer.path().join(name), dir.path().join(name)).unwrap();
+    }
+    drop(old);
+    assert_eq!(tables_in_db_file_alone(&dir), 0, "setup: redbeam.db should be the empty shell");
+
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    assert!(!dir.path().join("redbeam.db-wal").exists(), "the -wal was not folded in");
+    let elsewhere = TempDir::new();
+    let copy = elsewhere.path().join(DB_FILE_NAME);
+    std::fs::copy(&db, &copy).unwrap();
+    let x: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT x FROM probe", [], |r| r.get(0))
+        .expect("the old -wal's data reached redbeam.db");
+    assert_eq!(x, 7);
+    state.close_all();
+}
+
+#[test]
+fn close_all_releases_every_project() {
+    let dir = TempDir::new();
+    let state = StoreState::new();
+    state.open(&dir.str()).expect("open");
+    state.close_all();
+    assert!(state.with(|_| Ok(())).is_err(), "a project stayed open after close_all");
+    assert!(tables_in_db_file_alone(&dir) > 1);
+}

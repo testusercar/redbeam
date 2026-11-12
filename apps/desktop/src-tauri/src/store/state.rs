@@ -220,6 +220,17 @@ impl StoreState {
     /// no invariant that a panic could leave half-broken, and bricking the
     /// user's project for the rest of the session over it would be worse than
     /// the panic was, so the guard is recovered.
+    /// Close every open project. Called as the process exits: Tauri ends with
+    /// `process::exit`, so managed state is never dropped and, without this,
+    /// no project's connection is ever closed. Leaving them open is what kept
+    /// the old WAL-mode projects in their -wal; close them on the way out.
+    pub fn close_all(&self) {
+        let mut guard = self.lock();
+        // Dropping each Store closes its connection and releases the file.
+        guard.stores.clear();
+        guard.current = None;
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Open> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }

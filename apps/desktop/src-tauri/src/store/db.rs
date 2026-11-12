@@ -141,12 +141,27 @@ impl Store {
         // Wait rather than returning SQLITE_BUSY to the UI.
         conn.busy_timeout(Duration::from_secs(5))?;
 
-        // WAL keeps a reader (a second window, or an out-of-process tool
-        // inspecting the project) from blocking the writer. `PRAGMA
-        // journal_mode` returns the resulting mode as a row, and an in-memory
-        // database refuses WAL — neither is an error worth failing an open
-        // over, so the outcome is read and discarded.
-        let _ = conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
+        // ONE FILE, so the project syncs. Job folders live in SharePoint
+        // libraries, and the database used to run in WAL mode: every write
+        // went to `redbeam.db-wal` (plus a `redbeam.db-shm` index), and with
+        // SQLite's 1000-page checkpoint threshold and a connection the app
+        // never closed, the project lived in the -wal indefinitely while
+        // `redbeam.db` stayed a 4 KB empty shell. Anything that carried the
+        // .db without its -wal (a sync, a copy, a colleague's machine) opened
+        // as an empty project and was re-initialised. Found 2026-11-12 in a
+        // client folder: a 4 KB redbeam.db beside 2.7 MB of WAL. Aaron: "make
+        // sure that it can sync through SharePoint."
+        //
+        // The rollback journal keeps every committed write in `redbeam.db`
+        // itself; `redbeam.db-journal` exists only while a transaction is in
+        // flight. Switching an existing WAL database here also folds its -wal
+        // into the main file and deletes the -wal and -shm, which repairs a
+        // project written by an older build the first time it is opened. WAL's
+        // one benefit, readers not blocking the writer, matters little to a
+        // single-process app whose windows share one connection; an outside
+        // reader waits under the busy timeout above. The resulting mode is
+        // read and discarded: an in-memory database reports "memory".
+        let _ = conn.query_row("PRAGMA journal_mode = DELETE", [], |row| {
             row.get::<_, String>(0)
         });
 
