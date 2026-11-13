@@ -10,7 +10,7 @@
  * Cells arrive in PDF POINTS, because that is the space the engine works in.
  * They are converted to screen here and nowhere else.
  */
-import type { PanelCell, PanelPieceSummary, Point, RunLayoutEntry } from '@redbeam/domain'
+import type { PanelCell, PanelPieceSummary, Piece, Point, RunLayoutEntry } from '@redbeam/domain'
 import type { Viewport } from '@redbeam/viewer'
 import { normalizedToScreen } from '../draw.js'
 
@@ -54,6 +54,63 @@ export interface LayoutDrawOptions {
   showRails?: boolean
   showTrim?: boolean
   showSeams?: boolean
+  /**
+   * Pieces with a device in them (issue #12), which are cut at the factory.
+   * Each is cross-hatched over its fill so it reads as a different part from
+   * the same piece left whole, which is what it is on the order.
+   */
+  factoryCut?: {
+    cells: ReadonlySet<PanelCell>
+    pieces: ReadonlySet<Piece>
+  }
+}
+
+/** Screen pixels between hatch lines. Fixed on screen: it is a marking, not material. */
+export const FACTORY_CUT_HATCH_PX = 5
+
+/**
+ * Cross-hatch the current path. The caller has traced it; this clips to it,
+ * strokes diagonals both ways across its bounds, and restores.
+ *
+ * Both directions, because the part-panel fill is already darker: a single
+ * diagonal on a dark fill is easy to read as the scope colour at another
+ * strength, and a cross is not.
+ */
+function hatchCurrentPath(
+  ctx: CanvasRenderingContext2D,
+  bounds: { x0: number; y0: number; x1: number; y1: number },
+  color: string,
+  lw: number,
+): void {
+  const alpha = ctx.globalAlpha
+  ctx.save()
+  ctx.clip()
+  ctx.strokeStyle = color
+  ctx.globalAlpha = 0.9
+  ctx.lineWidth = 1 * lw
+  ctx.beginPath()
+  const { x0, y0, x1, y1 } = bounds
+  const span = (x1 - x0) + (y1 - y0)
+  for (let d = 0; d <= span; d += FACTORY_CUT_HATCH_PX) {
+    ctx.moveTo(x0 + d, y0)
+    ctx.lineTo(x0 + d - (y1 - y0), y1)
+    ctx.moveTo(x1 - d, y0)
+    ctx.lineTo(x1 - d + (y1 - y0), y1)
+  }
+  ctx.stroke()
+  ctx.restore()
+  // restore() puts it back on a real canvas; said again so a caller reading
+  // globalAlpha straight after never depends on that.
+  ctx.globalAlpha = alpha
+}
+
+function screenBounds(points: readonly { x: number; y: number }[]) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const p of points) {
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y)
+    x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y)
+  }
+  return { x0, y0, x1, y1 }
 }
 
 // Labels off: the stock kind printed on every part panel ("half-width",
@@ -134,6 +191,18 @@ export function drawPanelLayout(
     ctx.stroke()
   }
   ctx.globalAlpha = 1
+
+  // Factory-cut panels: the installed piece, cross-hatched.
+  const cutCells = o.factoryCut?.cells
+  if (cutCells !== undefined && cutCells.size > 0) {
+    for (const c of cells) {
+      if (!cutCells.has(c)) continue
+      ctx.beginPath()
+      tracePath(ctx, c.stockPath, view, o)
+      ctx.closePath()
+      hatchCurrentPath(ctx, screenBounds(c.stockPath.map((p) => toScreen(p, view, o))), o.color, lw)
+    }
+  }
 
   if (o.labels && view.zoom >= o.labelMinZoom) {
     ctx.fillStyle = '#ffffff'
@@ -308,12 +377,45 @@ export function drawRunLayout(
         ctx.stroke()
       }
     }
+    const cutPieces = o.factoryCut?.pieces
+    // A factory-cut piece: its band, cross-hatched. Below 2px of band there is
+    // nothing to hatch, so it is drawn heavier instead, which still separates it.
+    const hatchBand = (pa: Point, pb: Point) => {
+      const a = toScreen(pa, v, o)
+      const b = toScreen(pb, v, o)
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len = Math.hypot(dx, dy)
+      if (!(len > 0)) return
+      if (bandPx < 2) {
+        ctx.save()
+        ctx.globalAlpha = 1
+        ctx.lineWidth = 3 * lw
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+        ctx.restore()
+        return
+      }
+      const nx = (-dy / len) * (bandPx / 2), ny = (dx / len) * (bandPx / 2)
+      const corners = [
+        { x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny },
+        { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny },
+      ]
+      ctx.beginPath()
+      corners.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+      ctx.closePath()
+      hatchCurrentPath(ctx, screenBounds(corners), o.color, lw)
+    }
     for (const piece of entry.layout.pieces) {
       if (show.overflow) {
         // The two ends past the region, if any: fullSegment minus insideSegment.
         for (const [pa, pb] of overhangs(piece.fullSegment, piece.insideSegment)) band(pa, pb, 0.11, 0.42)
       }
       band(piece.insideSegment.a, piece.insideSegment.b, 0.22, 0.85)
+      if (cutPieces !== undefined && cutPieces.has(piece)) {
+        hatchBand(piece.insideSegment.a, piece.insideSegment.b)
+      }
     }
 
     /*

@@ -52,7 +52,7 @@ import { formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, par
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, buildBom, editableMeasures,
   missingRequiredMeasures, readProductType, readString, unitDisplayText, writeProductType,
-  deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES,
+  deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY,
 } from '@redbeam/domain'
 import {
   Area, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
@@ -1534,6 +1534,30 @@ function SetupGrid({
             </select>
           </span>
           <span className="es-muted wide">{SCOPE_TYPES.find((t) => t.id === scope.scopeType)?.help}</span>
+        </>
+      )}
+      {/*
+        Devices (issue #12): lights, diffusers, sprinklers counted here pass
+        THROUGH the ceiling, so every panel or plank one lands in is cut at
+        the factory. Only a count scope asks, since only a count is a point.
+      */}
+      {product === 'custom_assembly' && scope.scopeType === 'count' && (
+        <>
+          <label className="es-k" htmlFor="scope-device">Device</label>
+          <span className="es-fieldwrap wide">
+            <select
+              id="scope-device"
+              className="es-field"
+              value={isDeviceScope(scope) ? 'yes' : 'no'}
+              onChange={(e) => patch({ ...scope.specifications, [DEVICE_SPEC_KEY]: String(e.target.value === 'yes') })}
+            >
+              <option value="no">no</option>
+              <option value="yes">yes, through the ceiling</option>
+            </select>
+          </span>
+          <span className="es-muted wide">
+            A device is cut into the panel or plank it lands in. Those pieces are cross-hatched on the layout.
+          </span>
         </>
       )}
       {measures.map((f) => (
