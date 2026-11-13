@@ -15,6 +15,7 @@ import {
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
   areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
+  deviceLocations, factoryCutPieces, type FactoryCut,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -478,9 +479,9 @@ export default function Workspace({
   /** Latest value, for the commit path. See the note on `pageIndexRef`. */
   const quantitiesRef = useRef<Array<{ scope: Scope; rows: QuantityResult[] }>>([])
   /** Orderable piece counts per scope. Separate from measurements — see takeoff.ts. */
-  const [pieces, setPieces] = useState<Array<{ scope: Scope; result: PieceResult }>>([])
+  const [pieces, setPieces] = useState<Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>>([])
   // paint() is a stable callback; state alone would give it last render's data.
-  const piecesRef = useRef<Array<{ scope: Scope; result: PieceResult }>>([])
+  const piecesRef = useRef<Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>>([])
   const activeScopeRef = useRef<string | null>(null)
   /*
    * The scopes, for write paths that must not be wrong about what they are
@@ -1098,6 +1099,7 @@ export default function Workspace({
             ...(entry.result.componentWidthFeet !== undefined && (calRef.current?.feetPerPoint ?? 0) > 0
               ? { componentWidthPoints: entry.result.componentWidthFeet / calRef.current!.feetPerPoint }
               : {}),
+            ...(entry.factoryCut !== undefined ? { factoryCut: entry.factoryCut } : {}),
           }
           const cells = entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
           const runs = entry.result.runs.filter((r) => r.pageId === here)
@@ -2032,9 +2034,18 @@ export default function Workspace({
     if (fallbackCal === null) { setPieces([]); return }
     const pageSize = { width: fallbackCal.pageWidth, height: fallbackCal.pageHeight }
 
-    setPieces(scopes.map((s) => ({
-      scope: s,
-      result: calculatePieces(s, projectMarkups, fallbackCal, {
+    /*
+     * Devices (issue #12): counts in a device scope, placed through the
+     * ceiling. Each piece one lands in is cut at the factory, which the
+     * preview hatches. Found from the SAME result the preview draws, so the
+     * hatch cannot disagree with the grid under it.
+     */
+    const devices = deviceLocations(projectMarkups, scopes, (pageId) => projectPageBoxes.get(pageId) ?? null)
+    const withCuts = (scope: Scope, result: PieceResult) =>
+      devices.length === 0 ? { scope, result } : { scope, result, factoryCut: factoryCutPieces(result, devices) }
+
+    setPieces(scopes.map((s) => withCuts(s,
+      calculatePieces(s, projectMarkups, fallbackCal, {
         scopeDirection: scopeDefaultDirectionFrom(s.specifications),
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
         pageDirections: pageDirectionsFrom(s.specifications),
@@ -2051,7 +2062,7 @@ export default function Workspace({
         // disagreeing confidently.
         scaleRegions: projectRegions,
       }),
-    })))
+    )))
   }, [projectMarkups, projectCalibrations, projectPageBoxes, projectRegions, scopes, cal, prefs])
 
   useEffect(() => { piecesRef.current = pieces }, [pieces])

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { drawPanelLayout, layoutSummary, type LayoutDrawOptions } from './drawLayout.js'
+import { drawPanelLayout, drawRunLayout, layoutSummary, type LayoutDrawOptions } from './drawLayout.js'
 import { recordingContext } from '../tools/testContext.js'
-import type { PanelCell } from '@redbeam/domain'
+import type { PanelCell, Piece, RunLayoutEntry } from '@redbeam/domain'
 import type { Viewport } from '@redbeam/viewer'
 
 const PAGE = { width: 3024.24, height: 2160.24 }
@@ -104,6 +104,44 @@ describe('drawPanelLayout', () => {
     const ctx = recordingContext()
     expect(() => drawPanelLayout(ctx.ctx, [cell({ stockPath: [], fullPath: [] })], view, opts))
       .not.toThrow()
+  })
+})
+
+describe('factory-cut hatching (issue #12)', () => {
+  const clips = (calls: Array<{ name: string }>) => calls.filter((c) => c.name === 'clip').length
+
+  it('hatches only the panels with a device in them, and stays balanced', () => {
+    const a = cell(), b = cell({ gridColumn: 1, stockPath: rect(220, 100, 120, 60) })
+    const ctx = recordingContext()
+    drawPanelLayout(ctx.ctx, [a, b], view, { ...opts, factoryCut: { cells: new Set([b]), pieces: new Set() } })
+    expect(clips(ctx.calls)).toBe(1)
+    expect(ctx.calls.filter((c) => c.name === 'save').length).toBe(ctx.calls.filter((c) => c.name === 'restore').length)
+    expect(ctx.ctx.globalAlpha).toBe(1)
+  })
+
+  it('hatches nothing when no piece has a device', () => {
+    const ctx = recordingContext()
+    drawPanelLayout(ctx.ctx, [cell()], view, opts)
+    expect(clips(ctx.calls)).toBe(0)
+  })
+
+  it('hatches a cut plank band, and only that one', () => {
+    const seg = (y: number) => ({ a: { x: 100, y }, b: { x: 300, y } })
+    const piece = (y: number): Piece => ({
+      insideSegment: seg(y), fullSegment: seg(y), family: 'full', stockFraction: 1,
+      startCap: true, endCap: true, jointPoints: [], connectorPoints: [],
+    })
+    const kept = piece(100), cut = piece(120)
+    const entry: RunLayoutEntry = {
+      pageId: 'p', region: [rect(100, 90, 200, 40)], feetPerPoint: 0.1,
+      layout: { origin: { x: 100, y: 90 }, segments: [], pieces: [kept, cut], railSegments: [], railPieces: [] },
+    }
+    const ctx = recordingContext()
+    drawRunLayout(ctx.ctx, [entry], view, {
+      ...opts, componentWidthPoints: 10, factoryCut: { cells: new Set(), pieces: new Set([cut]) },
+    })
+    expect(clips(ctx.calls)).toBe(1)
+    expect(ctx.calls.filter((c) => c.name === 'save').length).toBe(ctx.calls.filter((c) => c.name === 'restore').length)
   })
 })
 

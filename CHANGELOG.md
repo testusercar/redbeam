@@ -4,6 +4,21 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.8 — 2026-11-13
+
+### See which panels and planks a device is cut into
+
+- **Mark a count scope as a device.** A custom-assembly count scope has a new
+  *Device* setting. Set it to *yes, through the ceiling* for lights,
+  diffusers, sprinklers and anything else mounted through the product.
+- **The pieces they land in are cross-hatched.** With the layout showing, every
+  panel or plank that has a device in it is cross-hatched, because it is cut at
+  the factory. A device on a seam marks both pieces. A device in the reveal
+  between planks marks neither. A plank or baffle scope needs its face width
+  set before a device can be placed in it.
+- Counts of these pieces on the Parts page and in the estimate export come
+  next. No quantity changes in this release.
+
 ## 0.3.7 — 2026-11-12
 
 ### Takeoffs travel inside the drawing, and Bluebeam can read them
