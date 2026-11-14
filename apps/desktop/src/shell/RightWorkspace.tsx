@@ -45,14 +45,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
-  PieceResult, ProductType, QuantityResult, Scope, ScopePieces, ScopeType, Specifications,
+  FactoryCut, PieceResult, ProductType, QuantityResult, Scope, ScopePieces, ScopeType, Specifications,
 } from '@redbeam/domain'
 import type { QuantityDelta } from '../commit.js'
 import { formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, parseLengthInput, formatLength, parseNumberOrFraction, scopeTypeForProduct } from '@redbeam/domain'
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, buildBom, editableMeasures,
   missingRequiredMeasures, readProductType, readString, unitDisplayText, writeProductType,
-  deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY,
+  deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY, factoryCutLine,
 } from '@redbeam/domain'
 import {
   Area, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
@@ -221,6 +221,8 @@ export interface EstimatesPanelProps {
   /** For the open scope. */
   rows: QuantityResult[]
   pieces?: PieceResult
+  /** The open scope's pieces with a device in them (issue #12). */
+  factoryCut?: FactoryCut
   markups: ScopeMarkup[]
   sheetLabel: (page: number) => string
   /** The sheet's name beside its number — "Level 1 floor plan". Empty when the index has none. */
@@ -1069,7 +1071,7 @@ const MARKUP_ICON: Record<string, typeof Pentagon> = {
 
 function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scope: Scope }) {
   const {
-    estimate, scope, rows, pieces, markups, sheetLabel, onGoToPage, onGoToMarkup, onSaveScope, onTakeOff, onCommit,
+    estimate, scope, rows, pieces, factoryCut, markups, sheetLabel, onGoToPage, onGoToMarkup, onSaveScope, onTakeOff, onCommit,
     onDuplicateScope, onRemoveScope,
   } = p
   const pageRef = useRef<HTMLDivElement | null>(null)
@@ -1146,7 +1148,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
 
   const delta = p.commit?.delta ?? []
   const wasOf = (itemKey: string) => delta.find((d) => d.itemKey === itemKey)
-  const view = partsView(pieces, product, scope.specifications)
+  const view = partsView(pieces, product, scope.specifications, factoryCut)
   const hasParts = view.primary.length + view.accessories.length > 0
   const partsChanged = hasParts && pieces !== undefined && pieces.quantities.some((q) => wasOf(q.itemKey) !== undefined)
   const drawable = pieces !== undefined && (pieces.runs.length > 0 || pieces.cells.length > 0)
@@ -1373,14 +1375,28 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
  *                a second place.
  */
 interface PartRow { itemKey: string; label: string; chip?: string; quantity: number; unit: string; detail?: string }
-interface PartsView { primary: PartRow[]; accessories: PartRow[]; installedFeet: number | null }
+interface PartsView {
+  primary: PartRow[]
+  accessories: PartRow[]
+  installedFeet: number | null
+  /**
+   * How many of the primary pieces are cut at the factory for a device. A
+   * breakdown of the count above it, like full/cut, so it is not counted as a
+   * part of its own. Quantity null when it cannot be worked out.
+   */
+  factoryCut: { quantity: number | null; detail: string } | null
+}
 const ACCESSORY_ITEMS = new Set(['perimeter_trim', 'connectors', 'end_caps', 'joiners', 'suspension_rails'])
 /** Folded into a primary line's detail, or into a tile; never a row. */
 const FOLDED_ITEMS = new Set(['panel_full', 'panel_half', 'linear_measured', 'linear_ordered', 'linear_offcut'])
 
-function partsView(pieces: PieceResult | undefined, product: ProductType, specs: Specifications): PartsView {
-  const view: PartsView = { primary: [], accessories: [], installedFeet: null }
+function partsView(
+  pieces: PieceResult | undefined, product: ProductType, specs: Specifications, cut?: FactoryCut,
+): PartsView {
+  const view: PartsView = { primary: [], accessories: [], installedFeet: null, factoryCut: null }
   if (pieces === undefined || product === 'custom_assembly') return view
+  const cutLine = factoryCutLine(cut)
+  if (cutLine !== null) view.factoryCut = { quantity: cutLine.quantity, detail: cutLine.note }
   const q = pieces.quantities
   const by = (key: string) => q.find((x) => x.itemKey === key)
   const feet = (valueKey: string) => measureToFeet(specs, { valueKey, unitKey: `${valueKey}Unit`, label: valueKey })
@@ -1486,6 +1502,17 @@ function PartsTable({ view, pieces, nothingDrawn, missing, wasOf }: {
         {wasOf !== null && <span className="es-trw">was</span>}
       </div>
       {view.primary.map((r) => row(r, false))}
+      {view.factoryCut !== null && (
+        <div className="es-trg" key="factory_cut">
+          <div className={`es-tr${blocked ? ' pending' : ''}`} data-item="factory_cut">
+            <span className="es-trl">Factory-cut for devices</span>
+            <span className="es-trn">{blocked || view.factoryCut.quantity === null ? '—' : fmt(view.factoryCut.quantity)}</span>
+            <span className="es-tru">EA</span>
+            {wasOf !== null && <span className="es-trw" />}
+          </div>
+          <div className="es-tr es-trsub"><span className="es-trl">{view.factoryCut.detail}</span></div>
+        </div>
+      )}
       {view.accessories.length > 0 && (
         <>
           <div className="es-tr es-trhead">

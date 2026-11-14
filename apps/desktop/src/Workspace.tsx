@@ -5568,7 +5568,9 @@ export default function Workspace({
     }
   }, [projectMarkups, projectCalibrations, refreshCommitted])
 
-  const activePieces = pieces.find((p) => p.scope.id === shownScopeId)?.result
+  const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)
+  const activePieces = activeEntry?.result
+  const activeFactoryCut = activeEntry?.factoryCut
 
   /** The committed run against what a scope shows now. Undefined when never committed. */
   const commitStateFor = useCallback((scopeId: string) => {
@@ -7746,6 +7748,7 @@ export default function Workspace({
         standingFor={standingFor}
         rows={activeQuantities}
         {...(activePieces !== undefined ? { pieces: activePieces } : {})}
+        {...(activeFactoryCut !== undefined ? { factoryCut: activeFactoryCut } : {})}
         markups={scopeMarkups}
         sheetLabel={sheetLabelFor}
         sheetTitle={sheetTitleFor}

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildBom, bomToTsv, type ScopePieces } from './bom.js'
+import { buildBom, bomToTsv, FACTORY_CUT_ITEM, type ScopePieces } from './bom.js'
 import { calculatePieces } from './takeoff.js'
 import type { Calibration, Markup, Scope } from './scope.js'
 import type { NormalizedDirection } from './pattern.js'
@@ -179,5 +179,59 @@ describe('against the Qt build', () => {
       expect(f.expected.pieces[absent], `fixture ${absent}`).toBe(0)
       expect(bom.lines.some((l) => l.itemKey.includes(absent.toLowerCase()))).toBe(false)
     }
+  })
+})
+
+describe('factory-cut line (issue #12)', () => {
+  const panels = pieces({ quantities: [{ itemKey: 'panel_count', label: 'Panels', quantity: 50, unit: 'EA' }] })
+  const cut = (over: Partial<NonNullable<ScopePieces['factoryCut']>> = {}): NonNullable<ScopePieces['factoryCut']> => ({
+    cells: new Set(), pieces: new Set(), missed: [], blockers: [], ...over,
+  })
+  const threeCells = cut({ cells: new Set([{}, {}, {}] as never[]) })
+
+  it('says how many pieces are cut for a device, as its own line', () => {
+    const bom = buildBom([{ scope: scope(), result: panels, factoryCut: threeCells }])
+    const line = bom.lines.find((l) => l.itemKey === FACTORY_CUT_ITEM)
+    expect(line?.quantity).toBe(3)
+    expect(line?.unit).toBe('EA')
+    expect(line?.confidence).toBe('verified')
+    expect(line?.note).toMatch(/Included in the count above/)
+  })
+
+  it('never adds them to the total: they are already in the panel count', () => {
+    const bom = buildBom([{ scope: scope(), result: panels, factoryCut: threeCells }])
+    expect(bom.totals).toEqual([{ unit: 'EA', quantity: 50 }])
+  })
+
+  it('adds no line when no device lands in the scope', () => {
+    const bom = buildBom([{ scope: scope(), result: panels, factoryCut: cut() }])
+    expect(bom.lines.map((l) => l.itemKey)).toEqual(['panel_count'])
+  })
+
+  it('says when devices fell between pieces', () => {
+    const missed = [{ markupId: 'm', scopeId: 'd', pageId: 'p', point: { x: 0, y: 0 } }]
+    const bom = buildBom([{ scope: scope(), result: panels, factoryCut: cut({ missed }) }])
+    const line = bom.lines.find((l) => l.itemKey === FACTORY_CUT_ITEM)
+    expect(line?.quantity).toBe(0)
+    expect(line?.note).toMatch(/1 device in the reveal/)
+  })
+
+  it('is blocked, with no number, when the pieces could not be tested', () => {
+    const bom = buildBom([{
+      scope: scope(), result: panels, factoryCut: cut({ blockers: ['Add the face width'] }),
+    }])
+    const line = bom.lines.find((l) => l.itemKey === FACTORY_CUT_ITEM)
+    expect(line?.quantity).toBeNull()
+    expect(line?.confidence).toBe('blocked')
+    expect(bom.needsAttention).toBe(true)
+  })
+
+  it('follows the scope: unverified on a product that is', () => {
+    const planks = pieces({
+      productType: 'planks',
+      quantities: [{ itemKey: 'primary_stock', label: 'Planks', quantity: 10, unit: 'EA' }],
+    })
+    const bom = buildBom([{ scope: scope({ specifications: { productType: 'planks' } }), result: planks, factoryCut: threeCells }])
+    expect(bom.lines.find((l) => l.itemKey === FACTORY_CUT_ITEM)?.confidence).toBe('unverified')
   })
 })
