@@ -71,6 +71,19 @@ describe('buildEstimateExport', () => {
   })
 })
 
+describe('factory-cut pieces (issue #12)', () => {
+  it('carry through to the CSV as their own component row', () => {
+    const withCut: ScopePieces[] = [{
+      ...pieces[0]!,
+      factoryCut: { cells: new Set([{}, {}] as never[]), pieces: new Set(), missed: [], blockers: [] },
+    }]
+    const csv = estimateToCsv(buildEstimateExport({ ...input, pieces: withCut }))
+    const row = csv.split('\r\n').find((l) => l.includes('Factory-cut for devices'))
+    expect(row).toBeDefined()
+    expect(row).toContain(',Component,Factory-cut for devices,2,EA,verified,')
+  })
+})
+
 describe('exportRows', () => {
   it('emits a row per quantity and per component, and one for a scope with nothing', () => {
     const rows = exportRows(buildEstimateExport(input))

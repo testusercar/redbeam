@@ -19,6 +19,7 @@
 
 import type { PieceQuantity, PieceResult } from './takeoff.js'
 import type { Scope } from './scope.js'
+import { factoryCutCount, type FactoryCut } from './devices.js'
 import { PRODUCT_TYPE_LABEL, type ProductType } from './specs.js'
 
 /**
@@ -93,12 +94,44 @@ export function isVerifiedProduct(product: ProductType): boolean {
 export interface ScopePieces {
   scope: Scope
   result: PieceResult
+  /** The pieces a device lands in (issue #12). Absent when the project has no devices. */
+  factoryCut?: FactoryCut
+}
+
+/** The BOM line for pieces cut at the factory to fit a device. */
+export const FACTORY_CUT_ITEM = 'factory_cut'
+
+/**
+ * The factory-cut line for one scope, or null when there is nothing to say.
+ *
+ * These pieces are ALREADY in the scope's count: a panel with a light in it is
+ * still a panel. The line says how many of them are a different order line,
+ * not how many more to buy, which is why it never rolls into a total.
+ */
+export function factoryCutLine(cut: FactoryCut | undefined): {
+  quantity: number | null
+  confidence: 'blocked' | null
+  note: string
+} | null {
+  if (cut === undefined) return null
+  if (cut.blockers.length > 0) {
+    return { quantity: null, confidence: 'blocked', note: cut.blockers.join('; ') }
+  }
+  const n = factoryCutCount(cut)
+  const missed = cut.missed.length
+  if (n === 0 && missed === 0) return null
+  const parts = ['Included in the count above; cut at the factory to fit a device']
+  if (missed > 0) {
+    parts.push(`${missed} device${missed === 1 ? '' : 's'} in the reveal between pieces, so in none`)
+  }
+  return { quantity: n, confidence: null, note: parts.join('. ') }
 }
 
 export function buildBom(entries: readonly ScopePieces[]): Bom {
   const lines: BomLine[] = []
 
-  for (const { scope, result } of entries) {
+  for (const entry of entries) {
+    const { scope, result } = entry
     const productLabel = PRODUCT_TYPE_LABEL[result.productType]
     const base = {
       scopeId: scope.id,
@@ -139,6 +172,19 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
             note: `${productLabel} piece counts match arithmetic but are not `
               + 'verified against the Qt build',
           }),
+      })
+    }
+
+    const cut = factoryCutLine(entry.factoryCut)
+    if (cut !== null) {
+      lines.push({
+        ...base,
+        itemKey: FACTORY_CUT_ITEM,
+        label: 'Factory-cut for devices',
+        quantity: cut.quantity,
+        unit: 'EA',
+        confidence: cut.confidence ?? (verified ? 'verified' : 'unverified'),
+        note: cut.note,
       })
     }
   }

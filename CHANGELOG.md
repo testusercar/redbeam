@@ -4,6 +4,20 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.9 — 2026-11-14
+
+### Count the panels and planks cut for devices
+
+- **Factory-cut count on the Parts page.** A scope with devices in it now
+  shows *Factory-cut for devices* under its parts: how many of its panels or
+  planks have a light, diffuser or sprinkler in them. They are already in the
+  part count above it; this says how many are a different order line.
+- **In the estimate export too.** The CSV, the pasted table, the PDF and the
+  report each carry the same line, with its confidence. It never adds to a
+  total.
+- A device that falls in the reveal between two planks is named rather than
+  dropped, and a plank scope with no face width says so instead of showing 0.
+
 ## 0.3.8 — 2026-11-13
 
 ### See which panels and planks a device is cut into
